@@ -132,6 +132,10 @@ class ConfigTest extends TestCase
         return $path;
     }
 
+    // -------------------------------------------------------------------------
+    // Basic loading
+    // -------------------------------------------------------------------------
+
     public function test_loads_basic_config(): void
     {
         $path = $this->writeConfig(<<<YAML
@@ -146,12 +150,11 @@ class ConfigTest extends TestCase
 
         $config = Config::fromFile($path);
 
-        $this->assertSame('1',              $config->version);
-        $this->assertSame('schema.sql',     $config->schema);
-        $this->assertSame('queries.sql',    $config->queries);
-        $this->assertSame('App\\Database',  $config->namespace);
-        $this->assertSame('generated',      $config->out);
-        $this->assertSame('mysql',          $config->engine);
+        $this->assertSame('1',             $config->version);
+        $this->assertSame('schema.sql',    $config->schema);
+        $this->assertSame('App\\Database', $config->namespace);
+        $this->assertSame('generated',     $config->out);
+        $this->assertSame('mysql',         $config->engine);
     }
 
     public function test_defaults_are_applied_when_keys_missing(): void
@@ -169,6 +172,72 @@ class ConfigTest extends TestCase
         $this->expectException(\RuntimeException::class);
         Config::fromFile('/nonexistent/path/sqlc.yaml');
     }
+
+    // -------------------------------------------------------------------------
+    // queries — scalar (legacy single-file format)
+    // -------------------------------------------------------------------------
+
+    public function test_scalar_queries_is_wrapped_in_array(): void
+    {
+        $path = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: queries.sql\n");
+        $config = Config::fromFile($path);
+
+        $this->assertIsArray($config->queries);
+        $this->assertCount(1, $config->queries);
+        $this->assertSame('queries.sql', $config->queries[0]);
+    }
+
+    // -------------------------------------------------------------------------
+    // queries — list format (multiple files)
+    // -------------------------------------------------------------------------
+
+    public function test_list_queries_with_single_entry(): void
+    {
+        $path = $this->writeConfig(<<<YAML
+            version: "1"
+            schema: schema.sql
+            queries:
+              - database/queries/users.sql
+            YAML);
+
+        $config = Config::fromFile($path);
+
+        $this->assertCount(1, $config->queries);
+        $this->assertSame('database/queries/users.sql', $config->queries[0]);
+    }
+
+    public function test_list_queries_with_multiple_entries(): void
+    {
+        $path = $this->writeConfig(<<<YAML
+            version: "1"
+            schema: schema.sql
+            queries:
+              - database/queries/users.sql
+              - database/queries/roles.sql
+              - database/queries/orders.sql
+            YAML);
+
+        $config = Config::fromFile($path);
+
+        $this->assertCount(3, $config->queries);
+        $this->assertSame('database/queries/users.sql',  $config->queries[0]);
+        $this->assertSame('database/queries/roles.sql',  $config->queries[1]);
+        $this->assertSame('database/queries/orders.sql', $config->queries[2]);
+    }
+
+    public function test_queries_is_always_an_array(): void
+    {
+        // Whether scalar or list, $config->queries must always be string[]
+        foreach (['queries: single.sql', "queries:\n  - single.sql"] as $yaml) {
+            $path   = $this->writeConfig("version: \"1\"\nschema: s.sql\n{$yaml}\n");
+            $config = Config::fromFile($path);
+            $this->assertIsArray($config->queries, "queries should always be array");
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Type overrides
+    // -------------------------------------------------------------------------
 
     public function test_parses_column_type_override(): void
     {
@@ -227,5 +296,33 @@ class ConfigTest extends TestCase
         $path = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: q.sql\n");
         $config = Config::fromFile($path);
         $this->assertSame([], $config->typeOverrides);
+    }
+
+    // -------------------------------------------------------------------------
+    // queries + type_overrides together (list format)
+    // -------------------------------------------------------------------------
+
+    public function test_list_queries_and_type_overrides_coexist(): void
+    {
+        $path = $this->writeConfig(<<<YAML
+            version: "1"
+            schema: schema.sql
+            queries:
+              - database/queries/users.sql
+              - database/queries/roles.sql
+            php:
+              namespace: "App\\Db"
+              out: out
+              engine: mysql
+            type_overrides:
+              - db_type: "TINYINT"
+                php_type: "bool"
+            YAML);
+
+        $config = Config::fromFile($path);
+
+        $this->assertCount(2, $config->queries);
+        $this->assertCount(1, $config->typeOverrides);
+        $this->assertSame('App\\Db', $config->namespace);
     }
 }

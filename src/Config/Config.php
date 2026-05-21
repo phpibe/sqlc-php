@@ -6,16 +6,25 @@ namespace SqlcPhp\Config;
 
 /**
  * Represents the parsed sqlc.yaml configuration.
+ *
+ * `queries` accepts both a scalar string and a YAML list of strings:
+ *
+ *   queries: database/queries/users.sql          # single file (legacy)
+ *
+ *   queries:                                     # multiple files
+ *     - database/queries/users.sql
+ *     - database/queries/roles.sql
  */
 class Config
 {
     /**
+     * @param string[]       $queries
      * @param TypeOverride[] $typeOverrides
      */
     public function __construct(
         public readonly string $version,
         public readonly string $schema,
-        public readonly string $queries,
+        public readonly array  $queries,       // always string[]
         public readonly string $namespace,
         public readonly string $out,
         public readonly string $engine,
@@ -32,8 +41,15 @@ class Config
         $data = self::parseYaml($raw);
         $php  = $data['php'] ?? [];
 
+        // queries: accepts string (single) or string[] (list)
+        $rawQueries = $data['queries'] ?? 'queries.sql';
+        $queries    = is_array($rawQueries)
+            ? array_values(array_filter(array_map('strval', $rawQueries)))
+            : [(string) $rawQueries];
+
         $overrides = [];
         foreach ($data['type_overrides'] ?? [] as $entry) {
+            if (!is_array($entry)) continue;
             try {
                 $overrides[] = TypeOverride::fromArray($entry);
             } catch (\InvalidArgumentException $e) {
@@ -44,7 +60,7 @@ class Config
         return new self(
             version:       (string) ($data['version'] ?? '1'),
             schema:        (string) ($data['schema']  ?? 'schema.sql'),
-            queries:       (string) ($data['queries'] ?? 'queries.sql'),
+            queries:       $queries,
             namespace:     (string) ($php['namespace'] ?? 'App\\Database'),
             out:           (string) ($php['out']       ?? 'generated'),
             engine:        (string) ($php['engine']    ?? 'mysql'),
@@ -56,13 +72,16 @@ class Config
     // Minimal YAML parser
     //
     // Supports:
-    //   version: "1"                          top-level scalars
-    //   php:                                  nested section
+    //   version: "1"                      top-level scalars
+    //   schema:  path/to/schema.sql
+    //   queries: path/to/queries.sql      scalar (single file)
+    //   queries:                          list of scalars (multiple files)
+    //     - path/to/users.sql
+    //     - path/to/roles.sql
+    //   php:                              nested map
     //     namespace: "App\\Db"
-    //   type_overrides:                       list of maps
-    //     - column: "users.metadata"
-    //       php_type: "array"
-    //     - db_type: "tinyint"
+    //   type_overrides:                   list of maps
+    //     - column: "users.active"
     //       php_type: "bool"
     // -------------------------------------------------------------------------
 
@@ -83,30 +102,38 @@ class Config
 
             $indent = strlen($line) - strlen(ltrim($line));
 
-            // Top-level key: value
-            if ($indent === 0 && preg_match('/^(\w+)\s*:\s*(.*)$/', $trimmed, $m)) {
-                $key   = $m[1];
-                $value = self::parseScalar(trim($m[2]));
+            if ($indent !== 0 || !preg_match('/^(\w+)\s*:\s*(.*)$/', $trimmed, $m)) {
+                continue;
+            }
 
-                if ($value !== '') {
-                    // Scalar value on same line
-                    $result[$key] = $value;
-                } else {
-                    // Block value — peek ahead to determine type
-                    // Look at next non-empty line
-                    $j = $i;
-                    while ($j < $total && trim($lines[$j]) === '') $j++;
+            $key   = $m[1];
+            $value = self::parseScalar(trim($m[2]));
 
-                    if ($j < $total && str_starts_with(ltrim($lines[$j]), '-')) {
-                        // List of maps: type_overrides: \n  - ...
-                        [$items, $i] = self::parseListOfMaps($lines, $i, $total);
-                        $result[$key] = $items;
-                    } else {
-                        // Nested map: php: \n  namespace: ...
-                        [$map, $i] = self::parseNestedMap($lines, $i, $total);
-                        $result[$key] = $map;
-                    }
-                }
+            if ($value !== '') {
+                $result[$key] = $value;
+                continue;
+            }
+
+            // Block value — peek at next non-empty line to decide the type
+            $j = $i;
+            while ($j < $total && trim($lines[$j]) === '') $j++;
+
+            if ($j >= $total || strlen($lines[$j]) - strlen(ltrim($lines[$j])) === 0) {
+                // No indented block follows — treat as empty string
+                $result[$key] = '';
+                continue;
+            }
+
+            $nextTrimmed = ltrim($lines[$j]);
+
+            if (str_starts_with($nextTrimmed, '-')) {
+                // Could be a list of scalars OR a list of maps — detect by content
+                [$items, $i] = self::parseList($lines, $i, $total);
+                $result[$key] = $items;
+            } else {
+                // Nested map
+                [$map, $i] = self::parseNestedMap($lines, $i, $total);
+                $result[$key] = $map;
             }
         }
 
@@ -114,16 +141,19 @@ class Config
     }
 
     /**
-     * Parse a YAML list of maps starting at line $i.
-     * Each item begins with a `-` at indent > 0.
+     * Parse a YAML list starting at line $i.
+     * Detects whether items are scalars (`- value`) or maps (`- key: value`).
      *
-     * @return array{0: array<int, array<string,string>>, 1: int}
+     * Returns a flat string[] for scalar lists, array[] for map lists.
+     *
+     * @return array{0: array<mixed>, 1: int}
      */
-    private static function parseListOfMaps(array $lines, int $i, int $total): array
+    private static function parseList(array $lines, int $i, int $total): array
     {
         $items       = [];
-        $currentItem = null;
+        $currentItem = null;   // null = scalar mode, array = map mode
         $listIndent  = null;
+        $isMapList   = null;   // determined on first item
 
         while ($i < $total) {
             $line    = $lines[$i];
@@ -133,28 +163,39 @@ class Config
 
             $indent = strlen($line) - strlen(ltrim($line));
 
-            // Back to top level — stop
-            if ($indent === 0) break;
+            if ($indent === 0) break;  // back to top level
 
-            // Set list indent on first item
             if ($listIndent === null) $listIndent = $indent;
 
-            // A new list item
             if ($indent <= $listIndent && str_starts_with(ltrim($line), '-')) {
+                // Flush previous item
                 if ($currentItem !== null) $items[] = $currentItem;
-                $currentItem = [];
 
-                // Inline key on the same line as `-`: `- column: "users.foo"`
-                $afterDash = preg_replace('/^\s*-\s*/', '', $line);
-                if ($afterDash !== null && preg_match('/^(\w+)\s*:\s*(.+)$/', trim($afterDash), $m)) {
-                    $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+                $afterDash = trim((string) preg_replace('/^\s*-\s*/', '', $line));
+
+                if ($isMapList === null) {
+                    // Determine list type from the first item's content
+                    $isMapList = str_contains($afterDash, ':');
                 }
+
+                if ($isMapList) {
+                    // Map item — may have inline first key
+                    $currentItem = [];
+                    if (preg_match('/^(\w+)\s*:\s*(.+)$/', $afterDash, $m)) {
+                        $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+                    }
+                } else {
+                    // Scalar item — the value is the text after the dash
+                    $currentItem = self::parseScalar($afterDash);
+                }
+
                 $i++;
                 continue;
             }
 
-            // Key: value inside a list item
-            if ($currentItem !== null && preg_match('/^(\w+)\s*:\s*(.+)$/', $trimmed, $m)) {
+            // Additional key: value lines inside a map item
+            if ($isMapList && is_array($currentItem)
+                && preg_match('/^(\w+)\s*:\s*(.+)$/', $trimmed, $m)) {
                 $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
             }
 
@@ -173,8 +214,8 @@ class Config
      */
     private static function parseNestedMap(array $lines, int $i, int $total): array
     {
-        $map        = [];
-        $mapIndent  = null;
+        $map       = [];
+        $mapIndent = null;
 
         while ($i < $total) {
             $line    = $lines[$i];
@@ -184,7 +225,7 @@ class Config
 
             $indent = strlen($line) - strlen(ltrim($line));
 
-            if ($indent === 0) break;  // back to top level
+            if ($indent === 0) break;
 
             if ($mapIndent === null) $mapIndent = $indent;
             if ($indent < $mapIndent) break;
@@ -206,7 +247,6 @@ class Config
         if (preg_match('/^"([^"]*)"/', $raw, $m)) return $m[1];
         if (preg_match("/^'([^']*)'/", $raw, $m)) return $m[1];
 
-        // Strip inline comment
         $raw = preg_replace('/\s+#.*$/', '', $raw) ?? $raw;
 
         return trim($raw);

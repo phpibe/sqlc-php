@@ -21,18 +21,18 @@ if (isset($GLOBALS['_composer_autoload_path'])) {
 
 require PHPIBE_COMPOSER_INSTALL;
 
+use SqlcPhp\Analyzer\QueryAnalyzer;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;
 use SqlcPhp\Generator\ModelGenerator;
 use SqlcPhp\Generator\QueryGenerator;
 use SqlcPhp\Generator\ResultDtoGenerator;
-use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Parser\SchemaParser;
+use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Resolver\ColumnResolver;
-use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\Resolver\ParamResolver;
+use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\TypeMapper\MySQLTypeMapper;
-use SqlcPhp\Analyzer\QueryAnalyzer;
 
 // ---------------------------------------------------------------------------
 $configPath = $argv[1] ?? 'sqlc.yaml';
@@ -59,13 +59,19 @@ echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_colum
 // ---------------------------------------------------------------------------
 // Parse queries
 // ---------------------------------------------------------------------------
-if (!file_exists($config->queries)) {
-    fwrite(STDERR, "Error: Queries file not found: {$config->queries}\n"); exit(1);
+$queryParser = new QueryParser();
+$rawQueries  = [];
+
+foreach ($config->queries as $queryFile) {
+    if (!file_exists($queryFile)) {
+        fwrite(STDERR, "Error: Queries file not found: {$queryFile}\n"); exit(1);
+    }
+    $parsed     = $queryParser->parse(file_get_contents($queryFile) ?: '');
+    $rawQueries = array_merge($rawQueries, $parsed);
+    echo "Queries: " . count($parsed) . " query(ies) from {$queryFile}\n";
 }
 
-$queryParser = new QueryParser();
-$rawQueries  = $queryParser->parse(file_get_contents($config->queries) ?: '');
-echo "Queries: " . count($rawQueries) . " query(ies) parsed\n\n";
+echo "Queries: " . count($rawQueries) . " total query(ies) parsed\n\n";
 
 // ---------------------------------------------------------------------------
 // Analyze (resolve types)

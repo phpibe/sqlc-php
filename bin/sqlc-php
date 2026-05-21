@@ -3,7 +3,23 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+if (isset($GLOBALS['_composer_autoload_path'])) {
+    define('PHPIBE_COMPOSER_INSTALL', $GLOBALS['_composer_autoload_path']);
+
+    unset($GLOBALS['_composer_autoload_path']);
+} else {
+    foreach (array(__DIR__ . '/../../autoload.php', __DIR__ . '/../vendor/autoload.php', __DIR__ . '/vendor/autoload.php') as $file) {
+        if (file_exists($file)) {
+            define('PHPIBE_COMPOSER_INSTALL', $file);
+
+            break;
+        }
+    }
+
+    unset($file);
+}
+
+require PHPIBE_COMPOSER_INSTALL;
 
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;

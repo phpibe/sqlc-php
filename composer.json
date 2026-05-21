@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "description": "A PHP code generator inspired by sqlc",
     "type": "library",
+    "license": ["MIT"],
     "require-dev": {
         "phpunit/phpunit": "^13.1"
     },

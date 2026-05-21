@@ -1,0 +1,25 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SqlcPhp\Resolver;
+
+/**
+ * A named parameter extracted from a SQL query (e.g. :userId)
+ * with its type resolved from the schema.
+ */
+class QueryParam
+{
+    public function __construct(
+        /** Parameter name without the leading colon, e.g. "userId" */
+        public readonly string  $name,
+        /** SQL type resolved from the schema column, e.g. "INT" */
+        public readonly string  $sqlType,
+        /** Whether the corresponding column is nullable */
+        public readonly bool    $nullable,
+        /** PDO::PARAM_* constant string */
+        public readonly string  $pdoParam,
+        /** PHP native type, e.g. "int", "string", "?int" */
+        public readonly string  $phpType,
+    ) {}
+}

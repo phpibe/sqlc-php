@@ -29,10 +29,8 @@ schema.sql + queries.sql + sqlc.yaml
 
 ## Installation
 
-Clone or unzip the project, then run the CLI from your project root:
-
 ```bash
-php /path/to/sqlc-php/bin/sqlc-php sqlc.yaml
+composer require phpibe/sqlc-php
 ```
 
 ---

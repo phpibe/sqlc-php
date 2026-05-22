@@ -472,6 +472,131 @@ $active   = $repo->searchUsers(status: 'active');
 $filtered = $repo->searchUsers(status: 'active', username: 'alice');
 ```
 
+
+---
+
+## Usage with Laravel
+
+The recommended pattern is to wrap the generated query class inside a repository class, bind it in a Service Provider, and inject it into controllers or services via the constructor.
+
+### 1. Create a repository
+
+The repository is a plain PHP class that wraps one or more generated query classes. It is the only place in your application that knows about sqlc-php:
+
+```php
+namespace App\Repositories;
+
+use App\Database\User;
+use App\Database\UserQuery;
+
+class UserRepository
+{
+    public function __construct(private UserQuery $userQuery) {}
+
+    public function getUser(int $id): User
+    {
+        return $this->userQuery->getUser($id);
+    }
+
+    public function getUserByEmail(string $email): ?User
+    {
+        return $this->userQuery->getUserByEmail($email);
+    }
+
+    /** @return User[] */
+    public function searchUsers(?string $status = null, ?string $username = null): array
+    {
+        return $this->userQuery->searchUsers(
+            status:   $status,
+            username: $username,
+        );
+    }
+}
+```
+
+### 2. Register the binding in a Service Provider
+
+Use `app('db')->connection()->getPdo()` to obtain the current Laravel PDO connection and pass it to the generated query class:
+
+```php
+namespace App\Providers;
+
+use App\Database\UserQuery;
+use App\Repositories\UserRepository;
+use Illuminate\Support\ServiceProvider;
+
+class AppServiceProvider extends ServiceProvider
+{
+    public function register(): void
+    {
+        $this->app->bind(UserRepository::class, function ($app) {
+            return new UserRepository(
+                new UserQuery(
+                    $app->make('db')->connection()->getPdo()
+                )
+            );
+        });
+    }
+}
+```
+
+If your application uses multiple database connections, pass the connection name explicitly:
+
+```php
+$app->make('db')->connection('mysql_replica')->getPdo()
+```
+
+### 3. Inject the repository into a controller
+
+```php
+namespace App\Http\Controllers;
+
+use App\Repositories\UserRepository;
+
+class UserController extends Controller
+{
+    public function __construct(
+        private readonly UserRepository $userRepository,
+    ) {}
+
+    public function show(int $id)
+    {
+        $user = $this->userRepository->getUser($id);
+        return response()->json($user);
+    }
+
+    public function index(Request $request)
+    {
+        $users = $this->userRepository->searchUsers(
+            status:   $request->query('status'),
+            username: $request->query('username'),
+        );
+
+        return response()->json($users);
+    }
+}
+```
+
+### 4. Inject into a service or job
+
+The same pattern works for any Laravel class resolved through the container:
+
+```php
+class SendWelcomeEmail implements ShouldQueue
+{
+    public function __construct(private readonly UserRepository $userRepository) {}
+
+    public function handle(): void
+    {
+        $user = $this->userRepository->getUserByEmail($this->email);
+        // ...
+    }
+}
+```
+
+---
+
+
 ---
 
 ## Running the tests

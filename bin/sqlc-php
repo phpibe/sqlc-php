@@ -32,6 +32,7 @@ use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ParamResolver;
 use SqlcPhp\Resolver\ExpressionTypeResolver;
+use SqlcPhp\Rewriter\SqlRewriter;
 use SqlcPhp\TypeMapper\MySQLTypeMapper;
 
 // ---------------------------------------------------------------------------
@@ -80,7 +81,7 @@ $typeMapper    = new MySQLTypeMapper($config->typeOverrides);
 $paramResolver = new ParamResolver($catalog, $typeMapper);
 $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
 $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);
-$analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser);
+$analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter());
 $queries       = $analyzer->analyze($rawQueries);
 
 // ---------------------------------------------------------------------------

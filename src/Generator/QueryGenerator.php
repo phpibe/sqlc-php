@@ -215,17 +215,29 @@ PHP;
 
     /**
      * Build a PHP parameter list from resolved QueryParams.
+     * Optional params receive a `= null` default value.
      */
     private function buildParamList(QueryDefinition $query): string
     {
         if (empty($query->params)) return '';
 
-        $parts = [];
+        $required = [];
+        $optional = [];
+
         foreach ($query->params as $param) {
-            $parts[] = "{$param->phpType} \${$param->name}";
+            if ($param->optional) {
+                // Ensure the type is nullable — optional always accepts null
+                $type     = str_starts_with($param->phpType, '?')
+                    ? $param->phpType
+                    : '?' . $param->phpType;
+                $optional[] = "{$type} \${$param->name} = null";
+            } else {
+                $required[] = "{$param->phpType} \${$param->name}";
+            }
         }
 
-        return implode(', ', $parts);
+        // Required params first, optional params last
+        return implode(', ', array_merge($required, $optional));
     }
 
     /**
@@ -236,7 +248,11 @@ PHP;
         $lines = ['    /**'];
 
         foreach ($query->params as $param) {
-            $lines[] = "     * @param {$param->phpType} \${$param->name}";
+            $type  = $param->optional
+                ? (str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType)
+                : $param->phpType;
+            $note  = $param->optional ? ' Pass null to skip this filter.' : '';
+            $lines[] = "     * @param {$type} \${$param->name}{$note}";
         }
 
         $lines[] = "     * {$returnTag}";

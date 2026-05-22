@@ -9,15 +9,17 @@ use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Parser\ReturnType;
 use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ParamResolver;
+use SqlcPhp\Resolver\QueryParam;
+use SqlcPhp\Rewriter\SqlRewriter;
 
 /**
  * Enriches parsed QueryDefinitions with resolved parameters and result columns.
  *
- * After this step, each QueryDefinition has:
- *   - $params           → typed QueryParam[]
- *   - $resultColumns    → typed ResolvedColumn[]
- *   - $returnsModelDirectly → true when SELECT * from a single known table
- *   - $modelClass       → the DTO class name (e.g. "User")
+ * Pipeline per query:
+ *   1. SqlRewriter  — rewrites optional param conditions in the SQL
+ *   2. ParamResolver — resolves :param names to typed QueryParam objects
+ *   3. ColumnResolver — resolves SELECT columns to typed ResolvedColumn objects
+ *   4. detectDirectModel — decides whether the return type is a table model or a custom DTO
  */
 class QueryAnalyzer
 {
@@ -25,6 +27,7 @@ class QueryAnalyzer
         private readonly ParamResolver  $paramResolver,
         private readonly ColumnResolver $columnResolver,
         private readonly QueryParser    $queryParser,
+        private readonly SqlRewriter    $rewriter = new SqlRewriter(),
     ) {}
 
     /**
@@ -38,19 +41,34 @@ class QueryAnalyzer
 
     private function analyzeOne(QueryDefinition $query): QueryDefinition
     {
-        // --- Resolve parameters ---
-        $params = $this->paramResolver->resolve($query->sql, $query->paramAnnotations);
+        // 1. Rewrite SQL for optional parameters
+        $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams);
 
-        // --- Resolve result columns ---
-        $resultColumns = [];
+        // 2. Resolve parameters against the rewritten SQL
+        $rawParams = $this->paramResolver->resolve($rewrittenSql, $query->paramAnnotations);
+
+        // Mark params that were declared @optional
+        $params = array_map(
+            fn(QueryParam $p) => in_array($p->name, $query->optionalParams, true)
+                ? new QueryParam(
+                    name:     $p->name,
+                    sqlType:  $p->sqlType,
+                    nullable: $p->nullable,
+                    pdoParam: $p->pdoParam,
+                    phpType:  $p->phpType,
+                    optional: true,
+                )
+                : $p,
+            $rawParams
+        );
+
+        // 3. Resolve result columns
+        $resultColumns        = [];
         $returnsModelDirectly = false;
-        $modelClass = null;
+        $modelClass           = null;
 
         if ($query->returns !== ReturnType::Exec) {
-            $resultColumns = $this->columnResolver->resolve($query->sql);
-
-            // Detect if this is a simple "SELECT table.* FROM table" or "SELECT * FROM table"
-            // → the return type is the existing Model class, no new DTO
+            $resultColumns = $this->columnResolver->resolve($rewrittenSql);
             [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
         }
 
@@ -58,23 +76,18 @@ class QueryAnalyzer
             name:                 $query->name,
             group:                $query->group,
             returns:              $query->returns,
-            sql:                  $query->sql,
+            sql:                  $rewrittenSql,      // store the rewritten SQL
             fromTable:            $query->fromTable,
             params:               $params,
             resultColumns:        $resultColumns,
             paramAnnotations:     $query->paramAnnotations,
+            optionalParams:       $query->optionalParams,
             returnsModelDirectly: $returnsModelDirectly,
             modelClass:           $modelClass,
         );
     }
 
     /**
-     * Returns [bool $direct, ?string $modelClass].
-     * A query returns a model directly when:
-     *   - All result columns come from a single table
-     *   - That table is the primary FROM table
-     *   - The column set matches the full table schema (i.e. SELECT * or table.*)
-     *
      * @return array{0: bool, 1: ?string}
      */
     private function detectDirectModel(QueryDefinition $query, array $resultColumns): array
@@ -85,14 +98,12 @@ class QueryAnalyzer
 
         $tables = array_unique(array_map(fn($c) => $c->tableName, $resultColumns));
 
-        // Multiple source tables or unknown source → custom DTO needed
         if (count($tables) > 1 || ($tables[0] ?? '') === '') {
             return [false, null];
         }
 
         $singleTable = $tables[0];
 
-        // Must be the primary FROM table
         if (strtolower($singleTable) !== strtolower($query->fromTable)) {
             return [false, null];
         }

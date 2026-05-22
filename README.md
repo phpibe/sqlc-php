@@ -7,7 +7,7 @@ A PHP code generator inspired by [sqlc](https://sqlc.dev) for Go. It reads your 
 ## How it works
 
 ```
-schema.sql + queries.sql + sqlc.yaml
+    schema.sql + queries.sql + sqlc.yaml
               ↓
          sqlc-php (CLI)
               ↓
@@ -30,7 +30,13 @@ schema.sql + queries.sql + sqlc.yaml
 ## Installation
 
 ```bash
-composer require phpibe/sqlc-php
+  composer require phpibe/sqlc-php
+```
+
+then run the CLI from your project root:
+
+```bash
+php ./vendor/bin/sqlc-php sqlc.yaml
 ```
 
 ---
@@ -40,7 +46,7 @@ composer require phpibe/sqlc-php
 ```yaml
 version: "1"
 schema:  schema.sql    # path to your CREATE TABLE file(s)
-queries: queries.sql   # path to your annotated SQL queries
+queries: queries.sql   # single file (scalar) or list of files
 
 php:
   namespace: "App\\Database"   # PHP namespace for all generated classes
@@ -59,6 +65,25 @@ type_overrides:
     php_type: "\\DateTimeImmutable"
 ```
 
+### Multiple query files
+
+`queries` accepts both a scalar string (single file) and a YAML list of paths:
+
+```yaml
+queries:
+  - database/queries/users.sql
+  - database/queries/roles.sql
+  - database/queries/orders.sql
+```
+
+All files are parsed and merged before analysis. The CLI prints a per-file count alongside the total:
+
+```
+Queries: 8 query(ies) from database/queries/users.sql
+Queries: 3 query(ies) from database/queries/roles.sql
+Queries: 11 total query(ies) parsed
+```
+
 ### Type override precedence
 
 | Priority | Rule | Description |
@@ -71,18 +96,14 @@ type_overrides:
 
 ## Annotating queries
 
-Every query must have three annotations, written as SQL comments:
+Every query must have at minimum a `@name` and a `@returns` annotation, written as SQL comments:
 
 ```sql
--- @name  MethodName     required — generates the PHP method name (camelCase)
--- @group ClassName      optional — groups methods into a class; inferred from the FROM table if omitted
+-- @name    MethodName   required — generates the PHP method name (camelCase)
+-- @group   ClassName    optional — groups methods into a class; inferred from the FROM table if omitted
 -- @returns :many        required — :many | :one | :opt | :exec
-```
-
-An optional `@param` annotation lets you override the inferred type of a named parameter:
-
-```sql
--- @param paramName table.column
+-- @param   userId users.id        optional — explicit type override for a named parameter
+-- @optional paramName             optional — passing null skips the filter condition entirely
 ```
 
 ### Return type semantics
@@ -132,10 +153,10 @@ SELECT users.* FROM users WHERE users.email = :email;
 Generated methods:
 ```php
 /** @return User */
-public function getUser(?int $id): User          // throws RuntimeException if missing
+public function getUser(?int $id): User               // throws RuntimeException if missing
 
 /** @return User|null */
-public function getUserByEmail(string $email): ?User   // returns null if missing
+public function getUserByEmail(string $email): ?User  // returns null if missing
 ```
 
 ---
@@ -209,10 +230,10 @@ Generated DTO:
 readonly class GetUserStatsRow
 {
     public function __construct(
-        public int                    $total_users,   // COUNT → int, never null
-        public ?int                   $total_active,  // SUM   → ?int (null on empty set)
-        public ?float                 $avg_role,      // AVG   → ?float
-        public ?\DateTimeImmutable    $last_signup,   // MAX   → nullable, type from column
+        public int                 $total_users,   // COUNT → int, never null
+        public ?int                $total_active,  // SUM   → ?int (null on empty set)
+        public ?float              $avg_role,      // AVG   → ?float
+        public ?\DateTimeImmutable $last_signup,   // MAX   → nullable, type from column
     ) {}
 }
 ```
@@ -257,6 +278,100 @@ DELETE FROM users WHERE id = :id;
 public function updateUserActive(?bool $active, ?string $updatedAt, ?int $id): void
 public function deleteUser(?int $id): void
 ```
+
+---
+
+### Optional parameters
+
+Marking a parameter as `@optional` instructs sqlc-php to rewrite the SQL condition at generation time. When `null` is passed at runtime the filter is skipped entirely; when a value is passed it filters normally. No `if` statements or query builders required.
+
+```sql
+-- @name SearchUsers
+-- @group User
+-- @returns :many
+-- @optional status
+-- @optional username
+SELECT users.* FROM users
+WHERE users.status   = :status
+  AND users.username = :username;
+```
+
+sqlc-php rewrites each optional condition before emitting any PHP:
+
+```sql
+-- rewritten SQL stored in the generated class
+SELECT users.* FROM users
+WHERE (:status   IS NULL OR users.status   = :status)
+  AND (:username IS NULL OR users.username = :username)
+```
+
+Generated method:
+
+```php
+/**
+ * @param ?string $status   Pass null to skip this filter.
+ * @param ?string $username Pass null to skip this filter.
+ * @return User[]
+ */
+public function searchUsers(?string $status = null, ?string $username = null): array
+```
+
+Calling the method:
+
+```php
+// All rows — both filters skipped
+$repo->searchUsers();
+
+// Filter by status only — username skipped
+$repo->searchUsers(status: 'active');
+
+// Filter by both
+$repo->searchUsers(status: 'active', username: 'alice');
+```
+
+#### Mixing required and optional parameters
+
+Required parameters always appear first in the signature; optional parameters follow with `= null`.
+
+```sql
+-- @name GetUsersByRole
+-- @group User
+-- @returns :many
+-- @optional status
+SELECT users.* FROM users
+WHERE users.role_id = :roleId
+  AND users.status  = :status;
+```
+
+```php
+// roleId is required, status is optional
+public function getUsersByRole(int $roleId, ?string $status = null): array
+```
+
+#### Supported operators
+
+| Operator | Rewritten form |
+|---|---|
+| `=`    | `(:param IS NULL OR col = :param)` |
+| `<>`   | `(:param IS NULL OR col <> :param)` |
+| `!=`   | `(:param IS NULL OR col != :param)` |
+| `>`    | `(:param IS NULL OR col > :param)` |
+| `<`    | `(:param IS NULL OR col < :param)` |
+| `>=`   | `(:param IS NULL OR col >= :param)` |
+| `<=`   | `(:param IS NULL OR col <= :param)` |
+| `LIKE` | `(:param IS NULL OR col LIKE :param)` |
+| `ILIKE`| `(:param IS NULL OR col ILIKE :param)` |
+
+#### Parameter name validation
+
+If a name declared in `@optional` does not match any `:param` token in the SQL, generation stops immediately with a fatal error:
+
+```
+RuntimeException: Query 'SearchUsers': @optional 'stauts' does not match any
+named parameter in the SQL. Known params: status, username
+```
+
+This catches typos at generation time rather than silently producing incorrect SQL at runtime.
 
 ---
 
@@ -312,12 +427,18 @@ class UserQuery
     public function listUsers(): array { ... }
 
     /** @return User */
-    public function getUser(?int $id): User { ... }         // :one — throws
+    public function getUser(?int $id): User { ... }                     // :one — throws
 
     /** @return User|null */
-    public function getUserByEmail(string $email): ?User { ... }  // :opt — nullable
+    public function getUserByEmail(string $email): ?User { ... }        // :opt — nullable
 
-    public function deleteUser(?int $id): void { ... }      // :exec
+    public function deleteUser(?int $id): void { ... }                  // :exec
+
+    /** @return User[] */
+    public function searchUsers(
+        ?string $status   = null,   // @optional — pass null to skip filter
+        ?string $username = null,   // @optional — pass null to skip filter
+    ): array { ... }
 }
 ```
 
@@ -344,6 +465,11 @@ if ($user === null) {
 // :exec — fire and forget
 $repo->deleteUser(42);
 $repo->updateUserActive(true, date('Y-m-d H:i:s'), 42);
+
+// @optional — named arguments, skip filters by passing null
+$all      = $repo->searchUsers();
+$active   = $repo->searchUsers(status: 'active');
+$filtered = $repo->searchUsers(status: 'active', username: 'alice');
 ```
 
 ---
@@ -361,10 +487,95 @@ The test suite covers:
 | Schema Parser | `tests/Parser/SchemaParserTest.php` | CREATE TABLE parsing, column types, nullability, AUTO_INCREMENT, DEFAULT |
 | Query Parser | `tests/Parser/QueryParserTest.php` | Annotation parsing, ReturnType variants, @param, group inference |
 | Type Mapper | `tests/TypeMapper/MySQLTypeMapperTest.php` | Default mappings, nullability, PDO constants, column/db_type overrides |
-| Config | `tests/Config/ConfigTest.php` | YAML parsing, defaults, type_overrides, TypeOverride matching |
+| Config | `tests/Config/ConfigTest.php` | YAML parsing, defaults, multiple query files, type_overrides |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET resolution, camelCase→snake, fallback |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOIN DTOs, aggregates |
+| SQL Rewriter | `tests/Rewriter/SqlRewriterTest.php` | Optional param rewriting, all operators, repeated params |
+| Optional Params | `tests/Analyzer/OptionalParamTest.php` | Parser validation, analyzer marking, generator output |
 | Generator | `tests/Generator/GeneratorTest.php` | Generated code structure, docblock indentation, PDO bindings |
 
 ---
+
+## Project structure
+
+```
+sqlc-php/
+├── bin/
+│   └── sqlc-php                        # CLI entry point
+├── src/
+│   ├── Analyzer/
+│   │   └── QueryAnalyzer.php           # Enriches parsed queries with resolved types
+│   ├── Catalog/
+│   │   └── SchemaCatalog.php           # In-memory table/column index
+│   ├── Config/
+│   │   ├── Config.php                  # YAML config loader
+│   │   └── TypeOverride.php            # Type override value object
+│   ├── Generator/
+│   │   ├── ModelGenerator.php          # Generates table DTO classes
+│   │   ├── QueryGenerator.php          # Generates query classes with PDO methods
+│   │   └── ResultDtoGenerator.php      # Generates result DTOs for JOIN/aggregate queries
+│   ├── Parser/
+│   │   ├── SchemaParser.php            # Parses CREATE TABLE SQL
+│   │   └── QueryParser.php             # Parses annotated SQL query files
+│   ├── Resolver/
+│   │   ├── ColumnResolver.php          # Resolves SELECT columns to typed ResolvedColumn objects
+│   │   ├── ExpressionTypeResolver.php  # Infers types of SQL functions and expressions
+│   │   ├── ParamResolver.php           # Infers types of named :parameters
+│   │   ├── QueryParam.php              # Value object for a resolved parameter
+│   │   └── ResolvedColumn.php          # Value object for a resolved output column
+│   ├── Rewriter/
+│   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
+│   └── TypeMapper/
+│       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
+├── tests/                              # PHPUnit test suite (191 tests)
+├── schema.sql                          # Example schema
+├── queries.sql                         # Example queries
+├── sqlc.yaml                           # Example configuration
+└── phpunit.xml                         # Test configuration
+```
+
+---
+
+## Changelog
+
+### [1.1.0]
+- **Optional query parameters** — parameters can be marked with `@optional` in the query annotations. The SQL condition is rewritten at generation time so that passing `null` skips the filter entirely, without any PHP-side conditionals.
+- **`SqlRewriter`** — new class responsible for rewriting `col OP :param` into `(:param IS NULL OR col OP :param)` for every occurrence of the parameter in the SQL.
+- **Supported operators** — `=`, `<>`, `!=`, `>`, `<`, `>=`, `<=`, `LIKE`, `ILIKE`.
+- **Parameter validation** — if a name declared in `@optional` does not match any named parameter in the SQL, generation stops with a fatal error, catching typos at generation time rather than at runtime.
+- **Method signature** — required parameters keep their position; optional parameters are moved to the end of the signature and receive a `= null` default. Types are forced nullable (`?string`, `?int`, …).
+- **Docblock annotation** — optional parameters include a `Pass null to skip this filter.` note in the generated `@param` line.
+- **All occurrences rewritten** — if the same parameter appears more than once in the SQL (e.g. `WHERE a = :val AND b = :val`), every occurrence is rewritten.
+- **34 new tests** across `SqlRewriterTest` and `OptionalParamTest` covering the rewriter, the parser validation, the analyzer marking, and the generator output.
+
+### [1.0.3]
+- **Multiple query files** — `queries` in `sqlc.yaml` now accepts either a scalar string (legacy) or a YAML list of paths. All files are merged before analysis.
+  ```yaml
+  queries:
+    - database/queries/users.sql
+    - database/queries/roles.sql
+  ```
+- **Backward compatible** — single-file scalar format still works unchanged.
+- **CLI output** — now prints a per-file query count alongside the total.
+- **PHPUnit 9 / 10 / 13 compatibility** — removed `@dataProvider` docblock annotations in favour of explicit individual test methods, compatible with all PHPUnit versions without attributes or docblocks.
+- **Absolute test paths** — `dirname(__DIR__, 2)` replaces relative paths so tests pass regardless of the working directory when invoking `phpunit`.
+
+### [1.0.1]
+- **Expression type inference** — `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`, `COALESCE`, `IFNULL`, `NULLIF`, `CAST`, `CONCAT`, `CASE WHEN` and common scalar functions are resolved to typed PHP properties in result DTOs.
+- **Auto-generated aliases** — when no `AS alias` is provided, a name is inferred from the function (`count`, `sumPrice`, `avgRoleId`, …). Unknown expressions fall back to positional names `col_1`, `col_2`, …
+- **`SUM` / `AVG` / `MIN` / `MAX` are nullable** — these return `NULL` on an empty result set, reflected as `?int`, `?float`, etc.
+- **`:opt` return type** — new annotation alongside `:one`. `:one` now throws `RuntimeException` when no row is found; `:opt` returns `null`.
+- **Type overrides** — `type_overrides` block in `sqlc.yaml` lets you remap any column or DB type to an arbitrary PHP type (`bool`, `\DateTimeImmutable`, …). Column-specific overrides take precedence over DB-type overrides.
+- **Unit test suite** — 191 tests across 10 suites covering parser, resolver, analyzer, generator, config, type mapper, rewriter, and optional parameters.
+
+### [1.0.0]
+- **Initial release.**
+- **Schema parser** — `CREATE TABLE` statements parsed into a typed column catalog using balanced-parenthesis scanning, handling `DEFAULT 'value'` and nested types correctly.
+- **Query parser** — `@name`, `@group`, `@returns`, `@param` annotations; group inferred from `FROM` / `UPDATE` table when `@group` is omitted.
+- **Parameter resolver** — named parameters (`:param`) typed against the schema via qualified references, `SET` clause matching, and camelCase → snake_case fallback.
+- **Column resolver** — `SELECT *`, `table.*`, specific columns, `AS` aliases, and multi-table `JOIN` all resolved to typed `ResolvedColumn` objects.
+- **`:many`** → `Model[]`, **`:one`** → `Model` (throws), **`:opt`** → `?Model`, **`:exec`** → `void`.
+- **Result DTOs** — `*Row` classes generated automatically for queries whose columns span multiple tables or use aggregate expressions.
+- **`readonly class` DTOs** — PHP 8.4 implicit readonly on all constructor-promoted properties; no redundant `readonly` keyword on individual properties.
+- **PDO bindings** — `bindValue` calls use `PDO::PARAM_INT`, `PDO::PARAM_STR`, or `PDO::PARAM_BOOL` inferred from the schema column type.

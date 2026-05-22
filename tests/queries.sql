@@ -110,3 +110,23 @@ SELECT
     CASE WHEN users.active = 1 THEN 'active' ELSE 'inactive' END AS status
 FROM users
 WHERE users.id = :id;
+
+
+-- @name SearchUsersByStatus
+-- @group User
+-- @returns :many
+-- @optional status
+-- @optional active
+SELECT users.* FROM users
+WHERE users.active = :active
+AND users.username = :status;
+
+
+-- @name FindUserByEmailOrUsername
+-- @group User
+-- @returns :opt
+-- @optional email
+-- @optional username
+SELECT users.* FROM users
+WHERE users.email = :email
+AND users.username = :username;

@@ -24,9 +24,10 @@ enum ReturnType: string
 class QueryDefinition
 {
     /**
-     * @param QueryParam[]     $params          Resolved named parameters
-     * @param ResolvedColumn[] $resultColumns   Resolved SELECT output columns
+     * @param QueryParam[]         $params            Resolved named parameters
+     * @param ResolvedColumn[]     $resultColumns     Resolved SELECT output columns
      * @param array<string,string> $paramAnnotations  Raw @param annotations (name → table.col)
+     * @param string[]             $optionalParams    Names declared with @optional
      */
     public function __construct(
         public readonly string     $name,
@@ -37,6 +38,7 @@ class QueryDefinition
         public readonly array      $params = [],
         public readonly array      $resultColumns = [],
         public readonly array      $paramAnnotations = [],
+        public readonly array      $optionalParams = [],
         /**
          * When true the SELECT is exactly "table.*" or "*" from a single table,
          * meaning the return type is the existing Model class (no new DTO needed).
@@ -54,10 +56,11 @@ class QueryDefinition
  * Parses SQL files containing annotation-decorated queries.
  *
  * Supported annotations:
- *   -- @name    ListUsers
- *   -- @group   User
- *   -- @returns :many | :one | :exec
- *   -- @param   userId users.id        (explicit type override for a parameter)
+ *   -- @name     ListUsers
+ *   -- @group    User
+ *   -- @returns  :many | :one | :opt | :exec
+ *   -- @param    userId users.id        (explicit type override for a parameter)
+ *   -- @optional status                 (passing null skips the filter condition)
  */
 class QueryParser
 {
@@ -90,6 +93,7 @@ class QueryParser
         $group            = null;
         $returns          = null;
         $paramAnnotations = [];
+        $optionalParams   = [];
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -105,8 +109,9 @@ class QueryParser
                 } elseif (preg_match('/@returns\s+(:\w+)/i', $comment, $m)) {
                     $returns = ReturnType::from($m[1]);
                 } elseif (preg_match('/@param\s+(\w+)\s+([\w.]+)/i', $comment, $m)) {
-                    // @param paramName table.column
                     $paramAnnotations[$m[1]] = $m[2];
+                } elseif (preg_match('/@optional\s+(\w+)/i', $comment, $m)) {
+                    $optionalParams[] = $m[1];
                 }
             } else {
                 $sqlLines[] = $line;
@@ -128,15 +133,35 @@ class QueryParser
             return null;
         }
 
+        // Validate @optional names against :params present in the SQL
+        // This catches typos at parse time rather than at runtime.
+        if (!empty($optionalParams)) {
+            preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $cleanSql, $paramMatches);
+            $knownParams = array_map(
+                fn(string $p) => ltrim($p, ':'),
+                $paramMatches[0] ?? []
+            );
+            foreach ($optionalParams as $optName) {
+                if (!in_array($optName, $knownParams, true)) {
+                    throw new \RuntimeException(
+                        "Query '{$name}': @optional '{$optName}' does not match any" .
+                        " named parameter in the SQL. Known params: " .
+                        (empty($knownParams) ? '(none)' : implode(', ', $knownParams))
+                    );
+                }
+            }
+        }
+
         return new QueryDefinition(
             name:             lcfirst($name),
             group:            $group,
             returns:          $returns,
             sql:              $cleanSql,
             fromTable:        $fromTable,
-            params:           [],             // filled by Analyzer
-            resultColumns:    [],             // filled by Analyzer
+            params:           [],
+            resultColumns:    [],
             paramAnnotations: $paramAnnotations,
+            optionalParams:   $optionalParams,
         );
     }
 

@@ -21,5 +21,10 @@ class QueryParam
         public readonly string  $pdoParam,
         /** PHP native type, e.g. "int", "string", "?int" */
         public readonly string  $phpType,
+        /**
+         * When true this parameter is marked @optional: passing null skips
+         * the filter condition entirely (SQL is rewritten at generation time).
+         */
+        public readonly bool    $optional = false,
     ) {}
 }

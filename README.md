@@ -373,6 +373,59 @@ named parameter in the SQL. Known params: status, username
 
 This catches typos at generation time rather than silently producing incorrect SQL at runtime.
 
+
+#### Limitations
+
+`@optional` rewrites SQL conditions using regex pattern matching. This approach is only safe when the rewriter can be certain it is only touching `WHERE` clauses. The following query shapes are **not supported** and will produce a fatal error at generation time:
+
+**JOIN clauses** — a parameter in an `ON` condition is a join predicate, not a row filter. Rewriting it as `(:param IS NULL OR ...)` would turn a missing value into a cartesian product.
+
+```sql
+-- This will throw a RuntimeException at generation time:
+-- @optional roleId
+SELECT users.* FROM users
+INNER JOIN roles ON roles.id = :roleId   -- unsafe: ON condition
+WHERE users.active = 1;
+```
+
+**Subqueries** — the rewriter cannot distinguish between the outer `WHERE` and a nested `SELECT`'s `WHERE`, so it may rewrite the wrong condition.
+
+```sql
+-- This will throw a RuntimeException at generation time:
+-- @optional status
+SELECT * FROM users
+WHERE id IN (SELECT user_id FROM orders WHERE status = :status);  -- unsafe: subquery
+```
+
+**HAVING clauses** — `HAVING` filters aggregated groups, not rows. Skipping a `HAVING` condition has different semantics than skipping a row filter, and the implicit behaviour would be surprising.
+
+```sql
+-- This will throw a RuntimeException at generation time:
+-- @optional minCount
+SELECT role_id, COUNT(*) FROM users
+GROUP BY role_id
+HAVING COUNT(*) > :minCount;  -- unsafe: HAVING
+```
+
+For these cases, handle the conditional logic in PHP directly:
+
+```php
+// Manual approach for queries with JOINs or subqueries
+$sql = 'SELECT users.* FROM users
+        INNER JOIN roles ON roles.id = users.role_id
+        WHERE 1=1';
+
+$params = [];
+if ($status !== null) {
+    $sql .= ' AND users.status = :status';
+    $params[':status'] = $status;
+}
+
+$stmt = $pdo->prepare($sql);
+$stmt->execute($params);
+```
+
+
 ---
 
 ## Parameter type resolution

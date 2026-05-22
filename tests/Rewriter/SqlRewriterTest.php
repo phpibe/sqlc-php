@@ -178,4 +178,105 @@ class SqlRewriterTest extends TestCase
         // The :email token must appear twice — once in IS NULL, once in the condition
         $this->assertSame(2, substr_count($result, ':email'));
     }
+
+    // -------------------------------------------------------------------------
+    // Unsafe construct guards
+    // -------------------------------------------------------------------------
+
+    public function test_throws_on_inner_join(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/JOIN/');
+
+        $sql = 'SELECT * FROM users INNER JOIN roles ON roles.id = users.role_id WHERE users.active = :active';
+        $this->rewriter->rewrite($sql, ['active']);
+    }
+
+    public function test_throws_on_left_join(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/JOIN/');
+
+        $sql = 'SELECT * FROM users LEFT JOIN roles ON roles.id = users.role_id WHERE users.active = :active';
+        $this->rewriter->rewrite($sql, ['active']);
+    }
+
+    public function test_throws_on_right_join(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        $sql = 'SELECT * FROM users RIGHT JOIN roles ON roles.id = users.role_id WHERE users.status = :status';
+        $this->rewriter->rewrite($sql, ['status']);
+    }
+
+    public function test_throws_on_cross_join(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        $sql = 'SELECT * FROM users CROSS JOIN roles WHERE users.status = :status';
+        $this->rewriter->rewrite($sql, ['status']);
+    }
+
+    public function test_throws_on_having_clause(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/HAVING/');
+
+        $sql = 'SELECT role_id, COUNT(*) FROM users GROUP BY role_id HAVING COUNT(*) > :minCount';
+        $this->rewriter->rewrite($sql, ['minCount']);
+    }
+
+    public function test_throws_on_subquery_with_in(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/subquer/i');
+
+        $sql = 'SELECT * FROM users WHERE id IN (SELECT user_id FROM orders WHERE status = :status)';
+        $this->rewriter->rewrite($sql, ['status']);
+    }
+
+    public function test_throws_on_subquery_with_exists(): void
+    {
+        $this->expectException(\RuntimeException::class);
+
+        $sql = 'SELECT * FROM users WHERE EXISTS (SELECT 1 FROM orders WHERE user_id = :userId)';
+        $this->rewriter->rewrite($sql, ['userId']);
+    }
+
+    public function test_error_message_contains_query_name(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches("/Query 'SearchUsers'/");
+
+        $sql = 'SELECT * FROM users INNER JOIN roles ON roles.id = users.role_id WHERE status = :status';
+        $this->rewriter->rewrite($sql, ['status'], 'SearchUsers');
+    }
+
+    public function test_error_message_without_query_name_uses_generic_prefix(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/^@optional/');
+
+        $sql = 'SELECT * FROM users INNER JOIN roles ON roles.id = users.role_id WHERE status = :status';
+        $this->rewriter->rewrite($sql, ['status']);
+    }
+
+    public function test_no_error_on_simple_where_without_join(): void
+    {
+        // Sanity check — valid queries must still work after adding the guard
+        $sql    = 'SELECT * FROM users WHERE status = :status AND active = :active';
+        $result = $this->rewriter->rewrite($sql, ['status', 'active'], 'ListUsers');
+
+        $this->assertStringContainsString(':status IS NULL OR', $result);
+        $this->assertStringContainsString(':active IS NULL OR', $result);
+    }
+
+    public function test_no_error_on_query_without_optional_params_even_with_join(): void
+    {
+        // The guard only fires when there ARE optional params — no params, no problem
+        $sql    = 'SELECT * FROM users INNER JOIN roles ON roles.id = users.role_id WHERE users.id = :id';
+        $result = $this->rewriter->rewrite($sql, []);
+
+        $this->assertSame($sql, $result);
+    }
 }

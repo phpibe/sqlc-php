@@ -234,6 +234,65 @@ class OptionalParamTest extends TestCase
         $this->assertStringContainsString('Pass null to skip this filter', $code);
     }
 
+    public function test_analyzer_throws_when_optional_used_with_join(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/JOIN/');
+
+        $this->analyze(<<<SQL
+            -- @name SearchWithRole
+            -- @returns :many
+            -- @optional status
+            SELECT users.* FROM users
+            INNER JOIN roles ON roles.id = users.role_id
+            WHERE users.status = :status;
+        SQL);
+    }
+
+    public function test_analyzer_throws_when_optional_used_with_having(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/HAVING/');
+
+        $this->analyze(<<<SQL
+            -- @name CountByRole
+            -- @returns :many
+            -- @optional minCount
+            SELECT role_id, COUNT(*) as total FROM users
+            GROUP BY role_id
+            HAVING COUNT(*) > :minCount;
+        SQL);
+    }
+
+    public function test_analyzer_throws_when_optional_used_with_subquery(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/subquer/i');
+
+        $this->analyze(<<<SQL
+            -- @name FindWithOrders
+            -- @returns :many
+            -- @optional status
+            SELECT * FROM users
+            WHERE id IN (SELECT user_id FROM orders WHERE status = :status);
+        SQL);
+    }
+
+    public function test_analyzer_error_message_contains_query_name(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches("/Query 'searchWithRole'/");
+
+        $this->analyze(<<<SQL
+            -- @name SearchWithRole
+            -- @returns :many
+            -- @optional status
+            SELECT users.* FROM users
+            INNER JOIN roles ON roles.id = users.role_id
+            WHERE users.status = :status;
+        SQL);
+    }
+
     public function test_both_params_optional_all_have_defaults(): void
     {
         $code = $this->generate(

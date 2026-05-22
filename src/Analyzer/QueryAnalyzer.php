@@ -41,8 +41,8 @@ class QueryAnalyzer
 
     private function analyzeOne(QueryDefinition $query): QueryDefinition
     {
-        // 1. Rewrite SQL for optional parameters
-        $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams);
+        // 1. Rewrite SQL for optional parameters (validates unsafe constructs first)
+        $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
 
         // 2. Resolve parameters against the rewritten SQL
         $rawParams = $this->paramResolver->resolve($rewrittenSql, $query->paramAnnotations);

@@ -221,7 +221,7 @@ class SchemaParserTest extends TestCase
     private function fullUsersSchema(): string
     {
         // Resolve to <project-root>/schema.sql regardless of cwd
-        $path = dirname(__DIR__, 1) . '/schema.sql';
+        $path = dirname(__DIR__) . '/schema.sql';
         $this->assertFileExists($path, 'schema.sql not found — run tests from the project root or any directory');
         return (string) file_get_contents($path);
     }

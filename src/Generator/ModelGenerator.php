@@ -82,23 +82,39 @@ PHP;
         $lines = [];
         foreach ($columns as $col) {
             $phpType = $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $tableName, $col->name);
-            $cast    = $this->buildCast($phpType, $col->name, $col->nullable);
+            $cast    = $this->buildCast($phpType, $col->name, $col->nullable, $col->sqlType);
             $lines[] = "            {$cast},";
         }
         return implode("\n", $lines);
     }
 
-    private function buildCast(string $phpType, string $colName, bool $nullable): string
+    private function buildCast(string $phpType, string $colName, bool $nullable, string $sqlType = ''): string
     {
         $base   = ltrim($phpType, '?\\');
         $access = "\$row['{$colName}']";
+        $upper  = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));
+
+        // ENUM backed enum → EnumClass::from() / ::tryFrom()
+        if ($upper === 'ENUM') {
+            if ($nullable) {
+                return "isset({$access}) ? {$base}::tryFrom((string) {$access}) : null";
+            }
+            return "{$base}::from((string) {$access})";
+        }
+
+        // JSON → array via json_decode
+        if ($upper === 'JSON' || $base === 'array') {
+            if ($nullable) {
+                return "isset({$access}) ? json_decode((string) {$access}, true) : null";
+            }
+            return "json_decode((string) {$access}, true) ?? []";
+        }
 
         if ($nullable) {
             return match($base) {
                 'int'   => "isset({$access}) ? (int) {$access} : null",
                 'float' => "isset({$access}) ? (float) {$access} : null",
                 'bool'  => "isset({$access}) ? (bool) {$access} : null",
-                'array' => "isset({$access}) ? json_decode((string) {$access}, true) : null",
                 default => "{$access} ?? null",
             };
         }
@@ -107,7 +123,6 @@ PHP;
             'int'   => "(int) {$access}",
             'float' => "(float) {$access}",
             'bool'  => "(bool) {$access}",
-            'array' => "json_decode((string) {$access}, true)",
             'mixed' => "{$access}",
             default => "(string) {$access}",
         };

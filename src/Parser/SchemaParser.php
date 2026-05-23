@@ -10,12 +10,20 @@ namespace SqlcPhp\Parser;
 class ColumnDefinition
 {
     public function __construct(
-        public readonly string $name,
-        public readonly string $sqlType,
-        public readonly bool   $nullable,
-        public readonly bool   $autoIncrement,
+        public readonly string  $name,
+        public readonly string  $sqlType,
+        public readonly bool    $nullable,
+        public readonly bool    $autoIncrement,
         public readonly ?string $default,
+        /** Non-empty only when sqlType === 'ENUM', contains the raw quoted values. */
+        public readonly array   $enumValues = [],
     ) {}
+
+    /** Returns true when this column is a MySQL ENUM. */
+    public function isEnum(): bool
+    {
+        return $this->sqlType === 'ENUM' && !empty($this->enumValues);
+    }
 }
 
 /**
@@ -150,18 +158,19 @@ class SchemaParser
 
     private function parseColumnLine(string $line): ?ColumnDefinition
     {
-        // Match: `col_name` TYPE[(size)] [NOT NULL] [DEFAULT x] [AUTO_INCREMENT] ...
+        // Match: `col_name` TYPE[(args)] [modifiers...]
+        // We capture the full type token including its parenthesised args.
         $pattern = '/^[`"]?(\w+)[`"]?\s+(\w+(?:\([^)]*\))?)\s*(.*)/i';
 
         if (!preg_match($pattern, $line, $m)) {
             return null;
         }
 
-        $name          = $m[1];
-        $rawType       = strtoupper(preg_replace('/\(.*\)/', '', $m[2]) ?? $m[2]);
-        $rest          = $m[3];
+        $name    = $m[1];
+        $rawType = $m[2]; // e.g. "ENUM('a','b')" or "VARCHAR(45)"
+        $rest    = $m[3];
 
-        $nullable      = !str_contains(strtoupper($rest), 'NOT NULL');
+        $nullable      = !str_contains(strtoupper($rest . ' ' . $rawType . ' ' . $line), 'NOT NULL');
         $autoIncrement = (bool) preg_match('/AUTO_INCREMENT/i', $rest);
 
         $default = null;
@@ -169,15 +178,49 @@ class SchemaParser
             $default = $dm[1];
         }
 
-        // Extract clean type (without display width)
-        $sqlType = strtoupper(trim(preg_replace('/\(.*\)/', '', $m[2]) ?? $m[2]));
+        // Extract base SQL type (strip display width / args)
+        $sqlType = strtoupper(trim(preg_replace('/\(.*\)/s', '', $rawType) ?? $rawType));
+
+        // For ENUM columns, parse the quoted values
+        $enumValues = [];
+        if ($sqlType === 'ENUM') {
+            $enumValues = $this->parseEnumValues($rawType);
+        }
 
         return new ColumnDefinition(
-            name: $name,
-            sqlType: $sqlType,
-            nullable: $nullable,
+            name:          $name,
+            sqlType:       $sqlType,
+            nullable:      $nullable,
             autoIncrement: $autoIncrement,
-            default: $default,
+            default:       $default,
+            enumValues:    $enumValues,
         );
+    }
+
+    /**
+     * Extract string values from ENUM('a', 'b', 'c').
+     *
+     * @return string[]
+     */
+    private function parseEnumValues(string $rawType): array
+    {
+        // Extract everything inside the parentheses
+        if (!preg_match('/\((.+)\)/s', $rawType, $m)) {
+            return [];
+        }
+
+        $inner  = $m[1];
+        $values = [];
+
+        // Match each 'value' token (single-quoted strings)
+        preg_match_all("/'([^']*)'/", $inner, $matches);
+
+        foreach ($matches[1] as $v) {
+            if ($v !== '') {
+                $values[] = $v;
+            }
+        }
+
+        return $values;
     }
 }

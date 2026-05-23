@@ -24,11 +24,13 @@ class Config
     public function __construct(
         public readonly string $version,
         public readonly string $schema,
-        public readonly array  $queries,       // always string[]
+        public readonly array  $queries,
         public readonly string $namespace,
         public readonly string $out,
         public readonly string $engine,
         public readonly array  $typeOverrides = [],
+        /** When true, a *Interface file is generated alongside each Query class. */
+        public readonly bool   $generateInterfaces = false,
     ) {}
 
     public static function fromFile(string $path): self
@@ -58,13 +60,14 @@ class Config
         }
 
         return new self(
-            version:       (string) ($data['version'] ?? '1'),
-            schema:        (string) ($data['schema']  ?? 'schema.sql'),
-            queries:       $queries,
-            namespace:     (string) ($php['namespace'] ?? 'App\\Database'),
-            out:           (string) ($php['out']       ?? 'generated'),
-            engine:        (string) ($php['engine']    ?? 'mysql'),
-            typeOverrides: $overrides,
+            version:            (string) ($data['version'] ?? '1'),
+            schema:             (string) ($data['schema']  ?? 'schema.sql'),
+            queries:            $queries,
+            namespace:          (string) ($php['namespace'] ?? 'App\\Database'),
+            out:                (string) ($php['out']       ?? 'generated'),
+            engine:             (string) ($php['engine']    ?? 'mysql'),
+            typeOverrides:      $overrides,
+            generateInterfaces: filter_var($php['generate_interfaces'] ?? false, FILTER_VALIDATE_BOOLEAN),
         );
     }
 

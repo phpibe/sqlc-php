@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace SqlcPhp\TypeMapper;
 
 use SqlcPhp\Config\TypeOverride;
+use SqlcPhp\Generator\EnumGenerator;
 
 class MySQLTypeMapper
 {
@@ -12,10 +13,13 @@ class MySQLTypeMapper
     private array $overrides;
 
     /**
-     * @param TypeOverride[] $overrides  From sqlc.yaml type_overrides
+     * @param TypeOverride[]   $overrides  From sqlc.yaml type_overrides
+     * @param EnumGenerator|null $enumGen  When provided, ENUM columns map to backed enum classes
      */
-    public function __construct(array $overrides = [])
-    {
+    public function __construct(
+        array            $overrides = [],
+        private readonly ?EnumGenerator $enumGen = null,
+    ) {
         $this->overrides = $overrides;
     }
 
@@ -23,8 +27,8 @@ class MySQLTypeMapper
      * Maps a column to a PHP type, consulting overrides first.
      *
      * @param string $tableName   e.g. "users"
-     * @param string $columnName  e.g. "metadata"
-     * @param string $sqlType     e.g. "JSON"
+     * @param string $columnName  e.g. "status"
+     * @param string $sqlType     e.g. "ENUM" | "JSON" | "INT"
      * @param bool   $nullable
      */
     public function toPhpType(
@@ -33,8 +37,7 @@ class MySQLTypeMapper
         string $tableName  = '',
         string $columnName = '',
     ): string {
-        // 1. Column-specific override (most specific — checked first)
-        // 2. DB-type override
+        // 1. Column-specific or db_type override (most specific — checked first)
         foreach ($this->overrides as $override) {
             if ($override->matches($tableName, $columnName, $sqlType)) {
                 $base = $override->phpType;
@@ -42,7 +45,19 @@ class MySQLTypeMapper
             }
         }
 
-        // 3. Default mapping
+        // 2. ENUM → backed enum class name
+        $upper = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));
+        if ($upper === 'ENUM' && $this->enumGen !== null && $tableName !== '' && $columnName !== '') {
+            $base = $this->enumGen->enumClassName($tableName, $columnName);
+            return $nullable ? "?{$base}" : $base;
+        }
+
+        // 3. JSON → array
+        if ($upper === 'JSON') {
+            return $nullable ? '?array' : 'array';
+        }
+
+        // 4. Default mapping
         $base = $this->resolveBaseType($sqlType);
         return $nullable ? "?{$base}" : $base;
     }
@@ -68,7 +83,7 @@ class MySQLTypeMapper
 
     private function resolveBaseType(string $sqlType): string
     {
-        $upper = strtoupper(trim(preg_replace('/\(.*\)/', '', $sqlType) ?? $sqlType));
+        $upper = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));
 
         return match(true) {
             in_array($upper, ['INT', 'INTEGER', 'BIGINT', 'MEDIUMINT']) => 'int',
@@ -76,7 +91,6 @@ class MySQLTypeMapper
             in_array($upper, ['FLOAT', 'DOUBLE', 'DECIMAL', 'NUMERIC']) => 'float',
             in_array($upper, ['BOOLEAN', 'BOOL'])                       => 'bool',
             in_array($upper, ['DATE', 'DATETIME', 'TIMESTAMP', 'TIME']) => 'string',
-            in_array($upper, ['JSON'])                                  => 'string',
             default                                                     => 'string',
         };
     }

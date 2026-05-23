@@ -102,9 +102,14 @@ class MySQLTypeMapperTest extends TestCase
         $this->assertSame('string', (new MySQLTypeMapper())->toPhpType('DATETIME', false));
     }
 
-    public function test_json_maps_to_string(): void
+    public function test_json_maps_to_array(): void
     {
-        $this->assertSame('string', (new MySQLTypeMapper())->toPhpType('JSON', false));
+        $this->assertSame('array', (new MySQLTypeMapper())->toPhpType('JSON', false));
+    }
+
+    public function test_json_nullable_maps_to_nullable_array(): void
+    {
+        $this->assertSame('?array', (new MySQLTypeMapper())->toPhpType('JSON', true));
     }
 
     public function test_unknown_type_falls_back_to_string(): void

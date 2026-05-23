@@ -5,17 +5,18 @@ declare(strict_types=1);
 
 if (isset($GLOBALS['_composer_autoload_path'])) {
     define('PHPIBE_COMPOSER_INSTALL', $GLOBALS['_composer_autoload_path']);
-
     unset($GLOBALS['_composer_autoload_path']);
 } else {
-    foreach (array(__DIR__ . '/../../autoload.php', __DIR__ . '/../vendor/autoload.php', __DIR__ . '/vendor/autoload.php') as $file) {
+    foreach ([
+        __DIR__ . '/../../autoload.php',
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/vendor/autoload.php',
+    ] as $file) {
         if (file_exists($file)) {
             define('PHPIBE_COMPOSER_INSTALL', $file);
-
             break;
         }
     }
-
     unset($file);
 }
 
@@ -24,6 +25,8 @@ require PHPIBE_COMPOSER_INSTALL;
 use SqlcPhp\Analyzer\QueryAnalyzer;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;
+use SqlcPhp\Generator\EnumGenerator;
+use SqlcPhp\Generator\InterfaceGenerator;
 use SqlcPhp\Generator\ModelGenerator;
 use SqlcPhp\Generator\QueryGenerator;
 use SqlcPhp\Generator\ResultDtoGenerator;
@@ -36,8 +39,15 @@ use SqlcPhp\Rewriter\SqlRewriter;
 use SqlcPhp\TypeMapper\MySQLTypeMapper;
 
 // ---------------------------------------------------------------------------
-$configPath = $argv[1] ?? 'sqlc.yaml';
+// Argument parsing
+// ---------------------------------------------------------------------------
+$args       = array_slice($argv, 1);
+$verifyMode = in_array('--verify', $args, true);
+$args       = array_values(array_filter($args, fn($a) => $a !== '--verify'));
+$configPath = $args[0] ?? 'sqlc.yaml';
+
 echo "sqlc-php — PHP code generator\n";
+if ($verifyMode) echo "Mode   : VERIFY (no files will be written)\n";
 echo "Config : {$configPath}\n\n";
 
 try {
@@ -77,7 +87,8 @@ echo "Queries: " . count($rawQueries) . " total query(ies) parsed\n\n";
 // ---------------------------------------------------------------------------
 // Analyze (resolve types)
 // ---------------------------------------------------------------------------
-$typeMapper    = new MySQLTypeMapper($config->typeOverrides);
+$enumGen       = new EnumGenerator($config->namespace);
+$typeMapper    = new MySQLTypeMapper($config->typeOverrides, $enumGen);
 $paramResolver = new ParamResolver($catalog, $typeMapper);
 $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
 $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);
@@ -85,78 +96,106 @@ $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, n
 $queries       = $analyzer->analyze($rawQueries);
 
 // ---------------------------------------------------------------------------
-// Output directory
+// Setup generators
 // ---------------------------------------------------------------------------
-$outDir = rtrim($config->out, '/');
+$resultDtoGen  = new ResultDtoGenerator($config->namespace);
+$interfaceGen  = $config->generateInterfaces ? new InterfaceGenerator($config->namespace) : null;
+$queryGen      = new QueryGenerator(
+    $catalog, $typeMapper, $resultDtoGen, $config->namespace,
+    $config->generateInterfaces, $interfaceGen,
+);
+$modelGen      = new ModelGenerator($catalog, $typeMapper, $queryParser, $config->namespace);
+
+// ---------------------------------------------------------------------------
+// Collect all files to generate
+// Keyed by filename => ['label' => string, 'code' => string]
+// ---------------------------------------------------------------------------
+$outDir  = rtrim($config->out, '/');
+$toWrite = [];
+
+// 1. Enum classes
+foreach ($catalog->all() as $table) {
+    foreach ($table->columns as $col) {
+        if (!$col->isEnum()) continue;
+        ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
+        $toWrite["{$cls}.php"] = ['label' => '[enum]   ', 'code' => $code];
+    }
+}
+
+// 2. Model classes
+$tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
+foreach ($tablesUsed as $tableName) {
+    ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
+    $toWrite["{$cls}.php"] = ['label' => '[model]  ', 'code' => $code];
+}
+
+// 3. Result DTOs
+foreach ($queries as $query) {
+    if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
+    if ($query->returns->value === ':exec') continue;
+    ['className' => $cls, 'code' => $code] = $resultDtoGen->generate($query);
+    $toWrite["{$cls}.php"] = ['label' => '[dto]    ', 'code' => $code];
+}
+
+// 4. Query classes
+foreach ($queryGen->generate($queries) as ['className' => $cls, 'code' => $code]) {
+    $toWrite["{$cls}.php"] = ['label' => '[query]  ', 'code' => $code];
+}
+
+// 5. Interface classes (optional)
+foreach ($queryGen->generateInterfaces($queries) as ['className' => $cls, 'code' => $code]) {
+    $toWrite["{$cls}.php"] = ['label' => '[iface]  ', 'code' => $code];
+}
+
+// ---------------------------------------------------------------------------
+// --verify mode: compare generated content against existing files
+// ---------------------------------------------------------------------------
+if ($verifyMode) {
+    $diffs    = [];
+    $missing  = [];
+
+    foreach ($toWrite as $filename => ['code' => $code]) {
+        $path = "{$outDir}/{$filename}";
+        if (!file_exists($path)) {
+            $missing[] = $path;
+        } elseif (file_get_contents($path) !== $code) {
+            $diffs[] = $path;
+        }
+    }
+
+    if (empty($diffs) && empty($missing)) {
+        echo "✓ All " . count($toWrite) . " generated file(s) are up to date.\n";
+        exit(0);
+    }
+
+    fwrite(STDERR, "\n✗ Generated files are out of date.\n\n");
+
+    if (!empty($missing)) {
+        fwrite(STDERR, "Missing files (" . count($missing) . "):\n");
+        foreach ($missing as $f) fwrite(STDERR, "  - {$f}\n");
+    }
+
+    if (!empty($diffs)) {
+        fwrite(STDERR, "\nModified files (" . count($diffs) . "):\n");
+        foreach ($diffs as $f) fwrite(STDERR, "  ~ {$f}\n");
+    }
+
+    fwrite(STDERR, "\nRun `php bin/sqlc-php {$configPath}` to regenerate.\n");
+    exit(1);
+}
+
+// ---------------------------------------------------------------------------
+// Write files
+// ---------------------------------------------------------------------------
 if (!is_dir($outDir) && !mkdir($outDir, 0755, true)) {
     fwrite(STDERR, "Error: Cannot create output directory: {$outDir}\n"); exit(1);
 }
 
 $written = 0;
-
-// ---------------------------------------------------------------------------
-// 1. Model classes (for tables used in queries returning model directly)
-// ---------------------------------------------------------------------------
-$modelGen   = new ModelGenerator($catalog, $typeMapper, $queryParser, $config->namespace);
-$tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
-
-foreach ($tablesUsed as $tableName) {
-    ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
-    file_put_contents("{$outDir}/{$cls}.php", $code);
-    echo "  [model]  {$outDir}/{$cls}.php\n";
-    $written++;
-}
-
-// ---------------------------------------------------------------------------
-// 2. Result DTOs (for queries with custom SELECT or JOINs)
-// ---------------------------------------------------------------------------
-$resultDtoGen = new ResultDtoGenerator($config->namespace);
-
-foreach ($queries as $query) {
-    if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
-    if (in_array($query->returns->value, [':exec'])) continue;
-
-    ['className' => $cls, 'code' => $code] = $resultDtoGen->generate($query);
-    file_put_contents("{$outDir}/{$cls}.php", $code);
-    echo "  [dto]    {$outDir}/{$cls}.php\n";
-    $written++;
-}
-
-// ---------------------------------------------------------------------------
-// 3. Query classes
-// ---------------------------------------------------------------------------
-$queryGen   = new QueryGenerator($catalog, $typeMapper, $resultDtoGen, $config->namespace);
-$queryFiles = $queryGen->generate($queries);
-
-foreach ($queryFiles as ['className' => $cls, 'code' => $code]) {
-    file_put_contents("{$outDir}/{$cls}.php", $code);
-    echo "  [query]  {$outDir}/{$cls}.php\n";
+foreach ($toWrite as $filename => ['label' => $label, 'code' => $code]) {
+    file_put_contents("{$outDir}/{$filename}", $code);
+    echo "  {$label}{$outDir}/{$filename}\n";
     $written++;
 }
 
 echo "\nDone. {$written} file(s) written to {$outDir}/\n";
-
-// ---------------------------------------------------------------------------
-// Debug summary
-// ---------------------------------------------------------------------------
-echo "\n── Query analysis ──────────────────────────────────────────\n";
-foreach ($queries as $q) {
-    $paramStr = empty($q->params)
-        ? '(none)'
-        : implode(', ', array_map(fn($p) => "{$p->phpType} \${$p->name}", $q->params));
-
-    $retStr = $q->returnsModelDirectly
-        ? $q->modelClass . ($q->returns->value === ':many' ? '[]' : '|null')
-        : (empty($q->resultColumns) ? 'void' : $q->returns->name);
-
-    echo "  {$q->name}()\n";
-    echo "    params  : {$paramStr}\n";
-    echo "    returns : {$retStr}\n";
-    if (!empty($q->resultColumns)) {
-        $cols = array_map(fn($c) => "{$c->phpType} \${$c->alias}", $q->resultColumns);
-        echo "    columns : " . implode(', ', array_slice($cols, 0, 5));
-        if (count($cols) > 5) echo ' … +' . (count($cols) - 5) . ' more';
-        echo "\n";
-    }
-}
-echo "────────────────────────────────────────────────────────────\n";

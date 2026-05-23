@@ -31,3 +31,14 @@ create table roles
     name        varchar(100) not null,
     description varchar(255) null
 );
+
+
+create table orders
+(
+    id         int          auto_increment primary key,
+    user_id    int          not null,
+    status     enum('pending','processing','completed','cancelled') not null,
+    metadata   json         null,
+    total      decimal      not null,
+    created_at timestamp    null
+);

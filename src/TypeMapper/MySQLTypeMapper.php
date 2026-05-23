@@ -40,8 +40,10 @@ class MySQLTypeMapper
         // 1. Column-specific or db_type override (most specific — checked first)
         foreach ($this->overrides as $override) {
             if ($override->matches($tableName, $columnName, $sqlType)) {
-                $base = $override->phpType;
-                return $nullable ? "?{$base}" : $base;
+                // Nullable override takes precedence over schema nullability
+                $effectiveNullable = $override->nullable ?? $nullable;
+                $base = $override->phpType ?? $this->resolveBaseType($sqlType);
+                return $effectiveNullable ? "?{$base}" : $base;
             }
         }
 

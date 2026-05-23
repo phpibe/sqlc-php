@@ -308,6 +308,12 @@ PHP;
     {
         $lines = ['    /**'];
 
+        // @deprecated tag — before @param lines, per PHPDoc convention
+        if ($query->deprecated !== null) {
+            $msg     = $query->deprecated !== '' ? ' ' . $query->deprecated : '';
+            $lines[] = "     * @deprecated{$msg}";
+        }
+
         foreach ($query->params as $param) {
             $type  = $param->optional
                 ? (str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType)

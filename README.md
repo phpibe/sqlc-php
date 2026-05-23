@@ -45,7 +45,7 @@ php ./vendor/bin/sqlc-php sqlc.yaml
 
 ```yaml
 version: "1"
-schema:  schema.sql    # path to your CREATE TABLE file(s)
+schema:  schema.sql    # single file (scalar) or list of files
 queries: queries.sql   # single file (scalar) or list of files
 
 php:
@@ -64,6 +64,18 @@ type_overrides:
 
   - db_type:  "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
+    nullable: true                    # force nullable regardless of schema
+```
+
+### Multiple schema files
+
+`schema` accepts both a scalar string (single file) and a YAML list of paths. All files are parsed and merged into a single catalog before analysis:
+
+```yaml
+schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
+  - database/schema/roles.sql
 ```
 
 ### Multiple query files
@@ -80,8 +92,11 @@ queries:
 All files are parsed and merged before analysis. The CLI prints a per-file count alongside the total:
 
 ```
+Schema : database/schema/users.sql
+Schema : database/schema/orders.sql
+Schema : 3 table(s) — users, orders, roles
 Queries: 8 query(ies) from database/queries/users.sql
-Queries: 3 query(ies) from database/queries/roles.sql
+Queries: 3 query(ies) from database/queries/orders.sql
 Queries: 11 total query(ies) parsed
 ```
 
@@ -92,6 +107,29 @@ Queries: 11 total query(ies) parsed
 | 1 | `column` | Exact `table.column` match — wins over everything |
 | 2 | `db_type` | Matches any column whose SQL type matches |
 | 3 | Default | Built-in SQL → PHP type mapping |
+
+### Nullable override
+
+Any `type_override` entry accepts an optional `nullable` field that forces the nullability of the property regardless of how the column is declared in the schema:
+
+```yaml
+type_overrides:
+  # Force nullable even though the column is NOT NULL in the schema
+  - column:   "users.deleted_at"
+    php_type: "\\Carbon\\Carbon"
+    nullable: true
+
+  # Force NOT nullable for all TIMESTAMP columns despite schema nullability
+  - db_type:  "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: false
+
+  # Only change nullability, keep the default type mapping
+  - column:   "users.created_at"
+    nullable: false
+```
+
+When `nullable` is omitted, the nullability is inherited from the schema column as usual.
 
 ### Default SQL → PHP type mapping
 
@@ -117,6 +155,8 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 -- @returns :many               required — :many | :one | :opt | :exec
 -- @param   userId users.id     optional — explicit type override for a named parameter
 -- @optional paramName          optional — passing null skips the filter condition entirely
+-- @deprecated reason           optional — marks the generated method as @deprecated
+-- @nillable columnAlias        optional — forces a result column to be nullable in the DTO
 ```
 
 ### Return type semantics
@@ -360,6 +400,73 @@ isset($row['metadata']) ? json_decode((string) $row['metadata'], true) : null,
 ```
 
 For `NOT NULL` JSON columns, the fallback is `?? []` to guarantee a non-null array is always returned.
+
+---
+
+### @deprecated — mark a method as deprecated
+
+Adding `@deprecated` to a query causes the generated method to include a `@deprecated` PHPDoc tag. This is useful when migrating queries without breaking existing code.
+
+```sql
+-- @name GetUser
+-- @group User
+-- @returns :one
+-- @deprecated Use getUserById instead
+SELECT users.* FROM users WHERE users.id = :id;
+```
+
+Generated method:
+
+```php
+/**
+ * @deprecated Use getUserById instead
+ * @param ?int $id
+ * @return User
+ */
+public function getUser(?int $id): User
+```
+
+The reason is optional — `-- @deprecated` without a message emits `@deprecated` alone.
+
+---
+
+### @nillable — force a result column to be nullable
+
+`@nillable columnAlias` forces a specific column in the result set to be `?type` in the generated DTO or method return type, regardless of how the column is declared in the schema.
+
+This is useful for JOIN queries where a column from an outer join may be `NULL` at runtime even though the original table defines it as `NOT NULL`:
+
+```sql
+-- @name GetUserWithOptionalRole
+-- @group User
+-- @returns :one
+-- @nillable role_name
+-- @nillable role_description
+SELECT
+    users.id,
+    users.email,
+    roles.name        AS role_name,
+    roles.description AS role_description
+FROM users
+LEFT JOIN roles ON roles.id = users.role_id
+WHERE users.id = :id;
+```
+
+Generated DTO:
+
+```php
+readonly class GetUserWithOptionalRoleRow
+{
+    public function __construct(
+        public ?int    $id,
+        public string  $email,
+        public ?string $role_name,         // forced nullable via @nillable
+        public ?string $role_description,  // forced nullable via @nillable
+    ) {}
+}
+```
+
+Multiple `@nillable` annotations can be combined on the same query. The annotation targets the output alias (the name after `AS`), or the column name if no alias is used.
 
 ---
 
@@ -784,6 +891,7 @@ The test suite covers:
 | Type Mapper | `tests/TypeMapper/MySQLTypeMapperTest.php` | Default mappings, nullability, PDO constants, column/db_type overrides |
 | JSON Type | `tests/TypeMapper/JsonTypeTest.php` | JSON → array mapping, json_decode casts in fromRow |
 | Config | `tests/Config/ConfigTest.php` | YAML parsing, defaults, multiple query files, generate_interfaces, type_overrides |
+| New Features | `tests/Config/NewFeaturesTest.php` | Multiple schema files, nullable override, @deprecated, @nillable |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET resolution, camelCase→snake, fallback |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOIN DTOs, aggregates |
@@ -829,7 +937,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (255 tests)
+├── tests/                              # PHPUnit test suite (288 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -837,6 +945,13 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.3.0]
+- **Multiple schema files** — `schema` in `sqlc.yaml` now accepts a scalar string (legacy) or a YAML list, mirroring the existing `queries` list support. All files are parsed and merged into a single catalog before analysis. The `config->schemas` property always returns `string[]`.
+- **Nullable override in `type_overrides`** — entries now accept an optional `nullable: true|false` field that forces the nullability of the generated property regardless of the schema column definition. Can be used alone (without `php_type`) to only change nullability while keeping the default type mapping.
+- **`@deprecated` annotation** — adding `-- @deprecated reason` to a query emits a `@deprecated` PHPDoc tag on the generated method. The reason message is optional. The tag appears before `@param` lines following PHPDoc convention.
+- **`@nillable` annotation** — adding `-- @nillable columnAlias` forces a specific result column to be `?type` in the generated DTO or return type, regardless of the schema. Useful for LEFT JOIN queries where a column from the joined table may be `NULL` at runtime even though it is `NOT NULL` in the schema. Multiple `@nillable` annotations can be stacked on the same query.
+- **33 new tests** in `tests/Config/NewFeaturesTest.php` covering all four features end-to-end.
 
 ### [1.2.0]
 - **MySQL ENUM → PHP backed enum** — `ENUM('a','b','c')` columns generate a PHP 8.1 backed enum file (e.g. `OrderStatus.php`). The DTO uses the enum as the property type. `fromRow` uses `::from()` for `NOT NULL` columns and `::tryFrom()` for nullable ones. Hyphenated values are converted to PascalCase case names (`in-progress` → `case InProgress`).

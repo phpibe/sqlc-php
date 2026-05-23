@@ -62,13 +62,14 @@ class QueryAnalyzer
             $rawParams
         );
 
-        // 3. Resolve result columns
+        // 3. Resolve result columns, applying @nillable overrides
         $resultColumns        = [];
         $returnsModelDirectly = false;
         $modelClass           = null;
 
         if ($query->returns !== ReturnType::Exec) {
-            $resultColumns = $this->columnResolver->resolve($rewrittenSql);
+            $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
+            $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
             [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
         }
 
@@ -76,7 +77,7 @@ class QueryAnalyzer
             name:                 $query->name,
             group:                $query->group,
             returns:              $query->returns,
-            sql:                  $rewrittenSql,      // store the rewritten SQL
+            sql:                  $rewrittenSql,
             fromTable:            $query->fromTable,
             params:               $params,
             resultColumns:        $resultColumns,
@@ -84,7 +85,38 @@ class QueryAnalyzer
             optionalParams:       $query->optionalParams,
             returnsModelDirectly: $returnsModelDirectly,
             modelClass:           $modelClass,
+            deprecated:           $query->deprecated,
+            nillableColumns:      $query->nillableColumns,
         );
+    }
+
+    /**
+     * Force columns named in $nillableColumns to be nullable.
+     *
+     * @param  ResolvedColumn[] $columns
+     * @param  string[]         $nillable  Column aliases to force nullable
+     * @return ResolvedColumn[]
+     */
+    private function applyNillable(array $columns, array $nillable): array
+    {
+        if (empty($nillable)) return $columns;
+
+        return array_map(function (\SqlcPhp\Resolver\ResolvedColumn $col) use ($nillable): \SqlcPhp\Resolver\ResolvedColumn {
+            if (!in_array($col->alias, $nillable, true)) return $col;
+
+            // Force nullable — strip existing ? and re-add
+            $base    = ltrim($col->phpType, '?');
+            $newType = "?{$base}";
+
+            return new \SqlcPhp\Resolver\ResolvedColumn(
+                alias:      $col->alias,
+                columnName: $col->columnName,
+                tableName:  $col->tableName,
+                sqlType:    $col->sqlType,
+                nullable:   true,
+                phpType:    $newType,
+            );
+        }, $columns);
     }
 
     /**

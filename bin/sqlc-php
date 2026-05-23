@@ -57,13 +57,20 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// Parse schema
+// Parse schema — supports multiple files
 // ---------------------------------------------------------------------------
-if (!file_exists($config->schema)) {
-    fwrite(STDERR, "Error: Schema file not found: {$config->schema}\n"); exit(1);
+$schemaParser = new SchemaParser();
+$allSql       = '';
+
+foreach ($config->schemas as $schemaFile) {
+    if (!file_exists($schemaFile)) {
+        fwrite(STDERR, "Error: Schema file not found: {$schemaFile}\n"); exit(1);
+    }
+    $allSql .= "\n" . (file_get_contents($schemaFile) ?: '');
+    echo "Schema : {$schemaFile}\n";
 }
 
-$tables  = (new SchemaParser())->parse(file_get_contents($config->schema) ?: '');
+$tables  = $schemaParser->parse($allSql);
 $catalog = new SchemaCatalog($tables);
 echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n";
 

@@ -28,6 +28,8 @@ class QueryDefinition
      * @param ResolvedColumn[]     $resultColumns     Resolved SELECT output columns
      * @param array<string,string> $paramAnnotations  Raw @param annotations (name → table.col)
      * @param string[]             $optionalParams    Names declared with @optional
+     * @param string|null          $deprecated        Deprecation message, or null if not deprecated
+     * @param string[]             $nillableColumns   Column aliases forced to nullable via @nillable
      */
     public function __construct(
         public readonly string     $name,
@@ -49,6 +51,10 @@ class QueryDefinition
          * Set when returnsModelDirectly = true.
          */
         public readonly ?string    $modelClass = null,
+        /** Deprecation message from @deprecated annotation. null = not deprecated. */
+        public readonly ?string    $deprecated = null,
+        /** Column aliases (or names) forced nullable via @nillable. */
+        public readonly array      $nillableColumns = [],
     ) {}
 }
 
@@ -56,11 +62,13 @@ class QueryDefinition
  * Parses SQL files containing annotation-decorated queries.
  *
  * Supported annotations:
- *   -- @name     ListUsers
- *   -- @group    User
- *   -- @returns  :many | :one | :opt | :exec
- *   -- @param    userId users.id        (explicit type override for a parameter)
- *   -- @optional status                 (passing null skips the filter condition)
+ *   -- @name       ListUsers
+ *   -- @group      User
+ *   -- @returns    :many | :one | :opt | :exec
+ *   -- @param      userId users.id       (explicit type override for a parameter)
+ *   -- @optional   status                (passing null skips the filter condition)
+ *   -- @deprecated Use newMethod instead (marks generated method as deprecated)
+ *   -- @nillable   column_name           (forces a result column to be nullable)
  */
 class QueryParser
 {
@@ -94,6 +102,8 @@ class QueryParser
         $returns          = null;
         $paramAnnotations = [];
         $optionalParams   = [];
+        $nillableColumns  = [];
+        $deprecated       = null;
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -112,6 +122,10 @@ class QueryParser
                     $paramAnnotations[$m[1]] = $m[2];
                 } elseif (preg_match('/@optional\s+(\w+)/i', $comment, $m)) {
                     $optionalParams[] = $m[1];
+                } elseif (preg_match('/@nillable\s+(\w+)/i', $comment, $m)) {
+                    $nillableColumns[] = $m[1];
+                } elseif (preg_match('/@deprecated(?:\s+(.+))?$/i', $comment, $m)) {
+                    $deprecated = isset($m[1]) ? trim($m[1]) : '';
                 }
             } else {
                 $sqlLines[] = $line;
@@ -134,7 +148,6 @@ class QueryParser
         }
 
         // Validate @optional names against :params present in the SQL
-        // This catches typos at parse time rather than at runtime.
         if (!empty($optionalParams)) {
             preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $cleanSql, $paramMatches);
             $knownParams = array_map(
@@ -162,6 +175,8 @@ class QueryParser
             resultColumns:    [],
             paramAnnotations: $paramAnnotations,
             optionalParams:   $optionalParams,
+            deprecated:       $deprecated,
+            nillableColumns:  $nillableColumns,
         );
     }
 

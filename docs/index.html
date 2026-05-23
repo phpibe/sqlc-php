@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>sqlc-php — Documentation</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- Bootstrap Icons -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet" />
+  <!-- Highlight.js -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg-body:        #0d1117;
+      --bg-sidebar:     #0a0e14;
+      --bg-content:     #0d1117;
+      --bg-card:        #161b22;
+      --bg-card-hover:  #1c2230;
+      --border:         #21262d;
+      --accent:         #f78166;
+      --accent-2:       #58a6ff;
+      --accent-3:       #3fb950;
+      --text-primary:   #e6edf3;
+      --text-muted:     #7d8590;
+      --text-heading:   #ffffff;
+      --sidebar-w:      270px;
+      --topbar-h:       58px;
+      --font-mono:      'JetBrains Mono', monospace;
+      --font-display:   'Syne', sans-serif;
+      --font-body:      'DM Sans', sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg-body);
+      color: var(--text-primary);
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.75;
+      margin: 0;
+    }
+
+    /* ── TOPBAR ── */
+    #topbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--topbar-h);
+      background: rgba(10, 14, 20, 0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      padding: 0 1.5rem;
+      gap: 1rem;
+    }
+
+    #topbar .brand {
+      font-family: var(--font-display);
+      font-weight: 800;
+      font-size: 1.15rem;
+      color: var(--text-heading);
+      letter-spacing: -.02em;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      white-space: nowrap;
+    }
+
+    #topbar .brand .badge-version {
+      font-family: var(--font-mono);
+      font-size: .65rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: #0d1117;
+      padding: 2px 7px;
+      border-radius: 20px;
+      letter-spacing: .02em;
+    }
+
+    #topbar .topbar-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+
+    #topbar .topbar-right a {
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      text-decoration: none;
+      transition: color .15s;
+    }
+
+    #topbar .topbar-right a:hover { color: var(--text-primary); }
+
+    #sidebar-toggle {
+      display: none;
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    /* ── LAYOUT ── */
+    #layout {
+      display: flex;
+      padding-top: var(--topbar-h);
+      min-height: 100vh;
+    }
+
+    /* ── SIDEBAR ── */
+    #sidebar {
+      width: var(--sidebar-w);
+      min-width: var(--sidebar-w);
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border);
+      position: fixed;
+      top: var(--topbar-h);
+      bottom: 0;
+      overflow-y: auto;
+      padding: 1.5rem 0 2rem;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+      z-index: 900;
+      transition: transform .25s ease;
+    }
+
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .sidebar-group {
+      margin-bottom: .25rem;
+    }
+
+    .sidebar-group-label {
+      font-family: var(--font-display);
+      font-size: .68rem;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: 1rem 1.5rem .4rem;
+    }
+
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      padding: .42rem 1.5rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: .875rem;
+      border-left: 2px solid transparent;
+      transition: all .15s;
+      border-radius: 0;
+    }
+
+    .sidebar-link:hover {
+      color: var(--text-primary);
+      background: rgba(255,255,255,.03);
+      border-left-color: var(--border);
+    }
+
+    .sidebar-link.active {
+      color: var(--accent-2);
+      background: rgba(88, 166, 255, .06);
+      border-left-color: var(--accent-2);
+    }
+
+    .sidebar-link i { font-size: .85rem; opacity: .7; flex-shrink: 0; }
+
+    /* ── MAIN CONTENT ── */
+    #main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      min-width: 0;
+    }
+
+    .content-inner {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 2.5rem 5rem;
+    }
+
+    /* ── SECTION ANCHORS ── */
+    .doc-section {
+      padding-top: 1rem;
+      margin-bottom: 0;
+    }
+
+    /* ── HEADINGS ── */
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      color: var(--text-heading);
+      letter-spacing: -.025em;
+    }
+
+    h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 1rem;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-top: 3rem;
+      margin-bottom: 1rem;
+      padding-bottom: .6rem;
+      border-bottom: 1px solid var(--border);
+      scroll-margin-top: calc(var(--topbar-h) + 1.5rem);
+    }
+
+    h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-top: 2rem;
+      margin-bottom: .75rem;
+      scroll-margin-top: calc(var(--topbar-h) + 1.5rem);
+    }
+
+    h4 {
+      font-size: .95rem;
+      font-weight: 700;
+      margin-top: 1.5rem;
+      margin-bottom: .5rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: .75rem;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      background: linear-gradient(135deg, #0d1117 0%, #0f1923 100%);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2.5rem;
+      margin-bottom: 2.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 220px; height: 220px;
+      background: radial-gradient(circle, rgba(247,129,102,.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-tagline {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      max-width: 560px;
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-badges { display: flex; flex-wrap: wrap; gap: .5rem; }
+
+    .hero-badge {
+      font-family: var(--font-mono);
+      font-size: .72rem;
+      padding: 3px 10px;
+      border-radius: 20px;
+      border: 1px solid;
+      font-weight: 600;
+    }
+
+    .badge-php   { color: #a78bfa; border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.07); }
+    .badge-pdo   { color: var(--accent-2); border-color: rgba(88,166,255,.3); background: rgba(88,166,255,.07); }
+    .badge-typed { color: var(--accent-3); border-color: rgba(63,185,80,.3); background: rgba(63,185,80,.07); }
+    .badge-noorm { color: var(--accent); border-color: rgba(247,129,102,.3); background: rgba(247,129,102,.07); }
+
+    /* ── FLOW DIAGRAM ── */
+    .flow-diagram {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.75rem 2rem;
+      font-family: var(--font-mono);
+      font-size: .82rem;
+      color: var(--text-muted);
+      line-height: 2;
+    }
+
+    .flow-diagram .flow-input  { color: var(--accent-2); }
+    .flow-diagram .flow-cli    { color: var(--accent); font-weight: 600; }
+    .flow-diagram .flow-output { color: var(--accent-3); }
+    .flow-diagram .flow-arrow  { color: var(--text-muted); }
+
+    /* ── CODE BLOCKS ── */
+    pre {
+      background: #010409 !important;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    pre code {
+      font-family: var(--font-mono) !important;
+      font-size: .82rem !important;
+      line-height: 1.65 !important;
+      padding: 1.25rem 1.5rem !important;
+      display: block;
+    }
+
+    code:not(pre code) {
+      font-family: var(--font-mono);
+      font-size: .82em;
+      background: rgba(110,118,129,.15);
+      border: 1px solid rgba(110,118,129,.25);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: #f78166;
+    }
+
+    /* ── TABLES ── */
+    .doc-table-wrap {
+      overflow-x: auto;
+      margin: 1rem 0;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .875rem;
+      margin: 0;
+    }
+
+    .doc-table thead tr {
+      background: #161b22;
+    }
+
+    .doc-table th {
+      font-family: var(--font-display);
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      padding: .75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .doc-table td {
+      padding: .65rem 1rem;
+      border-bottom: 1px solid rgba(33,38,45,.7);
+      vertical-align: top;
+    }
+
+    .doc-table tbody tr:last-child td { border-bottom: none; }
+
+    .doc-table tbody tr:hover { background: rgba(255,255,255,.02); }
+
+    .doc-table code { font-size: .78rem; }
+
+    /* ── CALLOUT BOXES ── */
+    .callout {
+      border-radius: 8px;
+      border-left: 3px solid;
+      padding: 1rem 1.25rem;
+      margin: 1.25rem 0;
+      font-size: .9rem;
+    }
+
+    .callout-info {
+      background: rgba(88,166,255,.06);
+      border-color: var(--accent-2);
+      color: #93c5fd;
+    }
+
+    .callout-tip {
+      background: rgba(63,185,80,.06);
+      border-color: var(--accent-3);
+      color: #86efac;
+    }
+
+    .callout-warning {
+      background: rgba(247,129,102,.06);
+      border-color: var(--accent);
+      color: #fca5a5;
+    }
+
+    .callout-icon { font-size: 1rem; margin-right: .5rem; }
+
+    /* ── ANNOTATION TAGS ── */
+    .annotation {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: .78rem;
+      padding: 1px 8px;
+      border-radius: 4px;
+      margin: 1px 2px;
+      font-weight: 600;
+    }
+    .ann-required { background: rgba(247,129,102,.15); color: var(--accent); }
+    .ann-optional { background: rgba(88,166,255,.12);  color: var(--accent-2); }
+
+    /* ── RETURN TYPES ── */
+    .return-type {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: .78rem;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-weight: 600;
+    }
+    .rt-many { background: rgba(88,166,255,.15); color: var(--accent-2); }
+    .rt-one  { background: rgba(247,129,102,.15); color: var(--accent); }
+    .rt-opt  { background: rgba(167,139,250,.15); color: #c4b5fd; }
+    .rt-exec { background: rgba(63,185,80,.15);   color: var(--accent-3); }
+
+    /* ── FILE TREE ── */
+    .file-tree {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      font-family: var(--font-mono);
+      font-size: .82rem;
+      line-height: 1.9;
+    }
+
+    .file-tree .dir  { color: var(--accent-2); }
+    .file-tree .file { color: var(--text-primary); }
+    .file-tree .comment { color: var(--text-muted); }
+
+    /* ── CHANGELOG ITEMS ── */
+    .changelog-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .changelog-version {
+      font-family: var(--font-mono);
+      font-size: .85rem;
+      font-weight: 700;
+      color: var(--accent-3);
+      margin-bottom: .75rem;
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+    }
+
+    .changelog-version::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .changelog-item ul {
+      margin: 0;
+      padding-left: 1.25rem;
+      color: var(--text-muted);
+      font-size: .875rem;
+    }
+
+    .changelog-item li { margin-bottom: .4rem; }
+    .changelog-item li strong { color: var(--text-primary); }
+
+    /* ── PRIORITY TABLE ── */
+    .priority-pill {
+      display: inline-block;
+      font-family: var(--font-mono);
+      font-size: .7rem;
+      font-weight: 700;
+      padding: 2px 9px;
+      border-radius: 20px;
+    }
+    .p1 { background: rgba(247,129,102,.2); color: var(--accent); }
+    .p2 { background: rgba(88,166,255,.15); color: var(--accent-2); }
+    .p3 { background: rgba(110,118,129,.15); color: var(--text-muted); }
+
+    /* ── LINKS ── */
+    a { color: var(--accent-2); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* ── SCROLLBAR ── */
+    html { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 900px) {
+      #sidebar-toggle { display: block; }
+
+      #sidebar {
+        transform: translateX(-100%);
+      }
+
+      #sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,.5);
+      }
+
+      #main { margin-left: 0; }
+
+      .content-inner { padding: 2rem 1.25rem 4rem; }
+
+      h1 { font-size: 2rem; }
+    }
+
+    /* ── SMOOTH SCROLL ── */
+    html { scroll-behavior: smooth; }
+
+    /* ── ACTIVE SECTION HIGHLIGHT ── */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2.5rem 0;
+    }
+  </style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header id="topbar">
+  <button id="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+    <i class="bi bi-list"></i>
+  </button>
+  <a href="#" class="brand">
+    <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
+    sqlc-php
+    <span class="badge-version">v1.3.0</span>
+  </a>
+  <div class="topbar-right">
+    <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
+    <a href="https://packagist.org/packages/phpibe/sqlc-php" title="Packagist" target="_blank"><i class="bi bi-box-seam"></i></a>
+  </div>
+</header>
+
+<div id="layout">
+
+  <!-- SIDEBAR -->
+  <nav id="sidebar">
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Getting Started</div>
+      <a class="sidebar-link" href="#intro"><i class="bi bi-house-door"></i> Introduction</a>
+      <a class="sidebar-link" href="#how-it-works"><i class="bi bi-diagram-3"></i> How it works</a>
+      <a class="sidebar-link" href="#requirements"><i class="bi bi-check2-circle"></i> Requirements</a>
+      <a class="sidebar-link" href="#installation"><i class="bi bi-download"></i> Installation</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Configuration</div>
+      <a class="sidebar-link" href="#config"><i class="bi bi-gear"></i> sqlc.yaml</a>
+      <a class="sidebar-link" href="#multiple-schemas"><i class="bi bi-files"></i> Multiple schema files</a>
+      <a class="sidebar-link" href="#multiple-queries"><i class="bi bi-file-earmark-code"></i> Multiple query files</a>
+      <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
+      <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Annotations</div>
+      <a class="sidebar-link" href="#annotations"><i class="bi bi-at"></i> Annotations reference</a>
+      <a class="sidebar-link" href="#return-types"><i class="bi bi-arrow-return-right"></i> Return type semantics</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Query Examples</div>
+      <a class="sidebar-link" href="#select-all"><i class="bi bi-collection"></i> SELECT *</a>
+      <a class="sidebar-link" href="#select-where"><i class="bi bi-funnel"></i> SELECT with WHERE</a>
+      <a class="sidebar-link" href="#select-columns"><i class="bi bi-layout-three-columns"></i> SELECT columns</a>
+      <a class="sidebar-link" href="#joins"><i class="bi bi-intersect"></i> JOINs → Row DTO</a>
+      <a class="sidebar-link" href="#aggregates"><i class="bi bi-calculator"></i> Aggregates</a>
+      <a class="sidebar-link" href="#exec"><i class="bi bi-pencil-square"></i> UPDATE / DELETE</a>
+      <a class="sidebar-link" href="#enums"><i class="bi bi-list-check"></i> MySQL ENUM</a>
+      <a class="sidebar-link" href="#json"><i class="bi bi-braces"></i> JSON columns</a>
+      <a class="sidebar-link" href="#deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
+      <a class="sidebar-link" href="#nillable"><i class="bi bi-question-circle"></i> @nillable</a>
+      <a class="sidebar-link" href="#optional-params"><i class="bi bi-toggles"></i> Optional params</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Resolution</div>
+      <a class="sidebar-link" href="#param-resolution"><i class="bi bi-search"></i> Parameter resolution</a>
+      <a class="sidebar-link" href="#expression-table"><i class="bi bi-lightning"></i> Expression inference</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Generated Code</div>
+      <a class="sidebar-link" href="#generated-structure"><i class="bi bi-folder2-open"></i> File structure</a>
+      <a class="sidebar-link" href="#model-example"><i class="bi bi-file-earmark-person"></i> Model class</a>
+      <a class="sidebar-link" href="#query-example"><i class="bi bi-file-earmark-play"></i> Query class</a>
+      <a class="sidebar-link" href="#interface-example"><i class="bi bi-file-earmark-diff"></i> Interface</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Usage</div>
+      <a class="sidebar-link" href="#usage"><i class="bi bi-terminal"></i> Basic usage</a>
+      <a class="sidebar-link" href="#laravel"><i class="bi bi-box-arrow-in-right"></i> Laravel integration</a>
+      <a class="sidebar-link" href="#ci"><i class="bi bi-shield-check"></i> CI verification</a>
+      <a class="sidebar-link" href="#tests"><i class="bi bi-clipboard2-check"></i> Running tests</a>
+    </div>
+
+    <div class="sidebar-group">
+      <div class="sidebar-group-label">Reference</div>
+      <a class="sidebar-link" href="#project-structure"><i class="bi bi-diagram-2"></i> Project structure</a>
+      <a class="sidebar-link" href="#changelog"><i class="bi bi-clock-history"></i> Changelog</a>
+    </div>
+  </nav>
+
+  <!-- MAIN CONTENT -->
+  <main id="main">
+    <div class="content-inner">
+
+      <!-- INTRO -->
+      <section class="doc-section" id="intro">
+        <div class="hero">
+          <h1 style="margin-bottom:.5rem">sqlc-php</h1>
+          <p class="hero-tagline">
+            A PHP code generator inspired by <a href="https://sqlc.dev" target="_blank">sqlc</a> for Go.
+            Reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes
+            using PDO — no ORM, no magic, just plain objects derived directly from your database.
+          </p>
+          <div class="hero-badges">
+            <span class="hero-badge badge-php">PHP 8.3+</span>
+            <span class="hero-badge badge-pdo">PDO</span>
+            <span class="hero-badge badge-typed">Fully Typed</span>
+            <span class="hero-badge badge-noorm">No ORM</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- HOW IT WORKS -->
+      <section class="doc-section" id="how-it-works">
+        <h2><i class="bi bi-diagram-3 me-2" style="color:var(--accent)"></i>How it works</h2>
+        <div class="flow-diagram">
+          <div><span class="flow-input">schema.sql + queries.sql + sqlc.yaml</span></div>
+          <div class="flow-arrow">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓</div>
+          <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="flow-cli">sqlc-php (CLI)</span></div>
+          <div class="flow-arrow">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓</div>
+          <div><span class="flow-output">User.php · UserQuery.php · UserQueryInterface.php · OrderStatus.php</span></div>
+        </div>
+        <ol style="margin-top:1.25rem; color: var(--text-muted); padding-left:1.25rem;">
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)">Parse</strong> — reads <code>CREATE TABLE</code> statements and builds a schema catalog.</li>
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)">Analyze</strong> — resolves every query's parameters and result columns against the catalog.</li>
+          <li><strong style="color:var(--text-primary)">Generate</strong> — emits one <code>readonly</code> DTO per table, PHP backed enums for <code>ENUM</code> columns, one query class per <code>@group</code>, and optionally a matching interface per query class.</li>
+        </ol>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- REQUIREMENTS -->
+      <section class="doc-section" id="requirements">
+        <h2><i class="bi bi-check2-circle me-2" style="color:var(--accent-3)"></i>Requirements</h2>
+        <ul style="color:var(--text-muted)">
+          <li><strong style="color:var(--text-primary)">PHP 8.3+</strong></li>
+          <li><strong style="color:var(--text-primary)">PDO extension</strong></li>
+        </ul>
+      </section>
+
+      <!-- INSTALLATION -->
+      <section class="doc-section" id="installation">
+        <h2><i class="bi bi-download me-2" style="color:var(--accent-2)"></i>Installation</h2>
+        <pre><code class="language-bash">composer require phpibe/sqlc-php</code></pre>
+        <p style="color:var(--text-muted)">Then run the CLI from your project root:</p>
+        <pre><code class="language-bash">php ./vendor/bin/sqlc-php sqlc.yaml</code></pre>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- CONFIG -->
+      <section class="doc-section" id="config">
+        <h2><i class="bi bi-gear me-2" style="color:var(--accent)"></i>Configuration — <code>sqlc.yaml</code></h2>
+        <pre><code class="language-yaml">version: "1"
+schema:  schema.sql    # single file (scalar) or list of files
+queries: queries.sql   # single file (scalar) or list of files
+
+php:
+  namespace:           "App\\Database"  # PHP namespace for all generated classes
+  out:                 generated        # output directory
+  engine:              mysql            # database engine (mysql supported)
+  generate_interfaces: true             # generate *Interface alongside each Query class
+
+# Optional type overrides
+type_overrides:
+  - column:   "users.active"        # target a specific table.column
+    php_type: "bool"
+
+  - db_type:  "TINYINT"             # target every column of this SQL type
+    php_type: "bool"
+
+  - db_type:  "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: true                    # force nullable regardless of schema</code></pre>
+      </section>
+
+      <!-- MULTIPLE SCHEMAS -->
+      <section class="doc-section" id="multiple-schemas">
+        <h3>Multiple schema files</h3>
+        <p style="color:var(--text-muted)"><code>schema</code> accepts both a scalar string (single file) and a YAML list of paths. All files are parsed and merged into a single catalog before analysis:</p>
+        <pre><code class="language-yaml">schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
+  - database/schema/roles.sql</code></pre>
+      </section>
+
+      <!-- MULTIPLE QUERIES -->
+      <section class="doc-section" id="multiple-queries">
+        <h3>Multiple query files</h3>
+        <p style="color:var(--text-muted)"><code>queries</code> accepts both a scalar string and a YAML list of paths:</p>
+        <pre><code class="language-yaml">queries:
+  - database/queries/users.sql
+  - database/queries/roles.sql
+  - database/queries/orders.sql</code></pre>
+        <p style="color:var(--text-muted)">The CLI prints a per-file count alongside the total:</p>
+        <pre><code class="language-text">Schema : database/schema/users.sql
+Schema : database/schema/orders.sql
+Schema : 3 table(s) — users, orders, roles
+Queries: 8 query(ies) from database/queries/users.sql
+Queries: 3 query(ies) from database/queries/orders.sql
+Queries: 11 total query(ies) parsed</code></pre>
+      </section>
+
+      <!-- TYPE OVERRIDES -->
+      <section class="doc-section" id="type-overrides">
+        <h3>Type override precedence</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Priority</th>
+                <th>Rule</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="priority-pill p1">1</span></td>
+                <td><code>column</code></td>
+                <td>Exact <code>table.column</code> match — wins over everything</td>
+              </tr>
+              <tr>
+                <td><span class="priority-pill p2">2</span></td>
+                <td><code>db_type</code></td>
+                <td>Matches any column whose SQL type matches</td>
+              </tr>
+              <tr>
+                <td><span class="priority-pill p3">3</span></td>
+                <td>Default</td>
+                <td>Built-in SQL → PHP type mapping</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h4>Nullable override</h4>
+        <p style="color:var(--text-muted)">Any <code>type_override</code> entry accepts an optional <code>nullable</code> field that forces nullability regardless of the schema:</p>
+        <pre><code class="language-yaml">type_overrides:
+  # Force nullable even though the column is NOT NULL in the schema
+  - column:   "users.deleted_at"
+    php_type: "\\Carbon\\Carbon"
+    nullable: true
+
+  # Force NOT nullable for all TIMESTAMP columns
+  - db_type:  "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: false
+
+  # Only change nullability, keep default type mapping
+  - column:   "users.created_at"
+    nullable: false</code></pre>
+      </section>
+
+      <!-- TYPE MAPPING -->
+      <section class="doc-section" id="type-mapping">
+        <h3>Default SQL → PHP type mapping</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr><th>SQL type</th><th>PHP type</th><th>Notes</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>INT, BIGINT, SMALLINT, TINYINT</code></td><td><code>int</code></td><td></td></tr>
+              <tr><td><code>DECIMAL, FLOAT, DOUBLE</code></td><td><code>float</code></td><td></td></tr>
+              <tr><td><code>VARCHAR, CHAR, TEXT</code></td><td><code>string</code></td><td></td></tr>
+              <tr><td><code>DATE, DATETIME, TIMESTAMP</code></td><td><code>string</code></td><td>Override with <code>\DateTimeImmutable</code> via <code>type_overrides</code></td></tr>
+              <tr><td><code>JSON</code></td><td><code>array</code></td><td>Hydrated via <code>json_decode</code> in <code>fromRow</code></td></tr>
+              <tr><td><code>ENUM(...)</code></td><td><code>EnumClass</code></td><td>Generates a PHP 8.1 backed enum file</td></tr>
+              <tr><td><code>BOOLEAN</code></td><td><code>bool</code></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- ANNOTATIONS -->
+      <section class="doc-section" id="annotations">
+        <h2><i class="bi bi-at me-2" style="color:var(--accent)"></i>Annotating queries</h2>
+        <p style="color:var(--text-muted)">Every query must have at minimum a <code>@name</code> and a <code>@returns</code> annotation, written as SQL comments:</p>
+        <pre><code class="language-sql">-- @name    MethodName          required — PHP method name (camelCase)
+-- @group   ClassName           optional — query class name; inferred from FROM table if omitted
+-- @returns :many               required — :many | :one | :opt | :exec
+-- @param   userId users.id     optional — explicit type override for a named parameter
+-- @optional paramName          optional — passing null skips the filter condition entirely
+-- @deprecated reason           optional — marks the generated method as @deprecated
+-- @nillable columnAlias        optional — forces a result column to be nullable in the DTO</code></pre>
+
+        <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
+          <span class="annotation ann-required">@name</span> <small style="color:var(--text-muted)">required</small>
+          <span class="annotation ann-required">@returns</span> <small style="color:var(--text-muted)">required</small>
+          <span class="annotation ann-optional">@group</span> <small style="color:var(--text-muted)">optional</small>
+          <span class="annotation ann-optional">@param</span>
+          <span class="annotation ann-optional">@optional</span>
+          <span class="annotation ann-optional">@deprecated</span>
+          <span class="annotation ann-optional">@nillable</span>
+        </div>
+      </section>
+
+      <!-- RETURN TYPES -->
+      <section class="doc-section" id="return-types">
+        <h3>Return type semantics</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr><th>Annotation</th><th>PHP return type</th><th>Behaviour</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="return-type rt-many">:many</span></td>
+                <td><code>ModelClass[]</code></td>
+                <td>Returns an array; empty array if no rows</td>
+              </tr>
+              <tr>
+                <td><span class="return-type rt-one">:one</span></td>
+                <td><code>ModelClass</code></td>
+                <td>Returns the object; <strong>throws <code>RuntimeException</code></strong> if no row found</td>
+              </tr>
+              <tr>
+                <td><span class="return-type rt-opt">:opt</span></td>
+                <td><code>ModelClass|null</code></td>
+                <td>Returns the object or <code>null</code> if no row found</td>
+              </tr>
+              <tr>
+                <td><span class="return-type rt-exec">:exec</span></td>
+                <td><code>void</code></td>
+                <td>Executes the statement (INSERT, UPDATE, DELETE)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- SELECT ALL -->
+      <section class="doc-section" id="select-all">
+        <h2><i class="bi bi-collection me-2" style="color:var(--accent-2)"></i>SELECT * — returns the table model</h2>
+        <pre><code class="language-sql">-- @name ListUsers
+-- @group User
+-- @returns :many
+SELECT users.* FROM users;</code></pre>
+        <p style="color:var(--text-muted)">Generated method:</p>
+        <pre><code class="language-php">/** @return User[] */
+public function listUsers(): array</code></pre>
+      </section>
+
+      <!-- SELECT WHERE -->
+      <section class="doc-section" id="select-where">
+        <h2><i class="bi bi-funnel me-2" style="color:var(--accent-2)"></i>SELECT with WHERE</h2>
+        <pre><code class="language-sql">-- @name GetUser
+-- @group User
+-- @returns :one
+SELECT users.* FROM users WHERE users.id = :id;
+
+-- @name GetUserByEmail
+-- @group User
+-- @returns :opt
+SELECT users.* FROM users WHERE users.email = :email;</code></pre>
+        <pre><code class="language-php">/** @return User */
+public function getUser(?int $id): User               // throws RuntimeException if missing
+
+/** @return User|null */
+public function getUserByEmail(string $email): ?User  // returns null if missing</code></pre>
+      </section>
+
+      <!-- SELECT COLUMNS -->
+      <section class="doc-section" id="select-columns">
+        <h2><i class="bi bi-layout-three-columns me-2" style="color:var(--accent-2)"></i>SELECT specific columns</h2>
+        <p style="color:var(--text-muted)">When columns come from a single table, the return type is still the table model:</p>
+        <pre><code class="language-sql">-- @name GetUserProfile
+-- @group User
+-- @returns :one
+SELECT users.id, users.email, users.firstname, users.avatar
+FROM users
+WHERE users.id = :id;</code></pre>
+        <pre><code class="language-php">public function getUserProfile(?int $id): User</code></pre>
+      </section>
+
+      <!-- JOINS -->
+      <section class="doc-section" id="joins">
+        <h2><i class="bi bi-intersect me-2" style="color:var(--accent-2)"></i>JOIN — generates a result DTO</h2>
+        <p style="color:var(--text-muted)">When columns come from multiple tables, a dedicated <code>*Row</code> DTO is generated:</p>
+        <pre><code class="language-sql">-- @name GetUserWithRole
+-- @group User
+-- @returns :one
+SELECT
+    users.id,
+    users.email,
+    roles.name        AS role_name,
+    roles.description AS role_description
+FROM users
+INNER JOIN roles ON roles.id = users.role_id
+WHERE users.id = :id;</code></pre>
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          Generates <code>GetUserWithRoleRow.php</code> — readonly DTO with <code>id</code>, <code>email</code>, <code>role_name</code>, <code>role_description</code>.
+        </div>
+        <pre><code class="language-php">public function getUserWithRole(?int $id): GetUserWithRoleRow</code></pre>
+      </section>
+
+      <!-- AGGREGATES -->
+      <section class="doc-section" id="aggregates">
+        <h2><i class="bi bi-calculator me-2" style="color:var(--accent-2)"></i>Aggregate and expression columns</h2>
+        <p style="color:var(--text-muted)">sqlc-php infers types from SQL functions. Aliases are generated automatically when none is provided:</p>
+        <pre><code class="language-sql">-- @name GetUserStats
+-- @group User
+-- @returns :one
+SELECT
+    COUNT(*)        AS total_users,
+    SUM(active)     AS total_active,
+    AVG(role_id)    AS avg_role,
+    MAX(created_at) AS last_signup
+FROM users;</code></pre>
+        <pre><code class="language-php">readonly class GetUserStatsRow
+{
+    public function __construct(
+        public int                 $total_users,   // COUNT → int, never null
+        public ?int                $total_active,  // SUM   → ?int (null on empty set)
+        public ?float              $avg_role,      // AVG   → ?float
+        public ?\DateTimeImmutable $last_signup,   // MAX   → nullable, type from column
+    ) {}
+}</code></pre>
+
+        <h3 id="expression-table">Expression type inference table</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr><th>SQL expression</th><th>PHP type</th><th>Auto-alias (no AS)</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>COUNT(*)</code></td><td><code>int</code></td><td><code>count</code></td></tr>
+              <tr><td><code>SUM(int_col)</code></td><td><code>?int</code></td><td><code>sumIntCol</code></td></tr>
+              <tr><td><code>SUM(decimal_col)</code></td><td><code>?float</code></td><td><code>sumDecimalCol</code></td></tr>
+              <tr><td><code>AVG(col)</code></td><td><code>?float</code></td><td><code>avgCol</code></td></tr>
+              <tr><td><code>MIN(col)</code></td><td><code>?{type of col}</code></td><td><code>minCol</code></td></tr>
+              <tr><td><code>MAX(col)</code></td><td><code>?{type of col}</code></td><td><code>maxCol</code></td></tr>
+              <tr><td><code>COALESCE(col, x)</code></td><td><code>{type of col}</code> (not nullable)</td><td><code>coalesceCol</code></td></tr>
+              <tr><td><code>IFNULL(col, x)</code></td><td><code>{type of col}</code> (not nullable)</td><td><code>ifnullCol</code></td></tr>
+              <tr><td><code>NULLIF(col, x)</code></td><td><code>?{type of col}</code></td><td><code>nullifCol</code></td></tr>
+              <tr><td><code>CONCAT(...)</code></td><td><code>?string</code></td><td><code>concat</code></td></tr>
+              <tr><td><code>CAST(x AS INT)</code></td><td><code>int</code></td><td><code>castX</code></td></tr>
+              <tr><td><code>UPPER/LOWER/TRIM(col)</code></td><td><code>string</code></td><td><code>upper / lower / trim</code></td></tr>
+              <tr><td><code>LENGTH(col)</code></td><td><code>int</code></td><td><code>length</code></td></tr>
+              <tr><td><code>CASE WHEN ...</code></td><td><code>?string</code></td><td><code>case</code></td></tr>
+              <tr><td>Unknown expression</td><td><code>mixed</code></td><td><code>col_1, col_2…</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- EXEC -->
+      <section class="doc-section" id="exec">
+        <h2><i class="bi bi-pencil-square me-2" style="color:var(--accent-2)"></i>UPDATE / DELETE — :exec</h2>
+        <pre><code class="language-sql">-- @name UpdateUserActive
+-- @group User
+-- @returns :exec
+UPDATE users SET active = :active, updated_at = :updatedAt WHERE id = :id;
+
+-- @name DeleteUser
+-- @group User
+-- @returns :exec
+DELETE FROM users WHERE id = :id;</code></pre>
+        <pre><code class="language-php">public function updateUserActive(?bool $active, ?string $updatedAt, ?int $id): void
+public function deleteUser(?int $id): void</code></pre>
+      </section>
+
+      <!-- ENUMS -->
+      <section class="doc-section" id="enums">
+        <h2><i class="bi bi-list-check me-2" style="color:var(--accent-2)"></i>MySQL ENUM → PHP backed enum</h2>
+        <pre><code class="language-sql">CREATE TABLE orders (
+    id     INT AUTO_INCREMENT PRIMARY KEY,
+    status ENUM('pending', 'processing', 'completed', 'cancelled') NOT NULL
+);</code></pre>
+        <pre><code class="language-php">// OrderStatus.php — generated by sqlc-php
+enum OrderStatus: string
+{
+    case Pending    = 'pending';
+    case Processing = 'processing';
+    case Completed  = 'completed';
+    case Cancelled  = 'cancelled';
+}
+
+// in Order.php — fromRow() uses ::from() for NOT NULL, ::tryFrom() for nullable
+OrderStatus::from((string) $row['status']),</code></pre>
+        <div class="callout callout-tip">
+          <i class="bi bi-lightbulb callout-icon"></i>
+          Naming convention: <code>{SingularTable}{PascalColumn}</code> — e.g. <code>orders.status</code> → <code>OrderStatus</code>. Hyphenated values: <code>in-progress</code> → <code>case InProgress</code>.
+        </div>
+      </section>
+
+      <!-- JSON -->
+      <section class="doc-section" id="json">
+        <h2><i class="bi bi-braces me-2" style="color:var(--accent-2)"></i>JSON column → typed array</h2>
+        <pre><code class="language-sql">CREATE TABLE orders (
+    metadata JSON null
+);</code></pre>
+        <pre><code class="language-php">// in Order.php
+public ?array $metadata,
+
+// in fromRow()
+isset($row['metadata']) ? json_decode((string) $row['metadata'], true) : null,</code></pre>
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          For <code>NOT NULL</code> JSON columns, the fallback is <code>?? []</code> to guarantee a non-null array is always returned.
+        </div>
+      </section>
+
+      <!-- DEPRECATED -->
+      <section class="doc-section" id="deprecated">
+        <h2><i class="bi bi-exclamation-triangle me-2" style="color:var(--accent)"></i>@deprecated — mark a method as deprecated</h2>
+        <pre><code class="language-sql">-- @name GetUser
+-- @group User
+-- @returns :one
+-- @deprecated Use getUserById instead
+SELECT users.* FROM users WHERE users.id = :id;</code></pre>
+        <pre><code class="language-php">/**
+ * @deprecated Use getUserById instead
+ * @param ?int $id
+ * @return User
+ */
+public function getUser(?int $id): User</code></pre>
+        <p style="color:var(--text-muted)">The reason is optional — <code>-- @deprecated</code> without a message emits <code>@deprecated</code> alone.</p>
+      </section>
+
+      <!-- NILLABLE -->
+      <section class="doc-section" id="nillable">
+        <h2><i class="bi bi-question-circle me-2" style="color:var(--accent)"></i>@nillable — force a result column to be nullable</h2>
+        <p style="color:var(--text-muted)">Useful for LEFT JOIN queries where a column from the joined table may be <code>NULL</code> at runtime:</p>
+        <pre><code class="language-sql">-- @name GetUserWithOptionalRole
+-- @group User
+-- @returns :one
+-- @nillable role_name
+-- @nillable role_description
+SELECT
+    users.id,
+    users.email,
+    roles.name        AS role_name,
+    roles.description AS role_description
+FROM users
+LEFT JOIN roles ON roles.id = users.role_id
+WHERE users.id = :id;</code></pre>
+        <pre><code class="language-php">readonly class GetUserWithOptionalRoleRow
+{
+    public function __construct(
+        public ?int    $id,
+        public string  $email,
+        public ?string $role_name,         // forced nullable via @nillable
+        public ?string $role_description,  // forced nullable via @nillable
+    ) {}
+}</code></pre>
+      </section>
+
+      <!-- OPTIONAL PARAMS -->
+      <section class="doc-section" id="optional-params">
+        <h2><i class="bi bi-toggles me-2" style="color:var(--accent-2)"></i>Optional parameters</h2>
+        <p style="color:var(--text-muted)">Marking a parameter as <code>@optional</code> rewrites the SQL condition at generation time. Passing <code>null</code> skips the filter entirely — no <code>if</code> statements or query builders required:</p>
+        <pre><code class="language-sql">-- @name SearchUsers
+-- @group User
+-- @returns :many
+-- @optional status
+-- @optional username
+SELECT users.* FROM users
+WHERE users.status   = :status
+  AND users.username = :username;</code></pre>
+        <p style="color:var(--text-muted)">sqlc-php rewrites each optional condition before emitting any PHP:</p>
+        <pre><code class="language-sql">-- rewritten SQL stored in the generated class
+SELECT users.* FROM users
+WHERE (:status   IS NULL OR users.status   = :status)
+  AND (:username IS NULL OR users.username = :username)</code></pre>
+        <pre><code class="language-php">/**
+ * @param ?string $status   Pass null to skip this filter.
+ * @param ?string $username Pass null to skip this filter.
+ * @return User[]
+ */
+public function searchUsers(?string $status = null, ?string $username = null): array</code></pre>
+
+        <h3>Calling the method</h3>
+        <pre><code class="language-php">// All rows — both filters skipped
+$repo->searchUsers();
+
+// Filter by status only — username skipped
+$repo->searchUsers(status: 'active');
+
+// Filter by both
+$repo->searchUsers(status: 'active', username: 'alice');</code></pre>
+
+        <h3>Mixing required and optional parameters</h3>
+        <p style="color:var(--text-muted)">Required parameters always appear first; optional parameters follow with <code>= null</code>:</p>
+        <pre><code class="language-php">// roleId is required, status is optional
+public function getUsersByRole(int $roleId, ?string $status = null): array</code></pre>
+
+        <h3>Supported operators</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead><tr><th>Operator</th><th>Rewritten form</th></tr></thead>
+            <tbody>
+              <tr><td><code>=</code></td><td><code>(:param IS NULL OR col = :param)</code></td></tr>
+              <tr><td><code>&lt;&gt;</code></td><td><code>(:param IS NULL OR col &lt;&gt; :param)</code></td></tr>
+              <tr><td><code>!=</code></td><td><code>(:param IS NULL OR col != :param)</code></td></tr>
+              <tr><td><code>&gt;</code></td><td><code>(:param IS NULL OR col &gt; :param)</code></td></tr>
+              <tr><td><code>&lt;</code></td><td><code>(:param IS NULL OR col &lt; :param)</code></td></tr>
+              <tr><td><code>&gt;=</code></td><td><code>(:param IS NULL OR col &gt;= :param)</code></td></tr>
+              <tr><td><code>&lt;=</code></td><td><code>(:param IS NULL OR col &lt;= :param)</code></td></tr>
+              <tr><td><code>LIKE</code></td><td><code>(:param IS NULL OR col LIKE :param)</code></td></tr>
+              <tr><td><code>ILIKE</code></td><td><code>(:param IS NULL OR col ILIKE :param)</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout-warning" style="margin-top:1.25rem">
+          <i class="bi bi-exclamation-triangle callout-icon"></i>
+          <strong>Limitations:</strong> <code>@optional</code> is only safe on queries with a plain <code>WHERE</code> clause over a single table. Queries with <strong>JOIN</strong>, <strong>subqueries</strong>, or <strong>HAVING</strong> will produce a fatal error at generation time.
+        </div>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- PARAM RESOLUTION -->
+      <section class="doc-section" id="param-resolution">
+        <h2><i class="bi bi-search me-2" style="color:var(--accent)"></i>Parameter type resolution</h2>
+        <p style="color:var(--text-muted)">Named parameters (<code>:paramName</code>) are automatically typed by matching them to schema columns. Resolution order:</p>
+        <ol style="color:var(--text-muted); padding-left:1.25rem;">
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)"><code>@param</code> annotation</strong> — explicit override: <code>-- @param userId users.id</code></li>
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)">Qualified reference</strong> — <code>WHERE table.col = :param</code></li>
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)">SET clause</strong> — <code>SET col = :param</code></li>
+          <li style="margin-bottom:.5rem"><strong style="color:var(--text-primary)">camelCase → snake_case</strong> — <code>:updatedAt</code> → looks up <code>updated_at</code> in the schema</li>
+          <li><strong style="color:var(--text-primary)">Fallback</strong> — <code>mixed</code> / <code>PDO::PARAM_STR</code></li>
+        </ol>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- GENERATED STRUCTURE -->
+      <section class="doc-section" id="generated-structure">
+        <h2><i class="bi bi-folder2-open me-2" style="color:var(--accent-3)"></i>Generated file structure</h2>
+        <div class="file-tree">
+          <div><span class="dir">generated/</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">OrderStatus.php</span> <span class="comment">              # backed enum for orders.status ENUM column</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">User.php</span> <span class="comment">                     # readonly DTO for the `users` table</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">Order.php</span> <span class="comment">                    # readonly DTO for the `orders` table</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">GetUserWithRoleRow.php</span> <span class="comment">       # result DTO for a JOIN query</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">GetUserStatsRow.php</span> <span class="comment">          # result DTO for an aggregate query</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">UserQuery.php</span> <span class="comment">                # query class for the User group</span></div>
+          <div>&nbsp;&nbsp;└── <span class="file">UserQueryInterface.php</span> <span class="comment">       # interface (when generate_interfaces: true)</span></div>
+        </div>
+      </section>
+
+      <!-- MODEL EXAMPLE -->
+      <section class="doc-section" id="model-example">
+        <h3>Model class example (<code>User.php</code>)</h3>
+        <pre><code class="language-php">readonly class User
+{
+    public function __construct(
+        public ?int    $id,
+        public string  $email,
+        public ?string $username,
+        public ?bool   $active,        // overridden via type_overrides
+        public int     $role_id,
+        public ?string $created_at,
+    ) {}
+
+    public static function fromRow(array $row): self { ... }
+}</code></pre>
+      </section>
+
+      <!-- QUERY EXAMPLE -->
+      <section class="doc-section" id="query-example">
+        <h3>Query class example (<code>UserQuery.php</code>)</h3>
+        <pre><code class="language-php">class UserQuery implements UserQueryInterface
+{
+    public function __construct(private readonly PDO $pdo) {}
+
+    /** @return User[] */
+    public function listUsers(): array { ... }
+
+    /** @return User */
+    public function getUser(?int $id): User { ... }                     // :one — throws
+
+    /** @return User|null */
+    public function getUserByEmail(string $email): ?User { ... }        // :opt — nullable
+
+    public function deleteUser(?int $id): void { ... }                  // :exec
+
+    /** @return User[] */
+    public function searchUsers(
+        ?string $status   = null,   // @optional — pass null to skip filter
+        ?string $username = null,   // @optional — pass null to skip filter
+    ): array { ... }
+}</code></pre>
+      </section>
+
+      <!-- INTERFACE EXAMPLE -->
+      <section class="doc-section" id="interface-example">
+        <h3>Interface example (<code>UserQueryInterface.php</code>)</h3>
+        <pre><code class="language-php">interface UserQueryInterface
+{
+    /** @return User[] */
+    public function listUsers(): array;
+
+    /** @return User */
+    public function getUser(?int $id): User;
+
+    /** @return User|null */
+    public function getUserByEmail(string $email): ?User;
+
+    public function deleteUser(?int $id): void;
+
+    /**
+     * @param ?string $status   Pass null to skip this filter.
+     * @param ?string $username Pass null to skip this filter.
+     * @return User[]
+     */
+    public function searchUsers(?string $status = null, ?string $username = null): array;
+}</code></pre>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- USAGE -->
+      <section class="doc-section" id="usage">
+        <h2><i class="bi bi-terminal me-2" style="color:var(--accent-3)"></i>Usage in your application</h2>
+        <pre><code class="language-php">$pdo  = new PDO('mysql:host=localhost;dbname=myapp', 'user', 'pass');
+$repo = new UserQuery($pdo);
+
+// :many — always an array
+$users = $repo->listUsers();
+
+// :one — throws RuntimeException if user not found
+$user = $repo->getUser(42);
+
+// :opt — returns null if not found
+$user = $repo->getUserByEmail('alice@example.com');
+if ($user === null) {
+    // handle not found
+}
+
+// :exec — fire and forget
+$repo->deleteUser(42);
+$repo->updateUserActive(true, date('Y-m-d H:i:s'), 42);
+
+// @optional — named arguments, skip filters by passing null
+$all      = $repo->searchUsers();
+$active   = $repo->searchUsers(status: 'active');
+$filtered = $repo->searchUsers(status: 'active', username: 'alice');</code></pre>
+      </section>
+
+      <!-- LARAVEL -->
+      <section class="doc-section" id="laravel">
+        <h2><i class="bi bi-box-arrow-in-right me-2" style="color:var(--accent-3)"></i>Usage with Laravel</h2>
+        <p style="color:var(--text-muted)">The recommended pattern is to wrap the generated query class inside a repository, bind it in a Service Provider using the generated interface, and inject it via the constructor.</p>
+
+        <h3>1. Create a repository</h3>
+        <pre><code class="language-php">namespace App\Repositories;
+
+use App\Database\User;
+use App\Database\UserQueryInterface;
+
+class UserRepository
+{
+    public function __construct(private UserQueryInterface $userQuery) {}
+
+    public function getUser(int $id): User
+    {
+        return $this->userQuery->getUser($id);
+    }
+
+    /** @return User[] */
+    public function searchUsers(?string $status = null, ?string $username = null): array
+    {
+        return $this->userQuery->searchUsers(status: $status, username: $username);
+    }
+}</code></pre>
+
+        <h3>2. Register in a Service Provider</h3>
+        <pre><code class="language-php">public function register(): void
+{
+    $this->app->bind(UserQueryInterface::class, function ($app) {
+        return new UserQuery(
+            $app->make('db')->connection()->getPdo()
+        );
+    });
+
+    $this->app->bind(UserRepository::class, function ($app) {
+        return new UserRepository(
+            $app->make(UserQueryInterface::class)
+        );
+    });
+}</code></pre>
+
+        <h3>3. Inject into a controller</h3>
+        <pre><code class="language-php">class UserController extends Controller
+{
+    public function __construct(
+        private readonly UserRepository $userRepository,
+    ) {}
+
+    public function show(int $id)
+    {
+        $user = $this->userRepository->getUser($id);
+        return response()->json($user);
+    }
+}</code></pre>
+
+        <h3>5. Testing with the interface</h3>
+        <pre><code class="language-php">public function test_show_returns_user(): void
+{
+    $mock = $this->createMock(UserQueryInterface::class);
+    $mock->method('getUser')->willReturn(new User(
+        id: 1, email: 'alice@example.com', username: 'alice',
+        // ...
+    ));
+
+    $this->app->instance(UserQueryInterface::class, $mock);
+
+    $this->getJson('/api/users/1')->assertOk();
+}</code></pre>
+      </section>
+
+      <!-- CI -->
+      <section class="doc-section" id="ci">
+        <h2><i class="bi bi-shield-check me-2" style="color:var(--accent-3)"></i>CI verification — <code>--verify</code></h2>
+        <p style="color:var(--text-muted)">The <code>--verify</code> flag generates all files in memory and compares them against the existing output. It writes nothing to disk, and exits with code <code>1</code> if anything is missing or out of date.</p>
+        <pre><code class="language-bash"># Add to your CI pipeline:
+php vendor/bin/sqlc-php --verify sqlc.yaml</code></pre>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem;">
+          <div>
+            <p style="color:var(--accent-3); font-size:.8rem; font-weight:700; font-family:var(--font-mono); margin-bottom:.5rem">✓ UP TO DATE</p>
+            <pre style="margin:0"><code class="language-text">✓ All 6 generated file(s) are up to date.</code></pre>
+          </div>
+          <div>
+            <p style="color:var(--accent); font-size:.8rem; font-weight:700; font-family:var(--font-mono); margin-bottom:.5rem">✗ STALE</p>
+            <pre style="margin:0"><code class="language-text">✗ Generated files are out of date.
+
+Missing files (1):
+  - generated/OrderStatus.php
+
+Modified files (1):
+  - generated/User.php
+
+Run `php vendor/bin/sqlc-php sqlc.yaml`
+to regenerate.</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- TESTS -->
+      <section class="doc-section" id="tests">
+        <h2><i class="bi bi-clipboard2-check me-2" style="color:var(--accent-3)"></i>Running the tests</h2>
+        <pre><code class="language-bash">phpunit --configuration phpunit.xml</code></pre>
+        <div class="doc-table-wrap" style="margin-top:1rem">
+          <table class="doc-table">
+            <thead><tr><th>Suite</th><th>File</th><th>What it tests</th></tr></thead>
+            <tbody>
+              <tr><td>Schema Parser</td><td><code>SchemaParserTest.php</code></td><td>CREATE TABLE, column types, nullability, AUTO_INCREMENT, ENUM</td></tr>
+              <tr><td>Query Parser</td><td><code>QueryParserTest.php</code></td><td>Annotation parsing, ReturnType variants, @param, @optional, group inference</td></tr>
+              <tr><td>Type Mapper</td><td><code>MySQLTypeMapperTest.php</code></td><td>Default mappings, nullability, PDO constants, overrides</td></tr>
+              <tr><td>JSON Type</td><td><code>JsonTypeTest.php</code></td><td>JSON → array mapping, json_decode casts in fromRow</td></tr>
+              <tr><td>Config</td><td><code>ConfigTest.php</code></td><td>YAML parsing, defaults, multiple query files, generate_interfaces</td></tr>
+              <tr><td>New Features</td><td><code>NewFeaturesTest.php</code></td><td>Multiple schema files, nullable override, @deprecated, @nillable</td></tr>
+              <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
+              <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
+              <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
+              <tr><td>SQL Rewriter</td><td><code>SqlRewriterTest.php</code></td><td>Optional param rewriting, all operators, unsafe construct guards</td></tr>
+              <tr><td>Optional Params</td><td><code>OptionalParamTest.php</code></td><td>Parser validation, analyzer marking, generator output</td></tr>
+              <tr><td>Enum Generator</td><td><code>EnumGeneratorTest.php</code></td><td>ENUM parsing, backed enum generation, fromRow casts</td></tr>
+              <tr><td>Interface Generator</td><td><code>InterfaceGeneratorTest.php</code></td><td>Interface generation, method signatures, implements clause</td></tr>
+              <tr><td>Generator</td><td><code>GeneratorTest.php</code></td><td>Generated code structure, docblock indentation, PDO bindings</td></tr>
+              <tr><td>Verify Flag</td><td><code>VerifyFlagTest.php</code></td><td>--verify exit codes, missing/modified detection, no file writes</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- PROJECT STRUCTURE -->
+      <section class="doc-section" id="project-structure">
+        <h2><i class="bi bi-diagram-2 me-2" style="color:var(--accent-2)"></i>Project structure</h2>
+        <div class="file-tree">
+          <div><span class="dir">sqlc-php/</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">bin/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">sqlc-php</span> <span class="comment">                       # CLI entry point (supports --verify)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">src/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Analyzer/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">QueryAnalyzer.php</span> <span class="comment">          # Enriches parsed queries with resolved types</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Catalog/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SchemaCatalog.php</span> <span class="comment">          # In-memory table/column index</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Config/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">Config.php</span> <span class="comment">                 # YAML config loader</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">TypeOverride.php</span> <span class="comment">           # Type override value object</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Generator/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">EnumGenerator.php</span> <span class="comment">          # PHP 8.1 backed enums for ENUM columns</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">InterfaceGenerator.php</span> <span class="comment">     # *Interface alongside each Query class</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">ModelGenerator.php</span> <span class="comment">         # Generates table DTO classes</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">QueryGenerator.php</span> <span class="comment">         # Query classes with PDO methods</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">ResultDtoGenerator.php</span> <span class="comment">     # DTOs for JOIN/aggregate queries</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Parser/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">SchemaParser.php</span> <span class="comment">           # Parses CREATE TABLE SQL</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">QueryParser.php</span> <span class="comment">            # Parses annotated SQL query files</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Resolver/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">ColumnResolver.php</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">ExpressionTypeResolver.php</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">ParamResolver.php</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">QueryParam.php</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">ResolvedColumn.php</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Rewriter/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (288 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
+          <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
+        </div>
+      </section>
+
+      <hr class="section-divider">
+
+      <!-- CHANGELOG -->
+      <section class="doc-section" id="changelog">
+        <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.3.0</div>
+          <ul>
+            <li><strong>Multiple schema files</strong> — <code>schema</code> in <code>sqlc.yaml</code> now accepts a scalar string or a YAML list. All files are merged into a single catalog before analysis.</li>
+            <li><strong>Nullable override in <code>type_overrides</code></strong> — entries accept an optional <code>nullable: true|false</code> field that forces nullability regardless of the schema. Can be used alone to only change nullability while keeping the default type mapping.</li>
+            <li><strong><code>@deprecated</code> annotation</strong> — emits a <code>@deprecated</code> PHPDoc tag on the generated method. Reason message is optional.</li>
+            <li><strong><code>@nillable</code> annotation</strong> — forces a specific result column to be <code>?type</code>, regardless of the schema. Useful for LEFT JOIN queries. Multiple annotations can be stacked.</li>
+            <li>33 new tests in <code>tests/Config/NewFeaturesTest.php</code> covering all four features end-to-end.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.2.0</div>
+          <ul>
+            <li><strong>MySQL ENUM → PHP backed enum</strong> — generates a PHP 8.1 backed enum file. <code>fromRow</code> uses <code>::from()</code> for <code>NOT NULL</code> and <code>::tryFrom()</code> for nullable.</li>
+            <li><strong>JSON column → typed array</strong> — <code>JSON</code> columns now map to <code>array</code>. <code>fromRow</code> calls <code>json_decode(..., true)</code> with a <code>?? []</code> fallback.</li>
+            <li><strong>Generate PHP interfaces</strong> — <code>generate_interfaces: true</code> generates a <code>*Interface</code> file alongside each Query class.</li>
+            <li><strong><code>--verify</code> flag for CI</strong> — exits <code>0</code> when up to date, <code>1</code> otherwise. Reports missing and modified files. Writes nothing to disk.</li>
+            <li>49 new tests across <code>EnumGeneratorTest</code>, <code>JsonTypeTest</code>, <code>InterfaceGeneratorTest</code>, and <code>VerifyFlagTest</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.1.0</div>
+          <ul>
+            <li><strong>Optional query parameters</strong> — <code>@optional</code> marks parameters whose SQL condition is rewritten at generation time. Passing <code>null</code> skips the filter entirely.</li>
+            <li><strong><code>SqlRewriter</code></strong> — rewrites <code>col OP :param</code> into <code>(:param IS NULL OR col OP :param)</code>. Supports 9 operators.</li>
+            <li><strong>Unsafe construct guard</strong> — queries with <code>JOIN</code>, <code>HAVING</code>, or subqueries produce a fatal error when <code>@optional</code> is used.</li>
+            <li><strong>Parameter validation</strong> — <code>@optional</code> names are validated against the SQL; typos produce a fatal error.</li>
+            <li>34 new tests across <code>SqlRewriterTest</code> and <code>OptionalParamTest</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.0.0</div>
+          <ul>
+            <li><strong>Multiple query files</strong> — <code>queries</code> accepts a scalar string or a YAML list of paths.</li>
+            <li><strong>Expression type inference</strong> — <code>COUNT</code>, <code>SUM</code>, <code>AVG</code>, <code>MIN</code>, <code>MAX</code>, <code>COALESCE</code>, <code>IFNULL</code>, <code>NULLIF</code>, <code>CAST</code>, <code>CONCAT</code>, <code>CASE WHEN</code> resolved to typed PHP properties.</li>
+            <li><strong><code>:opt</code> return type</strong> — <code>:one</code> throws <code>RuntimeException</code>; <code>:opt</code> returns <code>null</code>.</li>
+            <li><strong>Type overrides</strong> — <code>type_overrides</code> remaps columns or DB types to arbitrary PHP types.</li>
+            <li>Initial release — schema parser, query parser, param/column resolvers, PDO bindings, <code>readonly</code> DTOs, result DTOs for JOINs and aggregates.</li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- Bootstrap JS -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Highlight.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+  hljs.highlightAll();
+
+  // ── Sidebar toggle (mobile) ──
+  function toggleSidebar() {
+    document.getElementById('sidebar').classList.toggle('open');
+  }
+
+  // Close sidebar when clicking outside on mobile
+  document.addEventListener('click', function(e) {
+    const sidebar = document.getElementById('sidebar');
+    const toggle  = document.getElementById('sidebar-toggle');
+    if (window.innerWidth <= 900 && sidebar.classList.contains('open')) {
+      if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
+        sidebar.classList.remove('open');
+      }
+    }
+  });
+
+  // ── Active sidebar link on scroll ──
+  const sections = document.querySelectorAll('[id]');
+  const links    = document.querySelectorAll('.sidebar-link');
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar-link[href="#${entry.target.id}"]`);
+        if (active) {
+          active.classList.add('active');
+          // Scroll into view in sidebar
+          active.scrollIntoView({ block: 'nearest' });
+        }
+      }
+    });
+  }, {
+    rootMargin: `-${58 + 20}px 0px -60% 0px`,
+    threshold: 0
+  });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

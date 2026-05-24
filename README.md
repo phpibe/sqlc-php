@@ -3,6 +3,7 @@
 A PHP code generator inspired by [sqlc](https://sqlc.dev) for Go. It reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes that use PDO under the hood — no ORM, no magic, just plain objects derived directly from your database.
 
 📚Please, read the full documentation at [sqlc-php](https://phpibe.github.io/sqlc-php)
+
 ---
 
 ## How it works
@@ -197,6 +198,7 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 -- @optional paramName          optional — passing null skips the filter condition entirely
 -- @deprecated reason           optional — marks the generated method as @deprecated
 -- @nillable columnAlias        optional — forces a result column to be nullable in the DTO
+-- @embed    ClassName prefix_  optional — groups prefixed columns into a nested object
 ```
 
 ### Return type semantics
@@ -571,6 +573,121 @@ Multiple `@nillable` annotations can be stacked. The annotation targets the outp
 
 ---
 
+### @embed — nested objects for JOIN results
+
+`@embed ClassName prefix_` groups all result columns whose alias starts with `prefix_` into a nested `readonly` value object instead of flattening them into the parent DTO.
+
+```sql
+-- @name GetUserWithRole
+-- @group User
+-- @returns :one
+-- @embed Role role_
+SELECT
+    users.id,
+    users.email,
+    roles.name        AS role_name,
+    roles.description AS role_description
+FROM users
+INNER JOIN roles ON roles.id = users.role_id
+WHERE users.id = :id;
+```
+
+Generated files:
+
+**`Role.php`** — standalone readonly value object with stripped property names:
+
+```php
+readonly class Role
+{
+    public function __construct(
+        public string  $name,
+        public ?string $description,
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            (string) $row['role_name'],
+            $row['role_description'] ?? null,
+        );
+    }
+}
+```
+
+**`GetUserWithRoleRow.php`** — parent DTO with the nested `Role` object as a property:
+
+```php
+readonly class GetUserWithRoleRow
+{
+    public function __construct(
+        public ?int  $id,
+        public string $email,
+        public Role   $role,       // ← nested object, not flat properties
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            (int) $row['id'],
+            (string) $row['email'],
+            Role::fromRow($row),   // ← hydrates from the same flat PDO row
+        );
+    }
+}
+```
+
+Usage:
+
+```php
+$result = $repo->getUserWithRole(42);
+
+echo $result->role->name;         // instead of $result->role_name
+echo $result->role->description;
+```
+
+#### Multiple @embed groups on one query
+
+```sql
+-- @name GetUserFull
+-- @group User
+-- @returns :one
+-- @embed Role     role_
+-- @embed Address  addr_
+SELECT
+    users.id,
+    users.email,
+    roles.name           AS role_name,
+    addresses.street     AS addr_street,
+    addresses.city       AS addr_city
+FROM users
+INNER JOIN roles     ON roles.id     = users.role_id
+INNER JOIN addresses ON addresses.id = users.address_id
+WHERE users.id = :id;
+```
+
+Generates `Role.php`, `Address.php`, and `GetUserFullRow.php` with:
+
+```php
+public function __construct(
+    public ?int    $id,
+    public string  $email,
+    public Role    $role,     // prefix: role_
+    public Address $addr,     // prefix: addr_
+) {}
+```
+
+#### Naming convention
+
+The DTO property name is derived from the prefix by stripping the trailing underscore:
+- `role_` → `$role`
+- `addr_` → `$addr`
+- `billing_` → `$billing`
+
+The prefix can be written with or without trailing underscore in the annotation:
+`@embed Role role_` and `@embed Role role` both produce the same result.
+
+---
+
 ### Optional parameters
 
 Marking a parameter as `@optional` instructs sqlc-php to rewrite the SQL condition at generation time. When `null` is passed at runtime the filter is skipped entirely; when a value is passed it filters normally. No `if` statements or query builders required.
@@ -690,9 +807,10 @@ Named parameters (`:paramName`) are automatically typed by matching them to sche
 ```
 generated/
 ├── OrderStatus.php               # backed enum for orders.status ENUM column
+├── Role.php                      # embedded value object from @embed Role role_
 ├── User.php                      # readonly DTO for the `users` table
 ├── Order.php                     # readonly DTO for the `orders` table
-├── GetUserWithRoleRow.php        # result DTO for a JOIN query
+├── GetUserWithRoleRow.php        # result DTO for a JOIN query with @embed
 ├── GetUserStatsRow.php           # result DTO for an aggregate query
 ├── UserQuery.php                 # query class for the User group
 └── UserQueryInterface.php        # interface for UserQuery (when generate_interfaces: true)
@@ -1025,6 +1143,7 @@ The test suite covers:
 | Config | `tests/Config/ConfigTest.php` | YAML parsing, scalar/list schema and queries, generate_interfaces |
 | New Features v1.3 | `tests/Config/NewFeaturesTest.php` | Multiple schemas, nullable override, @deprecated, @nillable |
 | New Features v1.4 | `tests/NewFeaturesV14Test.php` | :many-paginated, @nillable on direct models, targets, --dry-run, --diff |
+| Embed | `tests/EmbedTest.php` | @embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
@@ -1053,12 +1172,14 @@ sqlc-php/
 │   │   ├── Target.php                  # Single output target value object
 │   │   └── TypeOverride.php            # php_type + nullable override
 │   ├── Generator/
+│   │   ├── EmbedGenerator.php          # Generates nested value-object classes for @embed
 │   │   ├── EnumGenerator.php           # Generates PHP 8.1 backed enums for ENUM columns
 │   │   ├── InterfaceGenerator.php      # Generates *Interface alongside each Query class
 │   │   ├── ModelGenerator.php          # Generates table DTO classes
 │   │   ├── QueryGenerator.php          # Generates query classes with PDO methods
-│   │   └── ResultDtoGenerator.php      # Generates result DTOs for JOIN/aggregate queries
+│   │   └── ResultDtoGenerator.php      # Generates result DTOs; handles @embed partitioning
 │   ├── Parser/
+│   │   ├── EmbedDefinition.php         # Value object for @embed annotation
 │   │   ├── SchemaParser.php            # Parses CREATE TABLE SQL (including ENUM values)
 │   │   └── QueryParser.php             # Parses annotated SQL query files
 │   ├── Resolver/
@@ -1071,7 +1192,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (326 tests)
+├── tests/                              # PHPUnit test suite (352 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1079,6 +1200,15 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.5.0]
+- **`@embed` — nested objects for JOIN results** — `-- @embed ClassName prefix_` groups all result columns whose alias starts with `prefix_` into a nested `readonly` value object instead of flattening them into the parent DTO. Multiple `@embed` annotations can be stacked on one query, each producing a separate file. The embedded class implements `fromRow(array $row): self` using the original prefixed column names from the flat PDO row, so no extra queries or joins are needed at runtime.
+- **`EmbedDefinition`** — new value object (`src/Parser/EmbedDefinition.php`) carrying `className`, `prefix`, and helpers `propertyName()`, `matches()`, `stripPrefix()`.
+- **`EmbedGenerator`** — new generator (`src/Generator/EmbedGenerator.php`) that produces the standalone `readonly class` files for each `@embed` group.
+- **`ResultDtoGenerator`** updated to partition result columns into embed groups and flat remainder; the `generate()` return shape gains an `embeds` key listing generated value-object files.
+- **`QueryAnalyzer`** updated so that any `@embed` on a query forces `returnsModelDirectly = false`, guaranteeing a custom DTO is always generated.
+- **`QueryParser`** updated to parse `@embed ClassName prefix_` annotations; prefix is normalised (trailing underscore always present).
+- **26 new tests** in `tests/EmbedTest.php` covering `EmbedDefinition`, `QueryParser`, `QueryAnalyzer`, `EmbedGenerator`, `ResultDtoGenerator`, and `QueryGenerator`.
 
 ### [1.4.0]
 - **`:many-paginated` return type** — auto-injects `LIMIT :limit OFFSET :offset` into the SQL at analysis time and appends `int $limit = 20, int $offset = 0` to the generated method signature. User-defined params always appear first; `$limit` and `$offset` are last. Works with `@optional` params on the same query.

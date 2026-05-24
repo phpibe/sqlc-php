@@ -31,6 +31,7 @@ class QueryDefinition
      * @param string[]             $optionalParams    Names declared with @optional
      * @param string|null          $deprecated        Deprecation message, or null if not deprecated
      * @param string[]             $nillableColumns   Column aliases forced to nullable via @nillable
+     * @param EmbedDefinition[]    $embeds            Nested object groups declared with @embed
      */
     public function __construct(
         public readonly string     $name,
@@ -56,6 +57,13 @@ class QueryDefinition
         public readonly ?string    $deprecated = null,
         /** Column aliases (or names) forced nullable via @nillable. */
         public readonly array      $nillableColumns = [],
+        /**
+         * Embed groups declared with @embed. Each entry describes a nested
+         * readonly object to generate inside the result DTO.
+         *
+         * @var EmbedDefinition[]
+         */
+        public readonly array      $embeds = [],
     ) {}
 }
 
@@ -65,11 +73,12 @@ class QueryDefinition
  * Supported annotations:
  *   -- @name       ListUsers
  *   -- @group      User
- *   -- @returns    :many | :one | :opt | :exec
+ *   -- @returns    :many | :many-paginated | :one | :opt | :exec
  *   -- @param      userId users.id       (explicit type override for a parameter)
  *   -- @optional   status                (passing null skips the filter condition)
  *   -- @deprecated Use newMethod instead (marks generated method as deprecated)
  *   -- @nillable   column_name           (forces a result column to be nullable)
+ *   -- @embed      ClassName prefix_     (groups prefixed columns into a nested object)
  */
 class QueryParser
 {
@@ -80,9 +89,7 @@ class QueryParser
     {
         $queries = [];
 
-        // Split on the start of each new annotation block (-- @name ...).
-        // This allows blank lines inside a query body, which the old
-        // blank-line split would incorrectly treat as a block boundary.
+        // Split on blank lines between query blocks
         $blocks = preg_split('/(?=^\s*--\s*@name\b)/mi', $sql);
 
         foreach ($blocks as $block) {
@@ -107,6 +114,7 @@ class QueryParser
         $optionalParams   = [];
         $nillableColumns  = [];
         $deprecated       = null;
+        $embeds           = [];
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -129,6 +137,10 @@ class QueryParser
                     $nillableColumns[] = $m[1];
                 } elseif (preg_match('/@deprecated(?:\s+(.+))?$/i', $comment, $m)) {
                     $deprecated = isset($m[1]) ? trim($m[1]) : '';
+                } elseif (preg_match('/@embed\s+(\w+)\s+(\w+)/i', $comment, $m)) {
+                    // @embed ClassName prefix_  (trailing underscore optional)
+                    $prefix   = rtrim($m[2], '_') . '_';
+                    $embeds[] = new EmbedDefinition(className: $m[1], prefix: $prefix);
                 }
             } else {
                 $sqlLines[] = $line;
@@ -150,7 +162,7 @@ class QueryParser
             return null;
         }
 
-        // Validate @optional names against :params present in the SQL
+        // Validate @optional names
         if (!empty($optionalParams)) {
             preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $cleanSql, $paramMatches);
             $knownParams = array_map(
@@ -180,9 +192,9 @@ class QueryParser
             optionalParams:   $optionalParams,
             deprecated:       $deprecated,
             nillableColumns:  $nillableColumns,
+            embeds:           $embeds,
         );
     }
-
     private function extractFromTable(string $sql): ?string
     {
         // SELECT … FROM table  /  DELETE FROM table

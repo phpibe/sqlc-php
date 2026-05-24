@@ -197,8 +197,11 @@ foreach (\$tablesUsed as \$tableName) {
 foreach (\$queries as \$query) {
     if (\$query->returnsModelDirectly || empty(\$query->resultColumns)) continue;
     if (\$query->returns->value === ':exec') continue;
-    ['className' => \$cls, 'code' => \$code] = \$resultDtoGen->generate(\$query);
-    \$toWrite["{\$cls}.php"] = ['label' => '[dto]    ', 'code' => \$code];
+    \$result = \$resultDtoGen->generate(\$query);
+    \$toWrite["{\$result['className']}.php"] = ['label' => '[dto]    ', 'code' => \$result['code']];
+    foreach (\$result['embeds'] ?? [] as \$ecls => ['className' => \$en, 'code' => \$ec]) {
+        \$toWrite["{\$en}.php"] = ['label' => '[embed]  ', 'code' => \$ec];
+    }
 }
 
 foreach (\$queryGen->generate(\$queries) as ['className' => \$cls, 'code' => \$code]) {

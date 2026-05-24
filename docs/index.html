@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v1.4.0</span>
+    <span class="badge-version">v1.5.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -593,6 +593,7 @@
       <a class="sidebar-link" href="#json"><i class="bi bi-braces"></i> JSON columns</a>
       <a class="sidebar-link" href="#deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
       <a class="sidebar-link" href="#nillable"><i class="bi bi-question-circle"></i> @nillable</a>
+      <a class="sidebar-link" href="#embed"><i class="bi bi-boxes"></i> @embed</a>
       <a class="sidebar-link" href="#optional-params"><i class="bi bi-toggles"></i> Optional params</a>
     </div>
 
@@ -860,7 +861,8 @@ targets:
 -- @param   userId users.id     optional — explicit type override for a named parameter
 -- @optional paramName          optional — passing null skips the filter condition entirely
 -- @deprecated reason           optional — marks the generated method as @deprecated
--- @nillable columnAlias        optional — forces a result column to be nullable in the DTO</code></pre>
+-- @nillable columnAlias        optional — forces a result column to be nullable in the DTO
+-- @embed   ClassName prefix_   optional — groups prefixed columns into a nested object</code></pre>
 
         <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
           <span class="annotation ann-required">@name</span> <small style="color:var(--text-muted)">required</small>
@@ -870,6 +872,7 @@ targets:
           <span class="annotation ann-optional">@optional</span>
           <span class="annotation ann-optional">@deprecated</span>
           <span class="annotation ann-optional">@nillable</span>
+          <span class="annotation ann-optional">@embed</span>
         </div>
       </section>
 
@@ -1172,6 +1175,102 @@ SELECT users.* FROM users WHERE users.id = :id;</code></pre>
         </div>
       </section>
 
+      <!-- EMBED -->
+      <section class="doc-section" id="embed">
+        <h2><i class="bi bi-boxes me-2" style="color:var(--accent-2)"></i>@embed — nested objects for JOIN results</h2>
+        <p style="color:var(--text-muted)"><code>@embed ClassName prefix_</code> groups all result columns whose alias starts with <code>prefix_</code> into a nested <code>readonly</code> value object instead of flattening them into the parent DTO.</p>
+
+        <pre><code class="language-sql">-- @name GetUserWithRole
+-- @group User
+-- @returns :one
+-- @embed Role role_
+SELECT
+    users.id,
+    users.email,
+    roles.name        AS role_name,
+    roles.description AS role_description
+FROM users
+INNER JOIN roles ON roles.id = users.role_id
+WHERE users.id = :id;</code></pre>
+
+        <p style="color:var(--text-muted)">Generates two files:</p>
+
+        <h3>Role.php — standalone readonly value object</h3>
+        <pre><code class="language-php">readonly class Role
+{
+    public function __construct(
+        public string  $name,
+        public ?string $description,
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            (string) $row['role_name'],         // uses original prefixed key
+            $row['role_description'] ?? null,
+        );
+    }
+}</code></pre>
+
+        <h3>GetUserWithRoleRow.php — parent DTO</h3>
+        <pre><code class="language-php">readonly class GetUserWithRoleRow
+{
+    public function __construct(
+        public ?int   $id,
+        public string $email,
+        public Role   $role,         // ← nested object, not $role_name + $role_description
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            (int) $row['id'],
+            (string) $row['email'],
+            Role::fromRow($row),     // ← same flat PDO row, no extra query
+        );
+    }
+}</code></pre>
+
+        <h3>Usage</h3>
+        <pre><code class="language-php">$result = $repo->getUserWithRole(42);
+
+echo $result->role->name;           // instead of $result->role_name
+echo $result->role->description;</code></pre>
+
+        <h3>Multiple @embed groups</h3>
+        <pre><code class="language-sql">-- @name GetUserFull
+-- @group User
+-- @returns :one
+-- @embed Role    role_
+-- @embed Address addr_
+SELECT
+    users.id,
+    users.email,
+    roles.name       AS role_name,
+    addresses.street AS addr_street,
+    addresses.city   AS addr_city
+FROM users
+INNER JOIN roles     ON roles.id     = users.role_id
+INNER JOIN addresses ON addresses.id = users.address_id
+WHERE users.id = :id;</code></pre>
+
+        <p style="color:var(--text-muted)">Generates <code>Role.php</code>, <code>Address.php</code> and <code>GetUserFullRow.php</code>:</p>
+        <pre><code class="language-php">readonly class GetUserFullRow
+{
+    public function __construct(
+        public ?int     $id,
+        public string   $email,
+        public Role     $role,    // prefix: role_
+        public Address  $addr,    // prefix: addr_
+    ) {}
+}</code></pre>
+
+        <div class="callout callout-tip">
+          <i class="bi bi-lightbulb callout-icon"></i>
+          The DTO property name is derived from the prefix by stripping the trailing underscore: <code>role_</code> → <code>$role</code>, <code>addr_</code> → <code>$addr</code>, <code>billing_</code> → <code>$billing</code>. The trailing underscore is optional in the annotation — <code>@embed Role role</code> and <code>@embed Role role_</code> produce the same result.
+        </div>
+      </section>
+
       <!-- OPTIONAL PARAMS -->
       <section class="doc-section" id="optional-params">
         <h2><i class="bi bi-toggles me-2" style="color:var(--accent-2)"></i>Optional parameters</h2>
@@ -1258,9 +1357,10 @@ public function getUsersByRole(int $roleId, ?string $status = null): array</code
         <div class="file-tree">
           <div><span class="dir">generated/</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">OrderStatus.php</span> <span class="comment">              # backed enum for orders.status ENUM column</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">Role.php</span> <span class="comment">                     # embedded value object from @embed Role role_</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">User.php</span> <span class="comment">                     # readonly DTO for the `users` table</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">Order.php</span> <span class="comment">                    # readonly DTO for the `orders` table</span></div>
-          <div>&nbsp;&nbsp;├── <span class="file">GetUserWithRoleRow.php</span> <span class="comment">       # result DTO for a JOIN query</span></div>
+          <div>&nbsp;&nbsp;├── <span class="file">GetUserWithRoleRow.php</span> <span class="comment">       # result DTO for a JOIN query with @embed</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">GetUserStatsRow.php</span> <span class="comment">          # result DTO for an aggregate query</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">UserQuery.php</span> <span class="comment">                # query class for the User group</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">UserQueryInterface.php</span> <span class="comment">       # interface (when generate_interfaces: true)</span></div>
@@ -1507,6 +1607,7 @@ declare(strict_types=1);
               <tr><td>Config</td><td><code>ConfigTest.php</code></td><td>YAML parsing, defaults, multiple query files, generate_interfaces</td></tr>
               <tr><td>New Features v1.3</td><td><code>NewFeaturesTest.php</code></td><td>Multiple schema files, nullable override, @deprecated, @nillable</td></tr>
               <tr><td>New Features v1.4</td><td><code>NewFeaturesV14Test.php</code></td><td>:many-paginated, @nillable on direct models, multiple targets, --dry-run, --diff</td></tr>
+              <tr><td>Embed</td><td><code>EmbedTest.php</code></td><td>@embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation</td></tr>
               <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
               <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
               <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
@@ -1540,12 +1641,14 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">Target.php</span> <span class="comment">                 # Single output target value object</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">TypeOverride.php</span> <span class="comment">           # php_type + nullable override</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Generator/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">EmbedGenerator.php</span> <span class="comment">         # Generates nested value-object classes for @embed</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">EnumGenerator.php</span> <span class="comment">          # PHP 8.1 backed enums for ENUM columns</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">InterfaceGenerator.php</span> <span class="comment">     # *Interface alongside each Query class</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">ModelGenerator.php</span> <span class="comment">         # Generates table DTO classes</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">QueryGenerator.php</span> <span class="comment">         # Query classes with PDO methods</span></div>
-          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">ResultDtoGenerator.php</span> <span class="comment">     # DTOs for JOIN/aggregate queries</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">ResultDtoGenerator.php</span> <span class="comment">     # DTOs for JOIN/aggregate; handles @embed</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Parser/</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">EmbedDefinition.php</span> <span class="comment">        # Value object for @embed annotation</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">SchemaParser.php</span> <span class="comment">           # Parses CREATE TABLE SQL</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">QueryParser.php</span> <span class="comment">            # Parses annotated SQL query files</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Resolver/</span></div>
@@ -1558,7 +1661,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (326 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (352 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1569,6 +1672,18 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.5.0</div>
+          <ul>
+            <li><strong><code>@embed</code> — nested objects for JOIN results</strong> — <code>-- @embed ClassName prefix_</code> groups all columns whose alias starts with <code>prefix_</code> into a nested <code>readonly</code> value object. The embedded class implements <code>fromRow(array $row): self</code> using the original prefixed column names, so no extra queries are needed at runtime.</li>
+            <li><strong><code>EmbedDefinition</code></strong> — new value object (<code>src/Parser/EmbedDefinition.php</code>) with <code>className</code>, <code>prefix</code>, and helpers <code>propertyName()</code>, <code>matches()</code>, <code>stripPrefix()</code>.</li>
+            <li><strong><code>EmbedGenerator</code></strong> — new generator (<code>src/Generator/EmbedGenerator.php</code>) that produces standalone <code>readonly class</code> files for each <code>@embed</code> group.</li>
+            <li><strong><code>ResultDtoGenerator</code></strong> updated to partition result columns into embed groups and flat remainder; <code>generate()</code> return shape gains an <code>embeds</code> key.</li>
+            <li><strong>Multiple embeds per query</strong> — stack multiple <code>@embed</code> annotations on one query; each produces a separate file and a property on the parent DTO.</li>
+            <li>26 new tests in <code>tests/EmbedTest.php</code> covering all layers of the pipeline.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v1.4.0</div>

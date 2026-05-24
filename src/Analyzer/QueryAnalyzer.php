@@ -78,9 +78,9 @@ class QueryAnalyzer
             $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
 
-            // If @nillable is present, we must generate a custom DTO even for
-            // single-table queries — the model class cannot be mutated.
-            if (empty($query->nillableColumns)) {
+            // @nillable or @embed on a direct-model query forces a custom DTO
+            $hasCustomizations = !empty($query->nillableColumns) || !empty($query->embeds);
+            if (!$hasCustomizations) {
                 [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
             }
         }
@@ -99,6 +99,7 @@ class QueryAnalyzer
             modelClass:           $modelClass,
             deprecated:           $query->deprecated,
             nillableColumns:      $query->nillableColumns,
+            embeds:               $query->embeds,
         );
     }
 

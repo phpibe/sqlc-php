@@ -110,11 +110,13 @@ PHP;
 
     private function renderMethod(QueryDefinition $query): string
     {
-        return match ($query->returns) {
-            ReturnType::Many => $this->renderManyMethod($query),
-            ReturnType::One  => $this->renderOneMethod($query),
-            ReturnType::Opt  => $this->renderOptMethod($query),
-            ReturnType::Exec => $this->renderExecMethod($query),
+        return match ($query->returns->value) {
+            ':many'           => $this->renderManyMethod($query),
+            ':many-paginated' => $this->renderManyPaginatedMethod($query),
+            ':one'            => $this->renderOneMethod($query),
+            ':opt'            => $this->renderOptMethod($query),
+            ':exec'           => $this->renderExecMethod($query),
+            default           => $this->renderManyMethod($query),
         };
     }
 
@@ -136,6 +138,48 @@ PHP;
     {
         \$stmt = \$this->pdo->prepare({$sqlLiteral});
 {$bindings}        \$stmt->execute();
+
+        return array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // :many-paginated
+    // -------------------------------------------------------------------------
+
+    private function renderManyPaginatedMethod(QueryDefinition $query): string
+    {
+        $returnClass = $this->resolveReturnClass($query);
+
+        // Build param list: user-defined params first, then limit/offset at the end
+        $userParams  = $this->buildParamList($query);
+        $paginParams = $userParams !== ''
+            ? ", int \$limit = 20, int \$offset = 0"
+            : "int \$limit = 20, int \$offset = 0";
+
+        $signature  = "{$query->name}({$userParams}{$paginParams}): array";
+
+        $docReturn  = "@return {$returnClass}[]";
+        $docblock   = $this->buildDocblockWithExtra($query, $docReturn, [
+            "@param int \$limit  Maximum number of rows to return.",
+            "@param int \$offset Number of rows to skip.",
+        ]);
+
+        $sqlLiteral = $this->renderSqlLiteral($query->sql);
+        $bindings   = $this->renderBindings($query);
+
+        return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+        \$stmt = \$this->pdo->prepare({$sqlLiteral});
+{$bindings}        \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
+        \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
+        \$stmt->execute();
 
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
@@ -231,11 +275,12 @@ PHP;
      */
     public function resolveReturnTypePublic(QueryDefinition $query): string
     {
-        return match ($query->returns) {
-            ReturnType::Many => 'array',
-            ReturnType::One  => $this->resolveReturnClass($query),
-            ReturnType::Opt  => '?' . $this->resolveReturnClass($query),
-            ReturnType::Exec => 'void',
+        return match ($query->returns->value) {
+            ':many', ':many-paginated' => 'array',
+            ':one'                     => $this->resolveReturnClass($query),
+            ':opt'                     => '?' . $this->resolveReturnClass($query),
+            ':exec'                    => 'void',
+            default                    => 'array',
         };
     }
 
@@ -329,8 +374,37 @@ PHP;
     }
 
     /**
-     * Render bindValue calls for all named parameters with correct PDO types.
+     * Build the docblock comment with extra @param lines appended before @return.
+     * Used for :many-paginated to document limit/offset params.
+     *
+     * @param string[] $extraParamLines
      */
+    private function buildDocblockWithExtra(QueryDefinition $query, string $returnTag, array $extraParamLines): string
+    {
+        $lines = ['    /**'];
+
+        if ($query->deprecated !== null) {
+            $msg     = $query->deprecated !== '' ? ' ' . $query->deprecated : '';
+            $lines[] = "     * @deprecated{$msg}";
+        }
+
+        foreach ($query->params as $param) {
+            $type    = $param->optional
+                ? (str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType)
+                : $param->phpType;
+            $note    = $param->optional ? ' Pass null to skip this filter.' : '';
+            $lines[] = "     * @param {$type} \${$param->name}{$note}";
+        }
+
+        foreach ($extraParamLines as $line) {
+            $lines[] = "     * {$line}";
+        }
+
+        $lines[] = "     * {$returnTag}";
+        $lines[] = '     */';
+
+        return implode("\n", $lines);
+    }
     private function renderBindings(QueryDefinition $query): string
     {
         if (empty($query->params)) return '';

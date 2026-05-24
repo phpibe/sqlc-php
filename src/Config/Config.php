@@ -25,6 +25,7 @@ class Config
      * @param string[]       $schemas       Always string[] — normalised from scalar or list
      * @param string[]       $queries       Always string[] — normalised from scalar or list
      * @param TypeOverride[] $typeOverrides
+     * @param Target[]       $targets       Multiple output targets; empty = single-target mode
      */
     public function __construct(
         public readonly string $version,
@@ -39,6 +40,12 @@ class Config
         public readonly bool   $generateInterfaces = false,
         /** All schema files — always string[]. */
         public readonly array  $schemas = [],
+        /**
+         * Multiple output targets. When non-empty, each target's namespace/out/queries
+         * override the root-level settings for that target's generation pass.
+         * The root php: block is still used as defaults.
+         */
+        public readonly array  $targets = [],
     ) {}
 
     public static function fromFile(string $path): self
@@ -73,6 +80,13 @@ class Config
             }
         }
 
+        // targets: multiple output target blocks
+        $targets = [];
+        foreach ($data['targets'] ?? [] as $entry) {
+            if (!is_array($entry)) continue;
+            $targets[] = Target::fromArray($entry, $overrides);
+        }
+
         return new self(
             version:            (string) ($data['version'] ?? '1'),
             schema:             $schemas[0] ?? 'schema.sql',
@@ -83,6 +97,7 @@ class Config
             typeOverrides:      $overrides,
             generateInterfaces: filter_var($php['generate_interfaces'] ?? false, FILTER_VALIDATE_BOOLEAN),
             schemas:            $schemas,
+            targets:            $targets,
         );
     }
 
@@ -229,7 +244,10 @@ class Config
     {
         $raw = trim($raw);
 
-        if (preg_match('/^"([^"]*)"/', $raw, $m)) return $m[1];
+        if (preg_match('/^"([^"]*)"/', $raw, $m)) {
+            // Unescape common YAML double-quoted escape sequences
+            return str_replace(['\\\\', '\\"', '\\n', '\\t'], ['\\', '"', "\n", "\t"], $m[1]);
+        }
         if (preg_match("/^'([^']*)'/", $raw, $m)) return $m[1];
 
         $raw = preg_replace('/\s+#.*$/', '', $raw) ?? $raw;

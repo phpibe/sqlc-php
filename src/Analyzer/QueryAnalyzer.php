@@ -44,7 +44,12 @@ class QueryAnalyzer
         // 1. Rewrite SQL for optional parameters (validates unsafe constructs first)
         $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
 
-        // 2. Resolve parameters against the rewritten SQL
+        // 2. For :many-paginated, append LIMIT / OFFSET to the SQL
+        if ($query->returns->value === ':many-paginated') {
+            $rewrittenSql = $this->injectPagination($rewrittenSql);
+        }
+
+        // 3. Resolve parameters against the rewritten SQL
         $rawParams = $this->paramResolver->resolve($rewrittenSql, $query->paramAnnotations);
 
         // Mark params that were declared @optional
@@ -62,15 +67,22 @@ class QueryAnalyzer
             $rawParams
         );
 
-        // 3. Resolve result columns, applying @nillable overrides
+        // 4. Resolve result columns, applying @nillable overrides
+        // Treat :many-paginated like :many for column resolution
         $resultColumns        = [];
         $returnsModelDirectly = false;
         $modelClass           = null;
 
-        if ($query->returns !== ReturnType::Exec) {
+        $isSelectQuery = $query->returns->value !== ':exec';
+        if ($isSelectQuery) {
             $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
-            [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
+
+            // If @nillable is present, we must generate a custom DTO even for
+            // single-table queries — the model class cannot be mutated.
+            if (empty($query->nillableColumns)) {
+                [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
+            }
         }
 
         return new QueryDefinition(
@@ -88,6 +100,15 @@ class QueryAnalyzer
             deprecated:           $query->deprecated,
             nillableColumns:      $query->nillableColumns,
         );
+    }
+
+    /**
+     * Appends LIMIT :limit OFFSET :offset to the SQL, stripping any trailing semicolon first.
+     */
+    private function injectPagination(string $sql): string
+    {
+        $sql = rtrim(trim($sql), ';');
+        return $sql . "\nLIMIT :limit OFFSET :offset";
     }
 
     /**

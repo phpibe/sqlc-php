@@ -12,10 +12,11 @@ use SqlcPhp\Resolver\ResolvedColumn;
  */
 enum ReturnType: string
 {
-    case Many = ':many';
-    case One  = ':one';
-    case Opt  = ':opt';
-    case Exec = ':exec';
+    case Many          = ':many';
+    case ManyPaginated = ':many-paginated';
+    case One           = ':one';
+    case Opt           = ':opt';
+    case Exec          = ':exec';
 }
 
 /**
@@ -79,8 +80,10 @@ class QueryParser
     {
         $queries = [];
 
-        // Split on blank lines between query blocks
-        $blocks = preg_split('/\n\s*\n/', $sql);
+        // Split on the start of each new annotation block (-- @name ...).
+        // This allows blank lines inside a query body, which the old
+        // blank-line split would incorrectly treat as a block boundary.
+        $blocks = preg_split('/(?=^\s*--\s*@name\b)/mi', $sql);
 
         foreach ($blocks as $block) {
             $block = trim($block);
@@ -116,7 +119,7 @@ class QueryParser
                     $name = $m[1];
                 } elseif (preg_match('/@group\s+(\w+)/i', $comment, $m)) {
                     $group = $m[1];
-                } elseif (preg_match('/@returns\s+(:\w+)/i', $comment, $m)) {
+                } elseif (preg_match('/@returns\s+(:[a-z-]+)/i', $comment, $m)) {
                     $returns = ReturnType::from($m[1]);
                 } elseif (preg_match('/@param\s+(\w+)\s+([\w.]+)/i', $comment, $m)) {
                     $paramAnnotations[$m[1]] = $m[2];

@@ -2,7 +2,6 @@
 
 A PHP code generator inspired by [sqlc](https://sqlc.dev) for Go. It reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes that use PDO under the hood — no ORM, no magic, just plain objects derived directly from your database.
 
-📚Please, see the full documentation at [sqlc-php](https://phpibe.github.io/sqlc-php)
 ---
 
 ## How it works
@@ -37,7 +36,10 @@ composer require phpibe/sqlc-php
 Then run the CLI from your project root:
 
 ```bash
-php ./vendor/bin/sqlc-php sqlc.yaml
+php ./vendor/bin/sqlc-php sqlc.yaml            # generate files
+php ./vendor/bin/sqlc-php --dry-run sqlc.yaml  # preview without writing
+php ./vendor/bin/sqlc-php --diff    sqlc.yaml  # show what would change
+php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale
 ```
 
 ---
@@ -67,6 +69,42 @@ type_overrides:
     php_type: "\\DateTimeImmutable"
     nullable: true                    # force nullable regardless of schema
 ```
+
+### Multiple output targets
+
+`targets` lets you generate multiple namespaces and output directories from the same schema in a single run. Each target has its own `namespace`, `out`, and `queries` list, and can declare its own `generate_interfaces` flag and `type_overrides` that are merged on top of the root-level overrides.
+
+```yaml
+version: "1"
+schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
+
+# Global type overrides shared across all targets
+type_overrides:
+  - db_type: "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: true
+
+targets:
+  - namespace: "App\\Database\\Read"
+    out:       generated/read
+    queries:
+      - database/queries/read/users.sql
+      - database/queries/read/orders.sql
+    generate_interfaces: true
+
+  - namespace: "App\\Database\\Write"
+    out:       generated/write
+    queries:
+      - database/queries/write/users.sql
+    generate_interfaces: false
+    type_overrides:
+      - column: "users.active"
+        php_type: "bool"
+```
+
+When `targets` is present, the root-level `php:` block is used as fallback defaults but each target's settings take precedence. When `targets` is absent, the root `php:` block is used as the single target.
 
 ### Multiple schema files
 
@@ -165,6 +203,7 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 | Annotation | PHP return type | Behaviour |
 |---|---|---|
 | `:many` | `ModelClass[]` | Returns an array; empty array if no rows |
+| `:many-paginated` | `ModelClass[]` | Like `:many` but auto-injects `LIMIT`/`OFFSET` params |
 | `:one` | `ModelClass` | Returns the object; **throws `RuntimeException`** if no row found |
 | `:opt` | `ModelClass\|null` | Returns the object or `null` if no row found |
 | `:exec` | `void` | Executes the statement (INSERT, UPDATE, DELETE) |
@@ -314,6 +353,50 @@ readonly class GetUserStatsRow
 
 ---
 
+### `:many-paginated` — automatic pagination
+
+Using `:many-paginated` instructs sqlc-php to automatically append `LIMIT :limit OFFSET :offset` to the SQL and add those two parameters to the generated method with sensible defaults.
+
+```sql
+-- @name ListUsers
+-- @group User
+-- @returns :many-paginated
+SELECT users.* FROM users ORDER BY created_at DESC;
+```
+
+Generated method:
+
+```php
+/**
+ * @param int $limit  Maximum number of rows to return.
+ * @param int $offset Number of rows to skip.
+ * @return User[]
+ */
+public function listUsers(int $limit = 20, int $offset = 0): array
+```
+
+The SQL stored in the class becomes:
+
+```sql
+SELECT users.* FROM users ORDER BY created_at DESC
+LIMIT :limit OFFSET :offset
+```
+
+Any user-defined parameters appear first in the signature; `$limit` and `$offset` are always last:
+
+```sql
+-- @name ListActiveUsers
+-- @returns :many-paginated
+-- @optional status
+SELECT users.* FROM users WHERE users.status = :status;
+```
+
+```php
+public function listActiveUsers(?string $status = null, int $limit = 20, int $offset = 0): array
+```
+
+---
+
 ### UPDATE / DELETE — :exec
 
 ```sql
@@ -433,9 +516,11 @@ The reason is optional — `-- @deprecated` without a message emits `@deprecated
 
 ### @nillable — force a result column to be nullable
 
-`@nillable columnAlias` forces a specific column in the result set to be `?type` in the generated DTO or method return type, regardless of how the column is declared in the schema.
+`@nillable columnAlias` forces a specific column in the result set to be `?type` in the generated DTO or return type, regardless of how the column is declared in the schema.
 
-This is useful for JOIN queries where a column from an outer join may be `NULL` at runtime even though the original table defines it as `NOT NULL`:
+This is useful in two scenarios:
+
+**LEFT JOIN — column may be NULL at runtime even though NOT NULL in schema:**
 
 ```sql
 -- @name GetUserWithOptionalRole
@@ -453,7 +538,7 @@ LEFT JOIN roles ON roles.id = users.role_id
 WHERE users.id = :id;
 ```
 
-Generated DTO:
+Generated DTO (multi-table → custom DTO):
 
 ```php
 readonly class GetUserWithOptionalRoleRow
@@ -467,7 +552,21 @@ readonly class GetUserWithOptionalRoleRow
 }
 ```
 
-Multiple `@nillable` annotations can be combined on the same query. The annotation targets the output alias (the name after `AS`), or the column name if no alias is used.
+**Direct model queries (`SELECT *`) — forces a dedicated DTO instead of reusing the table model:**
+
+When `@nillable` is used on a query that would normally return the table model directly (single-table `SELECT *`), sqlc-php generates a dedicated `*Row` DTO so the nullability can be applied without mutating the base model class:
+
+```sql
+-- @name GetUserProfile
+-- @group User
+-- @returns :one
+-- @nillable email
+SELECT users.* FROM users WHERE users.id = :id;
+```
+
+This generates `GetUserProfileRow` with `public ?string $email` instead of reusing `User` where `email` is `NOT NULL`.
+
+Multiple `@nillable` annotations can be stacked. The annotation targets the output alias (the name after `AS`), or the column name when no alias is used.
 
 ---
 
@@ -844,22 +943,19 @@ class UserControllerTest extends TestCase
 
 ---
 
-## CI verification — `--verify`
+## CLI flags
 
-The `--verify` flag generates all files in memory and compares them against the existing output. It writes nothing to disk, and exits with code `1` if anything is missing or out of date.
+### `--verify` — CI check
+
+Generates all files in memory and compares them against the existing output. Writes nothing. Exits `1` if anything is missing or out of date.
 
 ```bash
-# Add to your CI pipeline:
 php vendor/bin/sqlc-php --verify sqlc.yaml
 ```
-
-Example output when files are up to date:
 
 ```
 ✓ All 6 generated file(s) are up to date.
 ```
-
-Example output when files are stale:
 
 ```
 ✗ Generated files are out of date.
@@ -873,7 +969,41 @@ Modified files (1):
 Run `php vendor/bin/sqlc-php sqlc.yaml` to regenerate.
 ```
 
-This ensures that if a developer modifies the schema or queries without regenerating, the CI pipeline fails with a clear message.
+### `--dry-run` — preview without writing
+
+Prints the full content of every file that would be generated to stdout. Writes nothing to disk.
+
+```bash
+php vendor/bin/sqlc-php --dry-run sqlc.yaml
+```
+
+```
+──────────────────────────────────────────────────────────────────────
+// generated/User.php
+──────────────────────────────────────────────────────────────────────
+<?php
+declare(strict_types=1);
+// ...
+
+✓ Dry run complete. 4 file(s) would be written.
+```
+
+### `--diff` — show what would change
+
+Compares generated content against existing files and prints a colored unified diff. Exits `0` when nothing would change, `1` when there are differences. Writes nothing.
+
+```bash
+php vendor/bin/sqlc-php --diff sqlc.yaml
+```
+
+```
+--- generated/User.php (current)
++++ generated/User.php (generated)
+  public ?int $id,
+- public string $email,
++ public ?string $email,
+  public ?bool $active,
+```
 
 ---
 
@@ -887,21 +1017,22 @@ The test suite covers:
 
 | Suite | File | What it tests |
 |---|---|---|
-| Schema Parser | `tests/Parser/SchemaParserTest.php` | CREATE TABLE parsing, column types, nullability, AUTO_INCREMENT, DEFAULT, ENUM |
-| Query Parser | `tests/Parser/QueryParserTest.php` | Annotation parsing, ReturnType variants, @param, @optional, group inference |
-| Type Mapper | `tests/TypeMapper/MySQLTypeMapperTest.php` | Default mappings, nullability, PDO constants, column/db_type overrides |
-| JSON Type | `tests/TypeMapper/JsonTypeTest.php` | JSON → array mapping, json_decode casts in fromRow |
-| Config | `tests/Config/ConfigTest.php` | YAML parsing, defaults, multiple query files, generate_interfaces, type_overrides |
-| New Features | `tests/Config/NewFeaturesTest.php` | Multiple schema files, nullable override, @deprecated, @nillable |
-| Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET resolution, camelCase→snake, fallback |
-| Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type |
-| Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOIN DTOs, aggregates |
-| SQL Rewriter | `tests/Rewriter/SqlRewriterTest.php` | Optional param rewriting, all operators, unsafe construct guards |
-| Optional Params | `tests/Analyzer/OptionalParamTest.php` | Parser validation, analyzer marking, generator output |
+| Schema Parser | `tests/Parser/SchemaParserTest.php` | CREATE TABLE, ENUM, nullable, AUTO_INCREMENT, DEFAULT |
+| Query Parser | `tests/Parser/QueryParserTest.php` | All annotations incl. @deprecated, @nillable, blank lines |
+| Type Mapper | `tests/TypeMapper/MySQLTypeMapperTest.php` | Default mappings, nullable override, PDO constants |
+| JSON Type | `tests/TypeMapper/JsonTypeTest.php` | JSON → array, json_decode casts |
+| Config | `tests/Config/ConfigTest.php` | YAML parsing, scalar/list schema and queries, generate_interfaces |
+| New Features v1.3 | `tests/Config/NewFeaturesTest.php` | Multiple schemas, nullable override, @deprecated, @nillable |
+| New Features v1.4 | `tests/NewFeaturesV14Test.php` | :many-paginated, @nillable on direct models, targets, --dry-run, --diff |
+| Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
+| Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
+| Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
+| SQL Rewriter | `tests/Rewriter/SqlRewriterTest.php` | All operators, unsafe construct guards |
+| Optional Params | `tests/Analyzer/OptionalParamTest.php` | @optional end-to-end |
 | Enum Generator | `tests/Generator/EnumGeneratorTest.php` | ENUM parsing, backed enum generation, fromRow casts |
-| Interface Generator | `tests/Generator/InterfaceGeneratorTest.php` | Interface generation, method signatures, implements clause |
-| Generator | `tests/Generator/GeneratorTest.php` | Generated code structure, docblock indentation, PDO bindings |
-| Verify Flag | `tests/VerifyFlagTest.php` | --verify exit codes, missing/modified detection, no file writes |
+| Interface Generator | `tests/Generator/InterfaceGeneratorTest.php` | Interface code, method signatures, implements clause |
+| Generator | `tests/Generator/GeneratorTest.php` | Code structure, docblock indentation, PDO bindings |
+| Verify Flag | `tests/VerifyFlagTest.php` | --verify exit codes, no file writes |
 
 ---
 
@@ -917,8 +1048,9 @@ sqlc-php/
 │   ├── Catalog/
 │   │   └── SchemaCatalog.php           # In-memory table/column index
 │   ├── Config/
-│   │   ├── Config.php                  # YAML config loader
-│   │   └── TypeOverride.php            # Type override value object
+│   │   ├── Config.php                  # YAML loader (schema/queries/targets lists)
+│   │   ├── Target.php                  # Single output target value object
+│   │   └── TypeOverride.php            # php_type + nullable override
 │   ├── Generator/
 │   │   ├── EnumGenerator.php           # Generates PHP 8.1 backed enums for ENUM columns
 │   │   ├── InterfaceGenerator.php      # Generates *Interface alongside each Query class
@@ -938,7 +1070,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (288 tests)
+├── tests/                              # PHPUnit test suite (326 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -946,6 +1078,16 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.4.0]
+- **`:many-paginated` return type** — auto-injects `LIMIT :limit OFFSET :offset` into the SQL at analysis time and appends `int $limit = 20, int $offset = 0` to the generated method signature. User-defined params always appear first; `$limit` and `$offset` are last. Works with `@optional` params on the same query.
+- **`@nillable` on direct model queries** — previously `@nillable` only worked on multi-table JOIN queries. Now, when `@nillable` is used on a single-table `SELECT *` query (which would normally reuse the table model), a dedicated `*Row` DTO is generated instead, allowing nullability overrides without mutating the base model class.
+- **Multiple output targets** — `targets:` block in `sqlc.yaml` allows generating multiple namespaces and output directories from the same schema in a single CLI run. Each target has its own `namespace`, `out`, `queries`, `generate_interfaces`, and optional `type_overrides` that merge on top of the root-level overrides.
+- **`--dry-run` flag** — prints the full content of every file that would be generated to stdout, without writing anything to disk.
+- **`--diff` flag** — shows a colored unified diff between current files and what would be generated. Exits `0` when nothing would change, `1` when there are differences. Writes nothing.
+- **Parser fix** — `@returns` regex now accepts hyphens, enabling `:many-paginated` to be parsed correctly (previously only `\w` characters were matched).
+- **YAML `parseScalar` fix** — double-quoted strings now correctly unescape `\\` → `\`, `\"` → `"`, `\n` → newline. This fixes namespace values like `"App\\Database"` being stored as `App\\Database` instead of `App\Database`.
+- **33 new tests** in `tests/NewFeaturesV14Test.php` covering all five features end-to-end.
 
 ### [1.3.0]
 - **Multiple schema files** — `schema` in `sqlc.yaml` now accepts a scalar string (legacy) or a YAML list, mirroring the existing `queries` list support. All files are parsed and merged into a single catalog before analysis. The `config->schemas` property always returns `string[]`.

@@ -429,6 +429,7 @@
     .rt-one  { background: rgba(247,129,102,.15); color: var(--accent); }
     .rt-opt  { background: rgba(167,139,250,.15); color: #c4b5fd; }
     .rt-exec { background: rgba(63,185,80,.15);   color: var(--accent-3); }
+    .rt-paginated { background: rgba(56,189,248,.15); color: #7dd3fc; }
 
     /* ── FILE TREE ── */
     .file-tree {
@@ -543,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v1.3.0</span>
+    <span class="badge-version">v1.4.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -568,6 +569,7 @@
       <a class="sidebar-link" href="#config"><i class="bi bi-gear"></i> sqlc.yaml</a>
       <a class="sidebar-link" href="#multiple-schemas"><i class="bi bi-files"></i> Multiple schema files</a>
       <a class="sidebar-link" href="#multiple-queries"><i class="bi bi-file-earmark-code"></i> Multiple query files</a>
+      <a class="sidebar-link" href="#multiple-targets"><i class="bi bi-diagram-3"></i> Multiple targets</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
       <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
     </div>
@@ -586,6 +588,7 @@
       <a class="sidebar-link" href="#joins"><i class="bi bi-intersect"></i> JOINs → Row DTO</a>
       <a class="sidebar-link" href="#aggregates"><i class="bi bi-calculator"></i> Aggregates</a>
       <a class="sidebar-link" href="#exec"><i class="bi bi-pencil-square"></i> UPDATE / DELETE</a>
+      <a class="sidebar-link" href="#many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
       <a class="sidebar-link" href="#enums"><i class="bi bi-list-check"></i> MySQL ENUM</a>
       <a class="sidebar-link" href="#json"><i class="bi bi-braces"></i> JSON columns</a>
       <a class="sidebar-link" href="#deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
@@ -611,7 +614,7 @@
       <div class="sidebar-group-label">Usage</div>
       <a class="sidebar-link" href="#usage"><i class="bi bi-terminal"></i> Basic usage</a>
       <a class="sidebar-link" href="#laravel"><i class="bi bi-box-arrow-in-right"></i> Laravel integration</a>
-      <a class="sidebar-link" href="#ci"><i class="bi bi-shield-check"></i> CI verification</a>
+      <a class="sidebar-link" href="#ci"><i class="bi bi-shield-check"></i> CLI flags</a>
       <a class="sidebar-link" href="#tests"><i class="bi bi-clipboard2-check"></i> Running tests</a>
     </div>
 
@@ -677,7 +680,10 @@
         <h2><i class="bi bi-download me-2" style="color:var(--accent-2)"></i>Installation</h2>
         <pre><code class="language-bash">composer require phpibe/sqlc-php</code></pre>
         <p style="color:var(--text-muted)">Then run the CLI from your project root:</p>
-        <pre><code class="language-bash">php ./vendor/bin/sqlc-php sqlc.yaml</code></pre>
+        <pre><code class="language-bash">php ./vendor/bin/sqlc-php sqlc.yaml            # generate files
+php ./vendor/bin/sqlc-php --dry-run sqlc.yaml  # preview without writing
+php ./vendor/bin/sqlc-php --diff    sqlc.yaml  # show what would change
+php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale</code></pre>
       </section>
 
       <hr class="section-divider">
@@ -733,6 +739,42 @@ Schema : 3 table(s) — users, orders, roles
 Queries: 8 query(ies) from database/queries/users.sql
 Queries: 3 query(ies) from database/queries/orders.sql
 Queries: 11 total query(ies) parsed</code></pre>
+      </section>
+
+      <!-- MULTIPLE OUTPUT TARGETS -->
+      <section class="doc-section" id="multiple-targets">
+        <h3>Multiple output targets</h3>
+        <p style="color:var(--text-muted)"><code>targets</code> lets you generate multiple namespaces and output directories from the same schema in a single run. Each target has its own <code>namespace</code>, <code>out</code>, <code>queries</code>, and optional overrides merged on top of the root-level ones:</p>
+        <pre><code class="language-yaml">version: "1"
+schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
+
+# Global overrides shared across all targets
+type_overrides:
+  - db_type: "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: true
+
+targets:
+  - namespace: "App\\Database\\Read"
+    out:       generated/read
+    queries:
+      - database/queries/read/users.sql
+      - database/queries/read/orders.sql
+    generate_interfaces: true
+
+  - namespace: "App\\Database\\Write"
+    out:       generated/write
+    queries:
+      - database/queries/write/users.sql
+    type_overrides:                    # merged on top of global overrides
+      - column: "users.active"
+        php_type: "bool"</code></pre>
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          When <code>targets</code> is absent, the root <code>php:</code> block is used as the single target. The two formats are fully backward compatible.
+        </div>
       </section>
 
       <!-- TYPE OVERRIDES -->
@@ -814,7 +856,7 @@ Queries: 11 total query(ies) parsed</code></pre>
         <p style="color:var(--text-muted)">Every query must have at minimum a <code>@name</code> and a <code>@returns</code> annotation, written as SQL comments:</p>
         <pre><code class="language-sql">-- @name    MethodName          required — PHP method name (camelCase)
 -- @group   ClassName           optional — query class name; inferred from FROM table if omitted
--- @returns :many               required — :many | :one | :opt | :exec
+-- @returns :many               required — :many | :many-paginated | :one | :opt | :exec
 -- @param   userId users.id     optional — explicit type override for a named parameter
 -- @optional paramName          optional — passing null skips the filter condition entirely
 -- @deprecated reason           optional — marks the generated method as @deprecated
@@ -844,6 +886,11 @@ Queries: 11 total query(ies) parsed</code></pre>
                 <td><span class="return-type rt-many">:many</span></td>
                 <td><code>ModelClass[]</code></td>
                 <td>Returns an array; empty array if no rows</td>
+              </tr>
+              <tr>
+                <td><span class="return-type rt-paginated">:many-paginated</span></td>
+                <td><code>ModelClass[]</code></td>
+                <td>Like <code>:many</code> but auto-injects <code>LIMIT :limit OFFSET :offset</code> and adds <code>$limit = 20, $offset = 0</code> params</td>
               </tr>
               <tr>
                 <td><span class="return-type rt-one">:one</span></td>
@@ -999,6 +1046,32 @@ DELETE FROM users WHERE id = :id;</code></pre>
 public function deleteUser(?int $id): void</code></pre>
       </section>
 
+      <!-- MANY PAGINATED -->
+      <section class="doc-section" id="many-paginated">
+        <h2><i class="bi bi-layout-text-window-reverse me-2" style="color:var(--accent-2)"></i>:many-paginated — automatic pagination</h2>
+        <p style="color:var(--text-muted)">Using <code>:many-paginated</code> auto-appends <code>LIMIT :limit OFFSET :offset</code> to the SQL and adds those two parameters with sensible defaults:</p>
+        <pre><code class="language-sql">-- @name ListUsers
+-- @group User
+-- @returns :many-paginated
+SELECT users.* FROM users ORDER BY created_at DESC;</code></pre>
+        <p style="color:var(--text-muted)">Generated method:</p>
+        <pre><code class="language-php">/**
+ * @param int $limit  Maximum number of rows to return.
+ * @param int $offset Number of rows to skip.
+ * @return User[]
+ */
+public function listUsers(int $limit = 20, int $offset = 0): array</code></pre>
+        <p style="color:var(--text-muted)">The SQL stored in the class becomes:</p>
+        <pre><code class="language-sql">SELECT users.* FROM users ORDER BY created_at DESC
+LIMIT :limit OFFSET :offset</code></pre>
+        <p style="color:var(--text-muted)">User-defined parameters appear first; <code>$limit</code> and <code>$offset</code> are always last:</p>
+        <pre><code class="language-sql">-- @name ListActiveUsers
+-- @returns :many-paginated
+-- @optional status
+SELECT users.* FROM users WHERE users.status = :status;</code></pre>
+        <pre><code class="language-php">public function listActiveUsers(?string $status = null, int $limit = 20, int $offset = 0): array</code></pre>
+      </section>
+
       <!-- ENUMS -->
       <section class="doc-section" id="enums">
         <h2><i class="bi bi-list-check me-2" style="color:var(--accent-2)"></i>MySQL ENUM → PHP backed enum</h2>
@@ -1060,7 +1133,9 @@ public function getUser(?int $id): User</code></pre>
       <!-- NILLABLE -->
       <section class="doc-section" id="nillable">
         <h2><i class="bi bi-question-circle me-2" style="color:var(--accent)"></i>@nillable — force a result column to be nullable</h2>
-        <p style="color:var(--text-muted)">Useful for LEFT JOIN queries where a column from the joined table may be <code>NULL</code> at runtime:</p>
+        <p style="color:var(--text-muted)">Useful in two scenarios:</p>
+
+        <h3>LEFT JOIN — column may be NULL at runtime</h3>
         <pre><code class="language-sql">-- @name GetUserWithOptionalRole
 -- @group User
 -- @returns :one
@@ -1083,6 +1158,18 @@ WHERE users.id = :id;</code></pre>
         public ?string $role_description,  // forced nullable via @nillable
     ) {}
 }</code></pre>
+
+        <h3>Direct model queries (<code>SELECT *</code>)</h3>
+        <p style="color:var(--text-muted)">When <code>@nillable</code> is used on a single-table <code>SELECT *</code> query, sqlc-php generates a dedicated <code>*Row</code> DTO instead of reusing the table model, so nullability can be applied without mutating the base model class:</p>
+        <pre><code class="language-sql">-- @name GetUserProfile
+-- @group User
+-- @returns :one
+-- @nillable email
+SELECT users.* FROM users WHERE users.id = :id;</code></pre>
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          Generates <code>GetUserProfileRow</code> with <code>public ?string $email</code> — even though <code>email</code> is <code>NOT NULL</code> in the schema. The base <code>User</code> model is left unchanged.
+        </div>
       </section>
 
       <!-- OPTIONAL PARAMS -->
@@ -1207,6 +1294,9 @@ public function getUsersByRole(int $roleId, ?string $status = null): array</code
 
     /** @return User[] */
     public function listUsers(): array { ... }
+
+    /** @return User[] */
+    public function listUsersPaginated(int $limit = 20, int $offset = 0): array { ... }  // :many-paginated
 
     /** @return User */
     public function getUser(?int $id): User { ... }                     // :one — throws
@@ -1353,11 +1443,12 @@ class UserRepository
 
       <!-- CI -->
       <section class="doc-section" id="ci">
-        <h2><i class="bi bi-shield-check me-2" style="color:var(--accent-3)"></i>CI verification — <code>--verify</code></h2>
-        <p style="color:var(--text-muted)">The <code>--verify</code> flag generates all files in memory and compares them against the existing output. It writes nothing to disk, and exits with code <code>1</code> if anything is missing or out of date.</p>
+        <h2><i class="bi bi-shield-check me-2" style="color:var(--accent-3)"></i>CLI flags</h2>
+
+        <h3><code>--verify</code> — CI check</h3>
+        <p style="color:var(--text-muted)">Generates all files in memory and compares against the existing output. Writes nothing. Exits <code>1</code> if anything is missing or out of date.</p>
         <pre><code class="language-bash"># Add to your CI pipeline:
 php vendor/bin/sqlc-php --verify sqlc.yaml</code></pre>
-
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem;">
           <div>
             <p style="color:var(--accent-3); font-size:.8rem; font-weight:700; font-family:var(--font-mono); margin-bottom:.5rem">✓ UP TO DATE</p>
@@ -1377,6 +1468,28 @@ Run `php vendor/bin/sqlc-php sqlc.yaml`
 to regenerate.</code></pre>
           </div>
         </div>
+
+        <h3 style="margin-top:2rem"><code>--dry-run</code> — preview without writing</h3>
+        <p style="color:var(--text-muted)">Prints the full content of every file that would be generated to stdout. Writes nothing to disk.</p>
+        <pre><code class="language-bash">php vendor/bin/sqlc-php --dry-run sqlc.yaml</code></pre>
+        <pre><code class="language-text">──────────────────────────────────────────────────────────────────────
+// generated/User.php
+──────────────────────────────────────────────────────────────────────
+&lt;?php
+declare(strict_types=1);
+// ...
+
+✓ Dry run complete. 4 file(s) would be written.</code></pre>
+
+        <h3><code>--diff</code> — show what would change</h3>
+        <p style="color:var(--text-muted)">Compares generated content against existing files and prints a colored unified diff. Exits <code>0</code> when nothing would change, <code>1</code> when there are differences. Writes nothing.</p>
+        <pre><code class="language-bash">php vendor/bin/sqlc-php --diff sqlc.yaml</code></pre>
+        <pre><code class="language-text">--- generated/User.php (current)
++++ generated/User.php (generated)
+  public ?int $id,
+- public string $email,
++ public ?string $email,
+  public ?bool $active,</code></pre>
       </section>
 
       <!-- TESTS -->
@@ -1388,11 +1501,12 @@ to regenerate.</code></pre>
             <thead><tr><th>Suite</th><th>File</th><th>What it tests</th></tr></thead>
             <tbody>
               <tr><td>Schema Parser</td><td><code>SchemaParserTest.php</code></td><td>CREATE TABLE, column types, nullability, AUTO_INCREMENT, ENUM</td></tr>
-              <tr><td>Query Parser</td><td><code>QueryParserTest.php</code></td><td>Annotation parsing, ReturnType variants, @param, @optional, group inference</td></tr>
+              <tr><td>Query Parser</td><td><code>QueryParserTest.php</code></td><td>All annotations incl. @deprecated, @nillable, blank lines inside queries</td></tr>
               <tr><td>Type Mapper</td><td><code>MySQLTypeMapperTest.php</code></td><td>Default mappings, nullability, PDO constants, overrides</td></tr>
               <tr><td>JSON Type</td><td><code>JsonTypeTest.php</code></td><td>JSON → array mapping, json_decode casts in fromRow</td></tr>
               <tr><td>Config</td><td><code>ConfigTest.php</code></td><td>YAML parsing, defaults, multiple query files, generate_interfaces</td></tr>
-              <tr><td>New Features</td><td><code>NewFeaturesTest.php</code></td><td>Multiple schema files, nullable override, @deprecated, @nillable</td></tr>
+              <tr><td>New Features v1.3</td><td><code>NewFeaturesTest.php</code></td><td>Multiple schema files, nullable override, @deprecated, @nillable</td></tr>
+              <tr><td>New Features v1.4</td><td><code>NewFeaturesV14Test.php</code></td><td>:many-paginated, @nillable on direct models, multiple targets, --dry-run, --diff</td></tr>
               <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
               <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
               <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
@@ -1415,15 +1529,16 @@ to regenerate.</code></pre>
         <div class="file-tree">
           <div><span class="dir">sqlc-php/</span></div>
           <div>&nbsp;&nbsp;├── <span class="dir">bin/</span></div>
-          <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">sqlc-php</span> <span class="comment">                       # CLI entry point (supports --verify)</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="file">sqlc-php</span> <span class="comment">                       # CLI: generate, --verify, --dry-run, --diff</span></div>
           <div>&nbsp;&nbsp;├── <span class="dir">src/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Analyzer/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">QueryAnalyzer.php</span> <span class="comment">          # Enriches parsed queries with resolved types</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Catalog/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SchemaCatalog.php</span> <span class="comment">          # In-memory table/column index</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Config/</span></div>
-          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">Config.php</span> <span class="comment">                 # YAML config loader</span></div>
-          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">TypeOverride.php</span> <span class="comment">           # Type override value object</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">Config.php</span> <span class="comment">                 # YAML loader (schema/queries/targets lists)</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">Target.php</span> <span class="comment">                 # Single output target value object</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">TypeOverride.php</span> <span class="comment">           # php_type + nullable override</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Generator/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">EnumGenerator.php</span> <span class="comment">          # PHP 8.1 backed enums for ENUM columns</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; ├── <span class="file">InterfaceGenerator.php</span> <span class="comment">     # *Interface alongside each Query class</span></div>
@@ -1443,7 +1558,7 @@ to regenerate.</code></pre>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (288 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (326 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1454,6 +1569,20 @@ to regenerate.</code></pre>
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.4.0</div>
+          <ul>
+            <li><strong><code>:many-paginated</code> return type</strong> — auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL and appends <code>int $limit = 20, int $offset = 0</code> to the method signature. User params always appear first.</li>
+            <li><strong><code>@nillable</code> on direct model queries</strong> — previously only worked on JOIN DTOs. Now, when used on a single-table <code>SELECT *</code>, a dedicated <code>*Row</code> DTO is generated so nullability can be applied without mutating the base model.</li>
+            <li><strong>Multiple output targets</strong> — <code>targets:</code> block in <code>sqlc.yaml</code> generates multiple namespaces and directories from the same schema in one run. Each target can have its own queries, interfaces flag, and type overrides.</li>
+            <li><strong><code>--dry-run</code> flag</strong> — prints all generated file contents to stdout without writing anything to disk.</li>
+            <li><strong><code>--diff</code> flag</strong> — shows a colored unified diff between current files and what would be generated. Exit 0 = no changes, 1 = changes found.</li>
+            <li><strong>Parser fix</strong> — <code>@returns</code> regex now accepts hyphens, enabling <code>:many-paginated</code> to parse correctly.</li>
+            <li><strong>YAML <code>parseScalar</code> fix</strong> — double-quoted strings now correctly unescape <code>\\</code> → <code>\</code>.</li>
+            <li>33 new tests in <code>tests/NewFeaturesV14Test.php</code> covering all five features end-to-end.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v1.3.0</div>

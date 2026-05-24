@@ -78,7 +78,14 @@ PHP;
     {
         $returnType = $queryGen->resolveReturnTypePublic($query);
         $paramList  = $queryGen->buildParamListPublic($query);
-        $docblock   = $this->buildDocblock($query, $queryGen);
+
+        // :many-paginated adds limit/offset at the end
+        if ($query->returns->value === ':many-paginated') {
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . 'int $limit = 20, int $offset = 0';
+        }
+
+        $docblock = $this->buildDocblock($query, $queryGen);
 
         return <<<PHP
 {$docblock}
@@ -99,11 +106,9 @@ PHP;
             $lines[] = "     * @param {$type} \${$param->name}{$note}";
         }
 
-        $lines[] = match($query->returns) {
-            ReturnType::Many => "     * @return {$returnType}",
-            ReturnType::One  => "     * @return {$returnType}",
-            ReturnType::Opt  => "     * @return {$returnType}",
-            ReturnType::Exec => '     * @return void',
+        $lines[] = match($query->returns->value) {
+            ':exec'  => '     * @return void',
+            default  => "     * @return {$returnType}",
         };
 
         $lines[] = '     */';

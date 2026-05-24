@@ -139,6 +139,103 @@ class QueryParserTest extends TestCase
     }
 
     // -------------------------------------------------------------------------
+    // Blank lines inside query body
+    // -------------------------------------------------------------------------
+
+    public function test_blank_line_inside_select_list_is_tolerated(): void
+    {
+        $sql = <<<SQL
+            -- @name GetUser
+            -- @returns :one
+            SELECT
+                users.id,
+                users.email,
+
+                users.username
+            FROM users
+            WHERE users.id = :id;
+        SQL;
+
+        $queries = $this->parser->parse($sql);
+        $this->assertCount(1, $queries);
+        $this->assertSame('getUser', $queries[0]->name);
+    }
+
+    public function test_blank_line_between_annotations_and_sql_is_tolerated(): void
+    {
+        $sql = <<<SQL
+            -- @name ListUsers
+            -- @returns :many
+
+            SELECT * FROM users;
+        SQL;
+
+        $queries = $this->parser->parse($sql);
+        $this->assertCount(1, $queries);
+    }
+
+    public function test_multiple_blank_lines_inside_query_body_are_tolerated(): void
+    {
+        $sql = <<<SQL
+            -- @name GetUser
+            -- @returns :one
+            SELECT
+                users.id,
+
+                users.email,
+
+                users.username
+            FROM users
+
+            WHERE users.id = :id;
+        SQL;
+
+        $queries = $this->parser->parse($sql);
+        $this->assertCount(1, $queries);
+        $this->assertStringContainsString('FROM users', $queries[0]->sql);
+    }
+
+    public function test_blank_lines_in_query_do_not_affect_subsequent_query(): void
+    {
+        $sql = <<<SQL
+            -- @name GetUser
+            -- @returns :one
+            SELECT
+                users.id,
+
+                users.email
+            FROM users
+            WHERE users.id = :id;
+
+            -- @name ListUsers
+            -- @returns :many
+            SELECT * FROM users;
+        SQL;
+
+        $queries = $this->parser->parse($sql);
+        $this->assertCount(2, $queries);
+        $this->assertSame('getUser',   $queries[0]->name);
+        $this->assertSame('listUsers', $queries[1]->name);
+    }
+
+    public function test_sql_content_is_preserved_across_blank_lines(): void
+    {
+        $sql = <<<SQL
+            -- @name GetUser
+            -- @returns :one
+            SELECT users.id, users.email
+
+            FROM users
+            WHERE users.id = :id;
+        SQL;
+
+        $queries = $this->parser->parse($sql);
+        $this->assertStringContainsString('SELECT users.id', $queries[0]->sql);
+        $this->assertStringContainsString('FROM users',      $queries[0]->sql);
+        $this->assertStringContainsString('WHERE users.id',  $queries[0]->sql);
+    }
+
+    // -------------------------------------------------------------------------
     // @param annotations
     // -------------------------------------------------------------------------
 

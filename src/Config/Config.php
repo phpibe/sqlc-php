@@ -43,9 +43,17 @@ class Config
         /**
          * Multiple output targets. When non-empty, each target's namespace/out/queries
          * override the root-level settings for that target's generation pass.
-         * The root php: block is still used as defaults.
          */
         public readonly array  $targets = [],
+        /**
+         * Language for inflection (singularisation of table names).
+         * Accepts any value supported by doctrine/inflector Language constants.
+         * Defaults to 'english' when omitted.
+         *
+         * Supported values: english | spanish | french | portuguese |
+         *                   norwegian-bokmal | turkish
+         */
+        public readonly string $language = 'english',
     ) {}
 
     public static function fromFile(string $path): self
@@ -98,6 +106,7 @@ class Config
             generateInterfaces: filter_var($php['generate_interfaces'] ?? false, FILTER_VALIDATE_BOOLEAN),
             schemas:            $schemas,
             targets:            $targets,
+            language:           strtolower((string) ($php['language'] ?? 'english')),
         );
     }
 

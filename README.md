@@ -58,6 +58,9 @@ php:
   out:                 generated        # output directory
   engine:              mysql            # database engine (mysql supported)
   generate_interfaces: true             # generate *Interface alongside each Query class
+  language:            english          # inflection language (optional, default: english)
+                                        # english | spanish | french | portuguese |
+                                        # norwegian-bokmal | turkish
 
 # Optional type overrides
 type_overrides:
@@ -71,6 +74,31 @@ type_overrides:
     php_type: "\\DateTimeImmutable"
     nullable: true                    # force nullable regardless of schema
 ```
+
+### Inflection language
+
+sqlc-php uses [doctrine/inflector](https://github.com/doctrine/inflector) to singularise table names when inferring class names (`users` → `User`, `analyses` → `Analysis`). The language can be set under `php:` — it is optional and defaults to `english`:
+
+```yaml
+php:
+  language: spanish   # english | spanish | french | portuguese | norwegian-bokmal | turkish
+```
+
+With `language: spanish`, tables like `usuarios`, `pedidos`, `categorias` will produce `Usuario`, `Pedido`, `Categoria` without needing a `@group` annotation on every query.
+
+With `language: english` (the default), doctrine/inflector correctly handles irregular English plurals that the previous built-in implementation missed:
+
+| Table name | Before (built-in) | After (doctrine/inflector) |
+|---|---|---|
+| `analyses` | `Analyse` ❌ | `Analysis` ✅ |
+| `matrices` | `Matrice` ❌ | `Matrix` ✅ |
+| `aliases` | `Aliase` ❌ | `Alias` ✅ |
+| `geese` | `Geese` ❌ | `Goose` ✅ |
+| `users` | `User` ✅ | `User` ✅ |
+| `orders` | `Order` ✅ | `Order` ✅ |
+| `categories` | `Category` ✅ | `Category` ✅ |
+
+The `@group` annotation always takes precedence over inferred names — if you specify `@group MyClass`, the language setting is not involved.
 
 ### Multiple output targets
 
@@ -1144,6 +1172,7 @@ The test suite covers:
 | New Features v1.3 | `tests/Config/NewFeaturesTest.php` | Multiple schemas, nullable override, @deprecated, @nillable |
 | New Features v1.4 | `tests/NewFeaturesV14Test.php` | :many-paginated, @nillable on direct models, targets, --dry-run, --diff |
 | Embed | `tests/EmbedTest.php` | @embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation |
+| Inflector | `tests/InflectorServiceTest.php` | InflectorService, all 6 languages, Config language field, group inference |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
@@ -1178,6 +1207,8 @@ sqlc-php/
 │   │   ├── ModelGenerator.php          # Generates table DTO classes
 │   │   ├── QueryGenerator.php          # Generates query classes with PDO methods
 │   │   └── ResultDtoGenerator.php      # Generates result DTOs; handles @embed partitioning
+│   ├── Inflector/
+│   │   └── InflectorService.php        # doctrine/inflector wrapper with fallback
 │   ├── Parser/
 │   │   ├── EmbedDefinition.php         # Value object for @embed annotation
 │   │   ├── SchemaParser.php            # Parses CREATE TABLE SQL (including ENUM values)
@@ -1192,7 +1223,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (352 tests)
+├── tests/                              # PHPUnit test suite (378 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1200,6 +1231,13 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.5.1]
+- **`doctrine/inflector` integration** — class name inference now uses [doctrine/inflector](https://github.com/doctrine/inflector) for accurate singularisation and PascalCase conversion. Fixes incorrect singularisation of irregular English plurals (`analyses` → `Analysis`, `matrices` → `Matrix`, `aliases` → `Alias`) that the previous built-in implementation got wrong.
+- **`language` config option** — new optional field under `php:` in `sqlc.yaml`. Accepts `english` (default), `spanish`, `french`, `portuguese`, `norwegian-bokmal`, `turkish`. Enables accurate class name inference for non-English table names without requiring `@group` annotations on every query.
+- **`InflectorService`** — new class (`src/Inflector/InflectorService.php`) wrapping doctrine/inflector with a built-in English fallback for environments where the package is not installed. Transparent — no exceptions thrown when the dependency is absent.
+- **`composer.json`** — added `"doctrine/inflector": "^2.0"` to `require`.
+- **26 new tests** in `tests/InflectorServiceTest.php` covering all six supported languages, the fallback behaviour, Config parsing, QueryParser group inference, and EnumGenerator class naming.
 
 ### [1.5.0]
 - **`@embed` — nested objects for JOIN results** — `-- @embed ClassName prefix_` groups all result columns whose alias starts with `prefix_` into a nested `readonly` value object instead of flattening them into the parent DTO. Multiple `@embed` annotations can be stacked on one query, each producing a separate file. The embedded class implements `fromRow(array $row): self` using the original prefixed column names from the flat PDO row, so no extra queries or joins are needed at runtime.

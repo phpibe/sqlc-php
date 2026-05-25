@@ -24,17 +24,22 @@ use SqlcPhp\Parser\ColumnDefinition;
  */
 class EnumGenerator
 {
+    private \SqlcPhp\Inflector\InflectorService $inflector;
+
     public function __construct(
         private readonly string $namespace,
-    ) {}
+        string $language = 'english',
+    ) {
+        $this->inflector = new \SqlcPhp\Inflector\InflectorService($language);
+    }
 
     /**
      * Generate the PHP enum class name for a given table + column.
      */
     public function enumClassName(string $tableName, string $columnName): string
     {
-        return $this->toPascalCase($this->toSingular($tableName))
-            . $this->toPascalCase($columnName);
+        return $this->inflector->toPascalCase($this->inflector->singularize($tableName))
+            . $this->inflector->toPascalCase($columnName);
     }
 
     /**
@@ -83,22 +88,7 @@ PHP;
      */
     private function toCaseName(string $value): string
     {
-        // Split on non-alphanumeric characters
         $words = preg_split('/[^a-zA-Z0-9]+/', $value) ?: [$value];
         return implode('', array_map('ucfirst', array_map('strtolower', $words)));
-    }
-
-    private function toSingular(string $word): string
-    {
-        $word = strtolower($word);
-        if (str_ends_with($word, 'ies')) return substr($word, 0, -3) . 'y';
-        if (str_ends_with($word, 'ses') || str_ends_with($word, 'xes')) return substr($word, 0, -2);
-        if (str_ends_with($word, 's') && !str_ends_with($word, 'ss')) return substr($word, 0, -1);
-        return $word;
-    }
-
-    private function toPascalCase(string $word): string
-    {
-        return ucfirst(strtolower($word));
     }
 }

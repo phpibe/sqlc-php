@@ -2,6 +2,17 @@
 
 declare(strict_types=1);
 
+// Load doctrine/inflector if available (installed via apt or composer)
+foreach ([
+    __DIR__ . '/../vendor/autoload.php',
+    '/usr/share/php/Doctrine/Inflector/autoload.php',
+] as $autoload) {
+    if (file_exists($autoload)) {
+        require_once $autoload;
+        break;
+    }
+}
+
 spl_autoload_register(function (string $class): void {
     $maps = [
         'SqlcPhp\\'     => __DIR__ . '/../src/',

@@ -107,7 +107,7 @@ foreach ($passes as $i => $target) {
     echo "Target{$passLabel}: {$target->namespace} → {$target->out}/\n";
 
     // Parse queries for this target
-    $queryParser = new QueryParser();
+    $queryParser = new QueryParser($config->language);
     $rawQueries  = [];
 
     foreach ($target->queries as $queryFile) {
@@ -121,7 +121,7 @@ foreach ($passes as $i => $target) {
     echo "  Queries: " . count($rawQueries) . " total\n";
 
     // Analyze
-    $enumGen       = new EnumGenerator($target->namespace);
+    $enumGen       = new EnumGenerator($target->namespace, $config->language);
     $typeMapper    = new MySQLTypeMapper($target->typeOverrides, $enumGen);
     $paramResolver = new ParamResolver($catalog, $typeMapper);
     $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);

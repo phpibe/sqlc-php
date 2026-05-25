@@ -82,6 +82,13 @@ class QueryDefinition
  */
 class QueryParser
 {
+    private \SqlcPhp\Inflector\InflectorService $inflector;
+
+    public function __construct(string $language = 'english')
+    {
+        $this->inflector = new \SqlcPhp\Inflector\InflectorService($language);
+    }
+
     /**
      * @return QueryDefinition[]
      */
@@ -208,25 +215,15 @@ class QueryParser
         return null;
     }
 
+    /** @deprecated Use InflectorService::singularize() — kept for backward compatibility */
     public function toSingular(string $word): string
     {
-        $word = strtolower($word);
-
-        $irregulars = ['people' => 'person', 'children' => 'child', 'statuses' => 'status'];
-        if (isset($irregulars[$word])) return $irregulars[$word];
-
-        if (str_ends_with($word, 'ies'))  return substr($word, 0, -3) . 'y';
-        if (str_ends_with($word, 'ses'))  return substr($word, 0, -2);
-        if (str_ends_with($word, 'xes'))  return substr($word, 0, -2);
-        if (str_ends_with($word, 'ches')) return substr($word, 0, -2);
-        if (str_ends_with($word, 'shes')) return substr($word, 0, -2);
-        if (str_ends_with($word, 's') && !str_ends_with($word, 'ss')) return substr($word, 0, -1);
-
-        return $word;
+        return $this->inflector->singularize($word);
     }
 
+    /** @deprecated Use InflectorService::toPascalCase() — kept for backward compatibility */
     public function toPascalCase(string $word): string
     {
-        return ucfirst(strtolower($word));
+        return $this->inflector->toPascalCase($word);
     }
 }

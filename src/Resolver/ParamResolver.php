@@ -32,6 +32,9 @@ class ParamResolver
      */
     public function resolve(string $sql, array $annotations = []): array
     {
+        // Detect which params appear inside IN() clauses
+        $inListParams = $this->detectInListParams($sql);
+
         // Extract all :paramName tokens
         preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $sql, $m);
         $rawParams = array_unique($m[0] ?? []);
@@ -47,6 +50,7 @@ class ParamResolver
 
         foreach ($rawParams as $token) {
             $paramName = ltrim($token, ':');
+            $isInList  = isset($inListParams[$paramName]);
 
             // 1. Explicit annotation overrides everything
             if (isset($annotations[$paramName])) {
@@ -54,38 +58,118 @@ class ParamResolver
                 $found = $this->findColumn($tbl, $col);
                 if ($found !== null) {
                     [$realTable, $colDef] = $found;
-                    $resolved[$paramName] = $this->buildParam($paramName, $colDef->sqlType, $colDef->nullable, $realTable, $colDef->name);
+                    $resolved[$paramName] = $this->buildParam(
+                        $paramName, $colDef->sqlType, $colDef->nullable,
+                        $realTable, $colDef->name, inList: $isInList
+                    );
                     continue;
                 }
             }
 
-            // 2. Direct reference: WHERE table.col = :param  or  col = :param
+            // 2. Direct reference in IN() — look up the column before the IN
+            if ($isInList) {
+                $inColResult = $this->findInListColumnWithTable($sql, $paramName, $tableAliases);
+                if ($inColResult !== null) {
+                    [$inTable, $inCol] = $inColResult;
+                    $resolved[$paramName] = $this->buildParam(
+                        $paramName, $inCol->sqlType, $inCol->nullable,
+                        $inTable, $inCol->name, inList: true
+                    );
+                    continue;
+                }
+            }
+
+            // 3. Direct reference: WHERE table.col = :param  or  col = :param
             $directResult = $this->findDirectReferenceWithTable($sql, $token, $tableAliases);
             if ($directResult !== null) {
                 [$directTable, $direct] = $directResult;
-                $resolved[$paramName] = $this->buildParam($paramName, $direct->sqlType, $direct->nullable, $directTable, $direct->name);
+                $resolved[$paramName] = $this->buildParam(
+                    $paramName, $direct->sqlType, $direct->nullable,
+                    $directTable, $direct->name, inList: $isInList
+                );
                 continue;
             }
 
-            // 3. Name-based: :userId → look for column user_id / id in any table
+            // 4. Name-based: :userId → look for column user_id / id in any table
             $byNameResult = $this->findByNameWithTable($paramName, $tableAliases);
             if ($byNameResult !== null) {
                 [$byNameTable, $byName] = $byNameResult;
-                $resolved[$paramName] = $this->buildParam($paramName, $byName->sqlType, $byName->nullable, $byNameTable, $byName->name);
+                $resolved[$paramName] = $this->buildParam(
+                    $paramName, $byName->sqlType, $byName->nullable,
+                    $byNameTable, $byName->name, inList: $isInList
+                );
                 continue;
             }
 
-            // 4. Fallback: unresolved → mixed / PARAM_STR
+            // 5. Fallback: unresolved → mixed / PARAM_STR
             $resolved[$paramName] = new QueryParam(
                 name:     $paramName,
                 sqlType:  'VARCHAR',
                 nullable: false,
                 pdoParam: 'PDO::PARAM_STR',
                 phpType:  'mixed',
+                inList:   $isInList,
             );
         }
 
         return $resolved;
+    }
+
+    /**
+     * Returns a set of param names that appear inside IN() clauses.
+     * Detects: col IN (:param), col NOT IN (:param), IN(:param) (no space)
+     *
+     * @return array<string, true>
+     */
+    private function detectInListParams(string $sql): array
+    {
+        $inList = [];
+        // Match: IN ( :paramName ) with optional whitespace, including NOT IN
+        if (preg_match_all('/\bIN\s*\(\s*(:([a-zA-Z_][a-zA-Z0-9_]*))\s*\)/i', $sql, $m)) {
+            foreach ($m[2] as $name) {
+                $inList[$name] = true;
+            }
+        }
+        return $inList;
+    }
+
+    /**
+     * For a param inside IN(:param), find the column to the left of IN.
+     * Detects: `col IN (:param)`, `table.col IN (:param)`, `t.col NOT IN (:param)`
+     *
+     * @return array{0: string, 1: \SqlcPhp\Parser\ColumnDefinition}|null
+     */
+    private function findInListColumnWithTable(string $sql, string $paramName, array $aliases): ?array
+    {
+        $escaped = preg_quote($paramName, '/');
+        // Match: [table.]col [NOT] IN ( :paramName )
+        $pattern = '/([`"]?\w+[`"]?(?:\.[`"]?\w+[`"]?)?)\s+(?:NOT\s+)?IN\s*\(\s*:' . $escaped . '\s*\)/i';
+
+        if (!preg_match($pattern, $sql, $m)) {
+            return null;
+        }
+
+        $ref   = $m[1];
+        $parts = explode('.', $ref);
+
+        if (count($parts) === 2) {
+            $alias     = trim($parts[0], '`"');
+            $colName   = trim($parts[1], '`"');
+            $tableName = $aliases[$alias] ?? $alias;
+            return $this->findColumn($tableName, $colName);
+        }
+
+        $colName = trim($parts[0], '`"');
+        $tables  = !empty($aliases)
+            ? array_unique(array_values($aliases))
+            : array_map(fn($t) => $t->name, $this->catalog->all());
+
+        foreach ($tables as $tbl) {
+            $result = $this->findColumn($tbl, $colName);
+            if ($result !== null) return $result;
+        }
+
+        return null;
     }
 
     // -------------------------------------------------------------------------
@@ -233,14 +317,21 @@ class ParamResolver
         return null;
     }
 
-    private function buildParam(string $name, string $sqlType, bool $nullable, ?string $table = null, ?string $column = null): QueryParam
-    {
+    private function buildParam(
+        string  $name,
+        string  $sqlType,
+        bool    $nullable,
+        ?string $table  = null,
+        ?string $column = null,
+        bool    $inList = false,
+    ): QueryParam {
         return new QueryParam(
             name:     $name,
             sqlType:  $sqlType,
             nullable: $nullable,
             pdoParam: $this->typeMapper->toPdoParam($sqlType, $table, $column),
             phpType:  $this->typeMapper->toPhpType($sqlType, $nullable, $table, $column),
+            inList:   $inList,
         );
     }
 

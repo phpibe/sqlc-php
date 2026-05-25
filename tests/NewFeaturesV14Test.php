@@ -27,7 +27,7 @@ use SqlcPhp\TypeMapper\MySQLTypeMapper;
 // ManyPaginatedTest
 // =============================================================================
 
-class ManyPaginatedTest extends TestCase
+class NewFeaturesV14Test extends TestCase
 {
     private QueryParser   $parser;
     private QueryAnalyzer $analyzer;

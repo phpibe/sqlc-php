@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v1.5.2</span>
+    <span class="badge-version">v1.5.3</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -589,6 +589,7 @@
       <a class="sidebar-link" href="#joins"><i class="bi bi-intersect"></i> JOINs → Row DTO</a>
       <a class="sidebar-link" href="#aggregates"><i class="bi bi-calculator"></i> Aggregates</a>
       <a class="sidebar-link" href="#exec"><i class="bi bi-pencil-square"></i> UPDATE / DELETE</a>
+      <a class="sidebar-link" href="#in-clause"><i class="bi bi-list-ul"></i> IN() clauses</a>
       <a class="sidebar-link" href="#many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
       <a class="sidebar-link" href="#enums"><i class="bi bi-list-check"></i> MySQL ENUM</a>
       <a class="sidebar-link" href="#json"><i class="bi bi-braces"></i> JSON columns</a>
@@ -1086,6 +1087,60 @@ UPDATE users SET active = :active, updated_at = :updatedAt WHERE id = :id;
 DELETE FROM users WHERE id = :id;</code></pre>
         <pre><code class="language-php">public function updateUserActive(?bool $active, ?string $updatedAt, ?int $id): void
 public function deleteUser(?int $id): void</code></pre>
+      </section>
+
+      <!-- IN CLAUSE -->
+      <section class="doc-section" id="in-clause">
+        <h2><i class="bi bi-list-ul me-2" style="color:var(--accent-2)"></i>IN() clauses — array parameters</h2>
+        <p style="color:var(--text-muted)">Parameters inside <code>IN (:param)</code> are automatically detected. The resolver infers the element type from the column, and the generated method accepts <code>array $param</code> with dynamic placeholder expansion at runtime.</p>
+
+        <pre><code class="language-sql">-- @name GetByIds
+-- @group User
+-- @returns :many
+SELECT users.* FROM users WHERE id IN (:ids);</code></pre>
+
+        <p style="color:var(--text-muted)">Generated method:</p>
+        <pre><code class="language-php">/**
+ * @param int[] $ids List of values for IN() clause — must be non-empty.
+ * @return User[]
+ */
+public function getByIds(array $ids): array
+{
+    // Expand IN() placeholders dynamically at runtime
+    $__sql = 'SELECT * FROM users WHERE id IN (:ids)';
+    if (empty($ids)) {
+        throw new \InvalidArgumentException('Parameter $ids for IN() clause must not be empty.');
+    }
+    $__ph_ids = implode(',', array_fill(0, count($ids), '?'));
+    $__sql = str_replace(':ids', $__ph_ids, $__sql);
+    $stmt = $this->pdo->prepare($__sql);
+    $stmt->execute([...$ids]);
+
+    return array_map(
+        static fn(array $row): User => User::fromRow($row),
+        $stmt->fetchAll(PDO::FETCH_ASSOC),
+    );
+}</code></pre>
+
+        <h3>Mixed IN and regular parameters</h3>
+        <pre><code class="language-sql">-- @name FilterUsers
+-- @returns :many
+SELECT users.* FROM users WHERE id IN (:ids) AND active = :active;</code></pre>
+        <pre><code class="language-php">public function filterUsers(array $ids, int $active): array</code></pre>
+        <p style="color:var(--text-muted)">Regular params use <code>bindValue()</code>; IN-list values are spread into <code>execute()</code>. Both mechanisms are combined transparently.</p>
+
+        <h3>Multiple IN clauses</h3>
+        <pre><code class="language-sql">SELECT users.* FROM users WHERE id IN (:ids) AND role_id IN (:roleIds);</code></pre>
+        <pre><code class="language-php">public function filterByIdsAndRoles(array $ids, array $roleIds): array</code></pre>
+
+        <h3>NOT IN</h3>
+        <pre><code class="language-sql">SELECT users.* FROM users WHERE id NOT IN (:excludedIds);</code></pre>
+        <pre><code class="language-php">public function excludeIds(array $excludedIds): array</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          The element type in the docblock (<code>int[]</code>, <code>string[]</code>, etc.) is inferred from the column definition, the same way as any regular parameter. Passing an empty array throws <code>\InvalidArgumentException</code> immediately, before any database interaction.
+        </div>
       </section>
 
       <!-- MANY PAGINATED -->
@@ -1649,6 +1704,7 @@ declare(strict_types=1);
               <tr><td>Embed</td><td><code>EmbedTest.php</code></td><td>@embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation</td></tr>
               <tr><td>Inflector</td><td><code>InflectorServiceTest.php</code></td><td>InflectorService, all 6 languages, Config language field, group inference</td></tr>
               <tr><td>Bug Fixes</td><td><code>BugFixTest.php</code></td><td>Regression tests for v1.5.2 critical and medium bug fixes</td></tr>
+              <tr><td>IN() Params</td><td><code>InListParamTest.php</code></td><td>IN/NOT IN detection, type inference, signature, placeholder expansion, all return types</td></tr>
               <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
               <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
               <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
@@ -1704,7 +1760,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (406 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (434 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1715,6 +1771,17 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.5.3</div>
+          <ul>
+            <li><strong><code>IN()</code> clause support</strong> — <code>WHERE col IN (:param)</code> and <code>NOT IN (:param)</code> are now automatically detected. The element type is inferred from the column definition (<code>int[]</code>, <code>string[]</code>, etc.).</li>
+            <li><strong>Dynamic placeholder expansion</strong> — the generated method accepts <code>array $param</code>, validates non-empty at runtime, expands to <code>implode(',', array_fill(0, count($ids), '?'))</code>, and executes with <code>execute([...$ids])</code>. No manual SQL building required.</li>
+            <li><strong>Mixed IN + regular params</strong> — both mechanisms coexist transparently in the same query.</li>
+            <li><strong>Multiple IN clauses</strong> — any number of IN-list params per query, each independently expanded.</li>
+            <li>28 new tests in <code>tests/InListParamTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v1.5.2 — Bug fixes</div>

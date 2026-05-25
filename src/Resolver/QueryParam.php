@@ -26,5 +26,12 @@ class QueryParam
          * the filter condition entirely (SQL is rewritten at generation time).
          */
         public readonly bool    $optional = false,
+        /**
+         * When true this parameter appears inside an IN() clause:
+         *   WHERE col IN (:param)
+         * The method signature uses array $param and the SQL is rewritten
+         * at runtime to replace :param with the appropriate number of ? placeholders.
+         */
+        public readonly bool    $inList   = false,
     ) {}
 }

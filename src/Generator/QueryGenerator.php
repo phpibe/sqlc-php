@@ -129,16 +129,17 @@ PHP;
         $returnClass = $this->resolveReturnClass($query);
         $signature   = $this->buildSignature($query, "array");
         $docblock    = $this->buildDocblock($query, "@return {$returnClass}[]");
-        $sqlLiteral  = $this->renderSqlLiteral($query->sql);
         $bindings    = $this->renderBindings($query);
+        $prepare     = $this->hasInListParams($query)
+            ? ''
+            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        \$stmt = \$this->pdo->prepare({$sqlLiteral});
-{$bindings}        \$stmt->execute();
-
+{$prepare}{$bindings}{$executeCall}
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
             \$stmt->fetchAll(PDO::FETCH_ASSOC),
@@ -198,17 +199,18 @@ PHP;
         $returnClass = $this->resolveReturnClass($query);
         $signature   = $this->buildSignature($query, $returnClass);
         $docblock    = $this->buildDocblock($query, "@return {$returnClass}");
-        $sqlLiteral  = $this->renderSqlLiteral($query->sql);
         $bindings    = $this->renderBindings($query);
+        $prepare     = $this->hasInListParams($query)
+            ? ''
+            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
         $exception   = 'No record found for query "' . $query->name . '"';
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        \$stmt = \$this->pdo->prepare({$sqlLiteral});
-{$bindings}        \$stmt->execute();
-
+{$prepare}{$bindings}{$executeCall}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         if (\$row === false) {
             throw new RuntimeException('{$exception}');
@@ -228,16 +230,17 @@ PHP;
         $returnClass = $this->resolveReturnClass($query);
         $signature   = $this->buildSignature($query, "?{$returnClass}");
         $docblock    = $this->buildDocblock($query, "@return {$returnClass}|null");
-        $sqlLiteral  = $this->renderSqlLiteral($query->sql);
         $bindings    = $this->renderBindings($query);
+        $prepare     = $this->hasInListParams($query)
+            ? ''
+            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        \$stmt = \$this->pdo->prepare({$sqlLiteral});
-{$bindings}        \$stmt->execute();
-
+{$prepare}{$bindings}{$executeCall}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         return \$row !== false ? {$returnClass}::fromRow(\$row) : null;
     }
@@ -250,18 +253,19 @@ PHP;
 
     private function renderExecMethod(QueryDefinition $query): string
     {
-        $signature  = $this->buildSignature($query, 'void');
-        $docblock   = $this->buildDocblock($query, 'Executes the statement.');
-        $sqlLiteral = $this->renderSqlLiteral($query->sql);
-        $bindings   = $this->renderBindings($query);
+        $signature   = $this->buildSignature($query, 'void');
+        $docblock    = $this->buildDocblock($query, 'Executes the statement.');
+        $bindings    = $this->renderBindings($query);
+        $prepare     = $this->hasInListParams($query)
+            ? ''
+            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        \$stmt = \$this->pdo->prepare({$sqlLiteral});
-{$bindings}        \$stmt->execute();
-    }
+{$prepare}{$bindings}{$executeCall}    }
 PHP;
     }
 
@@ -331,9 +335,11 @@ PHP;
         $optional = [];
 
         foreach ($query->params as $param) {
-            if ($param->optional) {
-                // Ensure the type is nullable — optional always accepts null
-                $type     = str_starts_with($param->phpType, '?')
+            if ($param->inList) {
+                // IN(:param) → array $param  (always required, never optional)
+                $required[] = "array \${$param->name}";
+            } elseif ($param->optional) {
+                $type       = str_starts_with($param->phpType, '?')
                     ? $param->phpType
                     : '?' . $param->phpType;
                 $optional[] = "{$type} \${$param->name} = null";
@@ -342,7 +348,6 @@ PHP;
             }
         }
 
-        // Required params first, optional params last
         return implode(', ', array_merge($required, $optional));
     }
 
@@ -353,18 +358,23 @@ PHP;
     {
         $lines = ['    /**'];
 
-        // @deprecated tag — before @param lines, per PHPDoc convention
         if ($query->deprecated !== null) {
             $msg     = $query->deprecated !== '' ? ' ' . $query->deprecated : '';
             $lines[] = "     * @deprecated{$msg}";
         }
 
         foreach ($query->params as $param) {
-            $type  = $param->optional
-                ? (str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType)
-                : $param->phpType;
-            $note  = $param->optional ? ' Pass null to skip this filter.' : '';
-            $lines[] = "     * @param {$type} \${$param->name}{$note}";
+            if ($param->inList) {
+                $base     = ltrim($param->phpType, '?');
+                $lines[]  = "     * @param {$base}[] \${$param->name} List of values for IN() clause — must be non-empty.";
+            } elseif ($param->optional) {
+                $type    = str_starts_with($param->phpType, '?')
+                    ? $param->phpType
+                    : '?' . $param->phpType;
+                $lines[] = "     * @param {$type} \${$param->name} Pass null to skip this filter.";
+            } else {
+                $lines[] = "     * @param {$param->phpType} \${$param->name}";
+            }
         }
 
         $lines[] = "     * {$returnTag}";
@@ -389,11 +399,17 @@ PHP;
         }
 
         foreach ($query->params as $param) {
-            $type    = $param->optional
-                ? (str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType)
-                : $param->phpType;
-            $note    = $param->optional ? ' Pass null to skip this filter.' : '';
-            $lines[] = "     * @param {$type} \${$param->name}{$note}";
+            if ($param->inList) {
+                $base    = ltrim($param->phpType, '?');
+                $lines[] = "     * @param {$base}[] \${$param->name} List of values for IN() clause — must be non-empty.";
+            } elseif ($param->optional) {
+                $type    = str_starts_with($param->phpType, '?')
+                    ? $param->phpType
+                    : '?' . $param->phpType;
+                $lines[] = "     * @param {$type} \${$param->name} Pass null to skip this filter.";
+            } else {
+                $lines[] = "     * @param {$param->phpType} \${$param->name}";
+            }
         }
 
         foreach ($extraParamLines as $line) {
@@ -405,16 +421,72 @@ PHP;
 
         return implode("\n", $lines);
     }
+
+    /**
+     * Render the SQL setup and bindings for the method body.
+     *
+     * For regular queries returns simple bindValue() calls.
+     * For queries with IN() params, emits runtime placeholder expansion first.
+     */
     private function renderBindings(QueryDefinition $query): string
     {
-        if (empty($query->params)) return '';
+        $inListParams  = array_filter($query->params, fn($p) => $p->inList);
+        $regularParams = array_filter($query->params, fn($p) => !$p->inList);
 
+        if (empty($inListParams)) {
+            // Standard path: bindValue only
+            if (empty($regularParams)) return '';
+            $lines = [];
+            foreach ($regularParams as $param) {
+                $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+            }
+            return implode("\n", $lines) . "\n";
+        }
+
+        // Has IN params — expand placeholders at runtime
         $lines = [];
-        foreach ($query->params as $param) {
+        $lines[] = '        // Expand IN() placeholders dynamically at runtime';
+        $lines[] = '        $__sql = ' . $this->renderSqlLiteral($query->sql) . ';';
+
+        foreach ($inListParams as $param) {
+            $n    = "\${$param->name}";
+            $ph   = "\$__ph_{$param->name}";
+            $msg  = "Parameter \\\${$param->name} for IN() clause must not be empty.";
+            $lines[] = "        if (empty({$n})) {";
+            $lines[] = "            throw new \\InvalidArgumentException('{$msg}');";
+            $lines[] = "        }";
+            $lines[] = "        {$ph} = implode(',', array_fill(0, count({$n}), '?'));";
+            $lines[] = "        \$__sql = str_replace(':{$param->name}', {$ph}, \$__sql);";
+        }
+
+        $lines[] = '        $stmt = $this->pdo->prepare($__sql);';
+
+        // Bind regular named params
+        foreach ($regularParams as $param) {
             $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
         }
 
+        // execute() receives positional values for all IN lists merged in order
+        $executeArgParts = [];
+        foreach ($inListParams as $param) {
+            $executeArgParts[] = "...\${$param->name}";
+        }
+        $executeArgs = implode(', ', $executeArgParts);
+        $lines[] = "        \$stmt->execute([{$executeArgs}]);";
+        $lines[] = '';
+
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Whether the query has IN-list params — affects how prepare/execute is emitted.
+     */
+    private function hasInListParams(QueryDefinition $query): bool
+    {
+        foreach ($query->params as $p) {
+            if ($p->inList) return true;
+        }
+        return false;
     }
 
     /**

@@ -65,6 +65,7 @@ class QueryAnalyzer
                     pdoParam: $p->pdoParam,
                     phpType:  $p->phpType,
                     optional: true,
+                    inList:   $p->inList,
                 )
                 : $p,
             $rawParams

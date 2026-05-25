@@ -428,6 +428,94 @@ public function listActiveUsers(?string $status = null, int $limit = 20, int $of
 
 ---
 
+### IN() clauses — array parameters
+
+Parameters inside `IN()` clauses are automatically detected and handled with dynamic placeholder expansion at runtime. No manual SQL building required.
+
+```sql
+-- @name GetByIds
+-- @group User
+-- @returns :many
+SELECT users.* FROM users WHERE id IN (:ids);
+```
+
+Generated method:
+
+```php
+/**
+ * @param int[] $ids List of values for IN() clause — must be non-empty.
+ * @return User[]
+ */
+public function getByIds(array $ids): array
+{
+    // Expand IN() placeholders dynamically at runtime
+    $__sql = 'SELECT * FROM users WHERE id IN (:ids)';
+    if (empty($ids)) {
+        throw new \InvalidArgumentException('Parameter $ids for IN() clause must not be empty.');
+    }
+    $__ph_ids = implode(',', array_fill(0, count($ids), '?'));
+    $__sql = str_replace(':ids', $__ph_ids, $__sql);
+    $stmt = $this->pdo->prepare($__sql);
+    $stmt->execute([...$ids]);
+
+    return array_map(
+        static fn(array $row): User => User::fromRow($row),
+        $stmt->fetchAll(PDO::FETCH_ASSOC),
+    );
+}
+```
+
+The element type in the docblock (`int[]`) is inferred from the column type, just like any other parameter.
+
+#### Mixed IN and regular parameters
+
+```sql
+-- @name FilterUsers
+-- @returns :many
+SELECT users.* FROM users
+WHERE id IN (:ids) AND active = :active;
+```
+
+```php
+/**
+ * @param int[] $ids    List of values for IN() clause — must be non-empty.
+ * @param int   $active
+ * @return User[]
+ */
+public function filterUsers(array $ids, int $active): array
+```
+
+Regular params are bound with `bindValue()`; IN-list params are expanded positionally and passed to `execute(array)`. The two mechanisms are combined transparently.
+
+#### Multiple IN clauses
+
+```sql
+-- @name FilterByIdsAndRoles
+-- @returns :many
+SELECT users.* FROM users
+WHERE id IN (:ids) AND role_id IN (:roleIds);
+```
+
+```php
+public function filterByIdsAndRoles(array $ids, array $roleIds): array
+```
+
+Each IN-list param gets its own placeholder variable (`$__ph_ids`, `$__ph_roleIds`) and its values are spread into `execute()` in order.
+
+#### NOT IN
+
+`NOT IN (:param)` works exactly like `IN (:param)`:
+
+```sql
+SELECT users.* FROM users WHERE id NOT IN (:excludedIds);
+```
+
+```php
+public function excludeIds(array $excludedIds): array
+```
+
+---
+
 ### UPDATE / DELETE — :exec
 
 ```sql
@@ -1174,6 +1262,7 @@ The test suite covers:
 | Embed | `tests/EmbedTest.php` | @embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation |
 | Inflector | `tests/InflectorServiceTest.php` | InflectorService, all 6 languages, Config language field, group inference |
 | Bug Fixes | `tests/BugFixTest.php` | Regression tests for v1.5.2 critical and medium bug fixes |
+| IN() Params | `tests/InListParamTest.php` | IN/NOT IN detection, type inference, signature, placeholder expansion |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
@@ -1224,7 +1313,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (406 tests)
+├── tests/                              # PHPUnit test suite (434 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1232,6 +1321,14 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.5.3]
+- **`IN()` clause support** — parameters inside `IN (:param)` and `NOT IN (:param)` clauses are now automatically detected and handled. The resolver infers the element type from the column (e.g. `id IN (:ids)` → `int[] $ids`). The generated method accepts `array $ids`, validates it is non-empty, and expands placeholders at runtime using `str_replace` + `execute([...$ids])` — no manual SQL building required.
+- **Multiple `IN()` params** — a single query can have any number of IN-list params, each independently expanded.
+- **Mixed IN + regular params** — IN-list and named params coexist in the same query. Regular params use `bindValue()`; IN-list values are spread into `execute()`.
+- **Element type inference** — the docblock annotation uses `int[]`, `string[]`, etc. inferred from the column definition.
+- **`NOT IN` supported** — `NOT IN (:param)` is detected identically to `IN (:param)`.
+- **28 new tests** in `tests/InListParamTest.php` covering detection, type inference, signature generation, placeholder expansion, multiple IN params, mixed queries, and all return types.
 
 ### [1.5.2] — Bug fixes
 

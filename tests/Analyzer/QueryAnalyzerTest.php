@@ -89,7 +89,7 @@ class QueryAnalyzerTest extends TestCase
             "-- @name Get\n-- @returns :one\nSELECT * FROM users WHERE users.id = :id;"
         );
         $this->assertArrayHasKey('id', $queries[0]->params);
-        $this->assertSame('?int', $queries[0]->params['id']->phpType);
+        $this->assertSame('int', $queries[0]->params['id']->phpType);
     }
 
     // -------------------------------------------------------------------------

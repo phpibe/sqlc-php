@@ -133,7 +133,7 @@ class QueryParser
                 if (preg_match('/@name\s+(\w+)/i', $comment, $m)) {
                     $name = $m[1];
                 } elseif (preg_match('/@group\s+(\w+)/i', $comment, $m)) {
-                    $group = $m[1];
+                    $group ??= $m[1];   // first @group wins; subsequent ones are ignored
                 } elseif (preg_match('/@returns\s+(:[a-z-]+)/i', $comment, $m)) {
                     $returns = ReturnType::from($m[1]);
                 } elseif (preg_match('/@param\s+(\w+)\s+([\w.]+)/i', $comment, $m)) {
@@ -148,6 +148,12 @@ class QueryParser
                     // @embed ClassName prefix_  (trailing underscore optional)
                     $prefix   = rtrim($m[2], '_') . '_';
                     $embeds[] = new EmbedDefinition(className: $m[1], prefix: $prefix);
+                } elseif (preg_match('/@embed\s+(\w+)\s*$/i', $comment, $m)) {
+                    // @embed ClassName  — missing prefix → fatal error
+                    throw new \RuntimeException(
+                        "Query '{$name}': @embed '{$m[1]}' is missing the column prefix. " .
+                        "Usage: -- @embed ClassName prefix_"
+                    );
                 }
             } else {
                 $sqlLines[] = $line;

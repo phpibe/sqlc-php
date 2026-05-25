@@ -53,7 +53,7 @@ class ParamResolverTest extends TestCase
         $params = $this->resolver->resolve('SELECT * FROM users WHERE users.id = :id');
 
         $this->assertArrayHasKey('id', $params);
-        $this->assertSame('?int', $params['id']->phpType);
+        $this->assertSame('int', $params['id']->phpType);
         $this->assertSame('PDO::PARAM_INT', $params['id']->pdoParam);
     }
 
@@ -75,7 +75,7 @@ class ParamResolverTest extends TestCase
         $params = $this->resolver->resolve('SELECT * FROM users WHERE id = :id');
 
         $this->assertArrayHasKey('id', $params);
-        $this->assertSame('?int', $params['id']->phpType);
+        $this->assertSame('int', $params['id']->phpType);
     }
 
     // -------------------------------------------------------------------------
@@ -130,7 +130,7 @@ class ParamResolverTest extends TestCase
         );
 
         $this->assertArrayHasKey('userId', $params);
-        $this->assertSame('?int', $params['userId']->phpType);
+        $this->assertSame('int', $params['userId']->phpType);
     }
 
     // -------------------------------------------------------------------------

@@ -144,6 +144,13 @@ class ParamResolver
             $candidates[] = 'id';
         }
 
+        // Strip common boolean prefixes: is_active → active, has_role → role, can_edit → edit
+        foreach (['is_', 'has_', 'can_', 'was_', 'will_'] as $prefix) {
+            if (str_starts_with($snake, $prefix)) {
+                $candidates[] = substr($snake, strlen($prefix));
+            }
+        }
+
         $tables = !empty($aliases)
             ? array_values($aliases)
             : array_map(fn($t) => $t->name, $this->catalog->all());

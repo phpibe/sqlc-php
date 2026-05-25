@@ -61,6 +61,8 @@ class SqlRewriter
             => 'HAVING clauses (semantically different from WHERE)',
         '/\b(IN|EXISTS)\s*\(\s*SELECT\b/i'
             => 'subqueries in WHERE (IN / EXISTS)',
+        '/\bBETWEEN\s+:[a-zA-Z_]\w*\s+AND\s+:[a-zA-Z_]\w*/i'
+            => 'BETWEEN with named params (not a binary col OP :param — cannot be rewritten safely)',
     ];
 
     /**

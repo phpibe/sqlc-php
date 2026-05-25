@@ -137,7 +137,7 @@ class InterfaceGeneratorTest extends TestCase
         $qg      = $this->makeQueryGen();
         ['code' => $code] = $this->interfaceGen->generate('UserQuery', $queries, $qg);
 
-        $this->assertStringContainsString('public function getUser(?int $id): User;', $code);
+        $this->assertStringContainsString('public function getUser(int $id): User;', $code);
     }
 
     public function test_interface_contains_opt_method_nullable_return(): void
@@ -159,7 +159,7 @@ class InterfaceGeneratorTest extends TestCase
         $qg      = $this->makeQueryGen();
         ['code' => $code] = $this->interfaceGen->generate('UserQuery', $queries, $qg);
 
-        $this->assertStringContainsString('public function deleteUser(?int $id): void;', $code);
+        $this->assertStringContainsString('public function deleteUser(int $id): void;', $code);
     }
 
     public function test_interface_method_has_param_in_docblock(): void

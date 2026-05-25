@@ -111,7 +111,7 @@ class GeneratorTest extends TestCase
     public function test_model_maps_nullable_correctly(): void
     {
         ['code' => $code] = $this->modelGen->generate('users');
-        $this->assertStringContainsString('?int $id',       $code);  // nullable
+        $this->assertStringContainsString('int $id',       $code);  // not nullable — PRIMARY KEY
         $this->assertStringContainsString('string $email',  $code);  // not nullable
     }
 
@@ -156,7 +156,7 @@ class GeneratorTest extends TestCase
         );
         ['code' => $code] = $this->queryGen->generate($queries)['UserQuery'];
 
-        $this->assertStringContainsString('public function getUser(?int $id): User', $code);
+        $this->assertStringContainsString('public function getUser(int $id): User', $code);
     }
 
     public function test_one_method_throws_runtime_exception(): void
@@ -225,7 +225,7 @@ class GeneratorTest extends TestCase
         );
         ['code' => $code] = $this->queryGen->generate($queries)['UserQuery'];
 
-        $this->assertStringContainsString('public function deleteUser(?int $id): void', $code);
+        $this->assertStringContainsString('public function deleteUser(int $id): void', $code);
     }
 
     // =========================================================================

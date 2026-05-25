@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v1.5.1</span>
+    <span class="badge-version">v1.5.2</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1648,6 +1648,7 @@ declare(strict_types=1);
               <tr><td>New Features v1.4</td><td><code>NewFeaturesV14Test.php</code></td><td>:many-paginated, @nillable on direct models, multiple targets, --dry-run, --diff</td></tr>
               <tr><td>Embed</td><td><code>EmbedTest.php</code></td><td>@embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation</td></tr>
               <tr><td>Inflector</td><td><code>InflectorServiceTest.php</code></td><td>InflectorService, all 6 languages, Config language field, group inference</td></tr>
+              <tr><td>Bug Fixes</td><td><code>BugFixTest.php</code></td><td>Regression tests for v1.5.2 critical and medium bug fixes</td></tr>
               <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
               <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
               <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
@@ -1703,7 +1704,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (378 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (406 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1714,6 +1715,24 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.5.2 — Bug fixes</div>
+          <ul>
+            <li><strong>Critical:</strong> <code>:many-paginated</code> now throws when the SQL already has a <code>LIMIT</code> clause (prevents duplicate LIMIT) or when the query uses a param named <code>:limit</code>/<code>:offset</code> (collision with auto-injected params).</li>
+            <li><strong>Critical:</strong> Backtick-quoted table and column names (`` `user_sessions` ``, `` `session_id` ``) are now correctly parsed by <code>SchemaParser</code>. Previously these tables were silently ignored.</li>
+            <li><strong>Critical:</strong> Overlapping <code>@embed</code> prefixes — longer (more specific) prefixes now win. <code>role_type_</code> correctly claims <code>role_type_label</code> before <code>role_</code> gets a chance.</li>
+            <li><strong>Critical:</strong> <code>BETWEEN :param AND :param2</code> is now guarded as an unsafe construct for <code>@optional</code>, throwing at generation time instead of silently generating broken SQL at runtime.</li>
+            <li><strong>Critical:</strong> <code>@embed</code> + <code>@nillable</code> — when all columns of an embed group are nillable, the parent DTO property becomes <code>?ClassName</code> and <code>fromRow</code> emits a conditional <code>isset()</code> cast.</li>
+            <li><strong>Medium:</strong> <code>DEFAULT 'it''s ok'</code> — apostrophes in DEFAULT values no longer truncate the column parse.</li>
+            <li><strong>Medium:</strong> <code>PRIMARY KEY</code> and <code>AUTO_INCREMENT</code> now imply <code>nullable = false</code>. Previously <code>id INT PRIMARY KEY</code> produced <code>?int $id</code>.</li>
+            <li><strong>Medium:</strong> First <code>@group</code> annotation wins; subsequent ones are ignored.</li>
+            <li><strong>Medium:</strong> <code>@optional</code> before <code>WHERE</code> (e.g. in <code>SELECT</code>) now throws at generation time.</li>
+            <li><strong>Medium:</strong> <code>:isActive</code>, <code>:hasRole</code>, etc. now correctly resolve to the underlying column type by stripping <code>is_</code>/<code>has_</code>/<code>can_</code>/<code>was_</code>/<code>will_</code> prefixes.</li>
+            <li><strong>Medium:</strong> <code>@embed ClassName</code> without a prefix argument now throws instead of silently generating an embed that matches no columns.</li>
+            <li>28 new regression tests in <code>tests/BugFixTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v1.5.1</div>

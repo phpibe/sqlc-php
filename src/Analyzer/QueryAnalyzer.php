@@ -41,12 +41,15 @@ class QueryAnalyzer
 
     private function analyzeOne(QueryDefinition $query): QueryDefinition
     {
-        // 1. Rewrite SQL for optional parameters (validates unsafe constructs first)
+        // 1. Validate @optional params are in WHERE context (not SELECT/JOIN)
+        $this->assertOptionalInWhereContext($query->sql, $query->optionalParams, $query->name);
+
+        // 2. Rewrite SQL for optional parameters (validates unsafe constructs first)
         $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
 
         // 2. For :many-paginated, append LIMIT / OFFSET to the SQL
         if ($query->returns->value === ':many-paginated') {
-            $rewrittenSql = $this->injectPagination($rewrittenSql);
+            $rewrittenSql = $this->injectPagination($rewrittenSql, $query->name);
         }
 
         // 3. Resolve parameters against the rewritten SQL
@@ -104,12 +107,77 @@ class QueryAnalyzer
     }
 
     /**
-     * Appends LIMIT :limit OFFSET :offset to the SQL, stripping any trailing semicolon first.
+     * Validate that every @optional param appears in a WHERE-clause context,
+     * not in SELECT or other positions where the rewrite would produce invalid SQL.
+     *
+     * @param  string[] $optionalParams
+     * @throws \RuntimeException
      */
-    private function injectPagination(string $sql): string
+    private function assertOptionalInWhereContext(string $sql, array $optionalParams, string $queryName): void
     {
-        $sql = rtrim(trim($sql), ';');
-        return $sql . "\nLIMIT :limit OFFSET :offset";
+        if (empty($optionalParams)) return;
+
+        $upperSql = strtoupper($sql);
+        $wherePos = strpos($upperSql, 'WHERE');
+
+        // No WHERE clause at all — optional params can't be in the right place
+        if ($wherePos === false) {
+            foreach ($optionalParams as $param) {
+                throw new \RuntimeException(
+                    "Query '{$queryName}': @optional '{$param}' cannot be used on a query " .
+                    "without a WHERE clause. The param has nowhere safe to be rewritten."
+                );
+            }
+            return;
+        }
+
+        $beforeWhere = substr($sql, 0, $wherePos);
+
+        foreach ($optionalParams as $param) {
+            if (preg_match('/:' . preg_quote($param, '/') . '\b/i', $beforeWhere)) {
+                throw new \RuntimeException(
+                    "Query '{$queryName}': @optional '{$param}' appears before the WHERE " .
+                    "clause (e.g. in SELECT or JOIN). @optional only rewrites WHERE conditions."
+                );
+            }
+        }
+    }
+
+    /**
+     * Appends LIMIT :limit OFFSET :offset to the SQL after stripping any
+     * trailing semicolon.
+     *
+     * Throws when:
+     *   - The SQL already contains a LIMIT clause (would produce duplicate LIMIT).
+     *   - The query already uses a param named :limit or :offset (name collision).
+     */
+    private function injectPagination(string $sql, string $queryName = ''): string
+    {
+        $prefix = $queryName !== '' ? "Query '{$queryName}'" : 'Query';
+
+        // Guard 1: existing LIMIT clause (but not inside a named param like :limit)
+        if (preg_match('/(?<![:\w])LIMIT\b/i', $sql)) {
+            throw new \RuntimeException(
+                "{$prefix}: cannot use :many-paginated on a query that already contains " .
+                "a LIMIT clause. Remove the manual LIMIT or use :many instead."
+            );
+        }
+
+        // Guard 2: param name collision with auto-injected :limit / :offset
+        preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $sql, $paramMatches);
+        $paramNames = array_map(fn(string $p) => ltrim($p, ':'), $paramMatches[0] ?? []);
+
+        foreach (['limit', 'offset'] as $reserved) {
+            if (in_array($reserved, $paramNames, true)) {
+                throw new \RuntimeException(
+                    "{$prefix}: cannot use :many-paginated because the query already " .
+                    "has a parameter named ':{$reserved}'. Rename it to avoid collision " .
+                    "with the auto-injected pagination parameters."
+                );
+            }
+        }
+
+        return rtrim(trim($sql), ';') . "\nLIMIT :limit OFFSET :offset";
     }
 
     /**

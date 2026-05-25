@@ -40,6 +40,14 @@ class TableDefinition
 
 /**
  * Parses MySQL CREATE TABLE SQL statements into structured TableDefinition objects.
+ *
+ * Handles:
+ *   - Backtick and double-quote quoted identifiers: `table_name`, `col_name`
+ *   - ENUM columns with quoted values
+ *   - PRIMARY KEY / AUTO_INCREMENT constraints
+ *   - DEFAULT values including single-quoted strings with escaped quotes
+ *   - Nested parentheses (DECIMAL(10,2), ENUM('a','b'))
+ *   - Multi-line schemas
  */
 class SchemaParser
 {
@@ -57,8 +65,7 @@ class SchemaParser
         // Remove multi-line comments
         $sql = preg_replace('/\/\*.*?\*\//s', '', $sql ?? '');
 
-        // Find each CREATE TABLE by locating the opening paren, then
-        // scanning for the balanced closing paren manually.
+        // Find each CREATE TABLE — support backtick, double-quote, or unquoted table names
         $pattern = '/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?\s*\(/si';
 
         if (!preg_match_all($pattern, $sql, $matches, PREG_OFFSET_CAPTURE)) {
@@ -66,8 +73,8 @@ class SchemaParser
         }
 
         foreach ($matches[0] as $i => $match) {
-            $tableName   = $matches[1][$i][0];
-            $parenStart  = $match[1] + strlen($match[0]) - 1; // position of '('
+            $tableName  = $matches[1][$i][0];
+            $parenStart = $match[1] + strlen($match[0]) - 1; // position of '('
 
             $columnBlock = $this->extractBalancedParens($sql, $parenStart);
             if ($columnBlock === null) continue;
@@ -79,19 +86,38 @@ class SchemaParser
         return $tables;
     }
 
+    // -------------------------------------------------------------------------
+
     /**
      * Given the position of an opening '(' in $sql, extract the content
-     * between it and its matching closing ')', handling nesting correctly.
+     * between it and its matching closing ')', respecting nested parens
+     * and string literals so that DEFAULT 'value(with paren)' is handled.
      */
     private function extractBalancedParens(string $sql, int $openPos): ?string
     {
         $depth  = 0;
         $start  = $openPos + 1;
         $len    = strlen($sql);
+        $inStr  = false;
+        $strCh  = '';
 
         for ($i = $openPos; $i < $len; $i++) {
-            if ($sql[$i] === '(') $depth++;
-            elseif ($sql[$i] === ')') {
+            $ch = $sql[$i];
+
+            if ($inStr) {
+                if ($ch === '\\') { $i++; continue; }     // escaped char
+                if ($ch === $strCh) { $inStr = false; }
+                continue;
+            }
+
+            if ($ch === "'" || $ch === '"') {
+                $inStr = true;
+                $strCh = $ch;
+                continue;
+            }
+
+            if ($ch === '(') $depth++;
+            elseif ($ch === ')') {
                 $depth--;
                 if ($depth === 0) {
                     return substr($sql, $start, $i - $start);
@@ -99,7 +125,7 @@ class SchemaParser
             }
         }
 
-        return null; // unbalanced
+        return null;
     }
 
     /** @return ColumnDefinition[] */
@@ -127,25 +153,51 @@ class SchemaParser
     }
 
     /**
-     * Split column definitions respecting parentheses (e.g. DECIMAL(10,2)).
+     * Split column definitions respecting parentheses AND string literals.
+     * e.g. ENUM('a','b'), DEFAULT 'value,with,commas'
      *
      * @return string[]
      */
     private function splitColumnLines(string $block): array
     {
-        $lines = [];
+        $lines   = [];
         $current = '';
-        $depth = 0;
+        $depth   = 0;
+        $inStr   = false;
+        $strCh   = '';
+        $len     = strlen($block);
 
-        for ($i = 0; $i < strlen($block); $i++) {
+        for ($i = 0; $i < $len; $i++) {
             $ch = $block[$i];
+
+            if ($inStr) {
+                if ($ch === '\\') {
+                    $current .= $ch . ($block[$i + 1] ?? '');
+                    $i++;
+                    continue;
+                }
+                if ($ch === $strCh) {
+                    $inStr = false;
+                }
+                $current .= $ch;
+                continue;
+            }
+
+            if ($ch === "'" || $ch === '"') {
+                $inStr = true;
+                $strCh = $ch;
+                $current .= $ch;
+                continue;
+            }
+
             if ($ch === '(') $depth++;
             elseif ($ch === ')') $depth--;
             elseif ($ch === ',' && $depth === 0) {
-                $lines[] = $current;
-                $current = '';
+                $lines[]  = $current;
+                $current  = '';
                 continue;
             }
+
             $current .= $ch;
         }
 
@@ -158,28 +210,33 @@ class SchemaParser
 
     private function parseColumnLine(string $line): ?ColumnDefinition
     {
-        // Match: `col_name` TYPE[(args)] [modifiers...]
-        // We capture the full type token including its parenthesised args.
-        $pattern = '/^[`"]?(\w+)[`"]?\s+(\w+(?:\([^)]*\))?)\s*(.*)/i';
+        // Strip leading/trailing whitespace
+        $line = trim($line);
+
+        // Match: [`"]?col_name[`"]? TYPE[(args)] [modifiers...]
+        // Supports backtick and double-quote quoted identifiers
+        $pattern = '/^[`"]?(\w+)[`"]?\s+(\w+(?:\s*\([^)]*\))?)\s*(.*)/si';
 
         if (!preg_match($pattern, $line, $m)) {
             return null;
         }
 
         $name    = $m[1];
-        $rawType = $m[2]; // e.g. "ENUM('a','b')" or "VARCHAR(45)"
-        $rest    = $m[3];
+        $rawType = trim($m[2]);
+        $rest    = trim($m[3]);
 
-        $nullable      = !str_contains(strtoupper($rest . ' ' . $rawType . ' ' . $line), 'NOT NULL');
+        // Nullable: false when NOT NULL, PRIMARY KEY (implicit NOT NULL), or AUTO_INCREMENT
+        $upper         = strtoupper($line);
+        $hasNotNull    = str_contains($upper, 'NOT NULL');
+        $hasPrimaryKey = str_contains($upper, 'PRIMARY KEY');
         $autoIncrement = (bool) preg_match('/AUTO_INCREMENT/i', $rest);
+        $nullable      = !$hasNotNull && !$hasPrimaryKey && !$autoIncrement;
 
-        $default = null;
-        if (preg_match("/DEFAULT\s+'?([^',\s]+)'?/i", $rest, $dm)) {
-            $default = $dm[1];
-        }
+        // DEFAULT value — handles quoted strings including escaped apostrophes
+        $default = $this->extractDefault($rest);
 
-        // Extract base SQL type (strip display width / args)
-        $sqlType = strtoupper(trim(preg_replace('/\(.*\)/s', '', $rawType) ?? $rawType));
+        // Base SQL type (strip display width / args)
+        $sqlType = strtoupper(trim(preg_replace('/\s*\(.*\)/s', '', $rawType) ?? $rawType));
 
         // For ENUM columns, parse the quoted values
         $enumValues = [];
@@ -198,13 +255,31 @@ class SchemaParser
     }
 
     /**
+     * Extract the DEFAULT value from the column modifier string.
+     * Handles: DEFAULT 123, DEFAULT 'string', DEFAULT 'it''s ok', DEFAULT NULL
+     */
+    private function extractDefault(string $rest): ?string
+    {
+        // Unquoted default (number, keyword like NULL/CURRENT_TIMESTAMP)
+        if (preg_match('/DEFAULT\s+(NULL|CURRENT_TIMESTAMP|[\d.]+)/i', $rest, $dm)) {
+            return strtoupper($dm[1]) === 'NULL' ? null : $dm[1];
+        }
+
+        // Quoted string default — match 'value' including escaped '' or \'
+        if (preg_match("/DEFAULT\s+'((?:[^'\\\\]|\\\\.|'')*)'/i", $rest, $dm)) {
+            return str_replace("''", "'", $dm[1]);
+        }
+
+        return null;
+    }
+
+    /**
      * Extract string values from ENUM('a', 'b', 'c').
      *
      * @return string[]
      */
     private function parseEnumValues(string $rawType): array
     {
-        // Extract everything inside the parentheses
         if (!preg_match('/\((.+)\)/s', $rawType, $m)) {
             return [];
         }
@@ -212,7 +287,6 @@ class SchemaParser
         $inner  = $m[1];
         $values = [];
 
-        // Match each 'value' token (single-quoted strings)
         preg_match_all("/'([^']*)'/", $inner, $matches);
 
         foreach ($matches[1] as $v) {

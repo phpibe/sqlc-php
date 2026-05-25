@@ -43,7 +43,12 @@ class ResultDtoGenerator
         $embeds    = $query->embeds;
         $columns   = $query->resultColumns;
 
-        // Split columns into: flat (no embed match) + per-embed groups
+        // Split columns into: flat (no embed match) + per-embed groups.
+        // Sort embeds by prefix length DESC so that longer (more specific) prefixes
+        // match before shorter ones. e.g. "role_type_" wins over "role_".
+        $sortedEmbeds = $embeds;
+        usort($sortedEmbeds, fn($a, $b) => strlen($b->prefix) <=> strlen($a->prefix));
+
         $flatColumns  = [];
         $embedColumns = [];   // className → ResolvedColumn[]
 
@@ -53,7 +58,7 @@ class ResultDtoGenerator
 
         foreach ($columns as $col) {
             $assigned = false;
-            foreach ($embeds as $embed) {
+            foreach ($sortedEmbeds as $embed) {
                 if ($embed->matches($col->alias)) {
                     $embedColumns[$embed->className][] = $col;
                     $assigned = true;
@@ -78,8 +83,20 @@ class ResultDtoGenerator
             $cols = $embedColumns[$embed->className] ?? [];
             if (empty($cols)) continue;
             $propName   = $embed->propertyName();
-            $props[]    = "        public {$embed->className} \${$propName},";
-            $fromArgs[] = "            {$embed->className}::fromRow(\$row),";
+
+            // If ALL columns in this embed group are nullable (e.g. all were @nillable
+            // or all come from a LEFT JOIN side), the parent property is also nullable.
+            // This makes the fromRow call conditional.
+            $allNullable = !empty($cols) && count(array_filter($cols, fn($c) => !$c->nullable)) === 0;
+
+            if ($allNullable) {
+                $cast       = $this->buildNullableEmbedCast($embed, $cols);
+                $props[]    = "        public ?{$embed->className} \${$propName},";
+                $fromArgs[] = "            {$cast},";
+            } else {
+                $props[]    = "        public {$embed->className} \${$propName},";
+                $fromArgs[] = "            {$embed->className}::fromRow(\$row),";
+            }
         }
 
         $propsStr    = implode("\n", $props);
@@ -133,6 +150,20 @@ PHP;
     }
 
     // -------------------------------------------------------------------------
+
+    /**
+     * Generate a conditional fromRow cast for a nullable embed:
+     * isset($row['prefix_firstcol']) ? EmbedClass::fromRow($row) : null
+     */
+    private function buildNullableEmbedCast(EmbedDefinition $embed, array $cols): string
+    {
+        // Use the first column of the embed as the null-check sentinel
+        $sentinel = $cols[0]->alias ?? '';
+        if ($sentinel === '') {
+            return "{$embed->className}::fromRow(\$row)";
+        }
+        return "isset(\$row['{$sentinel}']) ? {$embed->className}::fromRow(\$row) : null";
+    }
 
     private function buildCast(ResolvedColumn $col): string
     {

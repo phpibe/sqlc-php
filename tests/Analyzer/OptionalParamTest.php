@@ -252,7 +252,8 @@ class OptionalParamTest extends TestCase
     public function test_analyzer_throws_when_optional_used_with_having(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/HAVING/');
+        // HAVING queries have no WHERE — caught by assertOptionalInWhereContext
+        $this->expectExceptionMessageMatches('/cannot be used on a query without a WHERE clause|HAVING/');
 
         $this->analyze(<<<SQL
             -- @name CountByRole

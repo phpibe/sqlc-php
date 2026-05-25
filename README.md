@@ -1173,6 +1173,7 @@ The test suite covers:
 | New Features v1.4 | `tests/NewFeaturesV14Test.php` | :many-paginated, @nillable on direct models, targets, --dry-run, --diff |
 | Embed | `tests/EmbedTest.php` | @embed annotation, EmbedDefinition, EmbedGenerator, nested DTO generation |
 | Inflector | `tests/InflectorServiceTest.php` | InflectorService, all 6 languages, Config language field, group inference |
+| Bug Fixes | `tests/BugFixTest.php` | Regression tests for v1.5.2 critical and medium bug fixes |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
@@ -1223,7 +1224,7 @@ sqlc-php/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
 │       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (378 tests)
+├── tests/                              # PHPUnit test suite (406 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1231,6 +1232,28 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [1.5.2] — Bug fixes
+
+**Critical**
+
+- **`:many-paginated` + existing `LIMIT` clause** — the analyzer now throws a `RuntimeException` if a `:many-paginated` query already contains a `LIMIT` keyword, preventing silent SQL duplication.
+- **`:many-paginated` param name collision** — throws `RuntimeException` when the query has a user-defined param named `:limit` or `:offset`, which would conflict with the auto-injected pagination params.
+- **Backtick-quoted table/column names ignored** — `SchemaParser` now correctly parses tables and columns wrapped in backtick identifiers (`` `user_sessions` ``, `` `session_id` ``). Previously these tables were silently skipped.
+- **Overlapping `@embed` prefixes** — `ResultDtoGenerator` now sorts embed definitions by prefix length descending before assigning columns, so longer (more specific) prefixes like `role_type_` win over shorter ones like `role_`.
+- **`BETWEEN` with `@optional`** — `SqlRewriter` now guards against `BETWEEN :param AND :param2` as an unsafe construct. Previously the condition was silently left unrewritten while the method signature had `= null`, causing runtime SQL errors.
+- **`@embed` + `@nillable` inconsistency** — when all columns of an `@embed` group are marked `@nillable`, the parent DTO property is now `?ClassName` and `fromRow` uses a conditional `isset($row['col']) ? Cls::fromRow($row) : null` cast, preventing invalid object hydration.
+
+**Medium**
+
+- **`DEFAULT` with apostrophe** — `SchemaParser` now correctly parses `DEFAULT 'it''s ok'`, handling escaped single quotes inside DEFAULT string values. Previously the parser truncated at the backslash, causing subsequent columns to potentially be misread.
+- **`PRIMARY KEY` implies `NOT NULL`** — columns declared as `PRIMARY KEY` or `AUTO_INCREMENT` are now marked `nullable = false` regardless of whether `NOT NULL` is written explicitly. Previously `id INT PRIMARY KEY` produced `?int $id` instead of `int $id`.
+- **First `@group` wins** — if a query has multiple `@group` annotations, the first one now takes precedence. Previously the last one won.
+- **`@optional` before `WHERE` throws** — the analyzer now validates that `@optional` params appear only in `WHERE` clauses. If a param appears in `SELECT` or another non-WHERE position, a `RuntimeException` is thrown at generation time instead of silently generating invalid SQL at runtime.
+- **`isActive` / `hasRole` prefix resolution** — `ParamResolver` now strips common boolean prefixes (`is_`, `has_`, `can_`, `was_`, `will_`) when looking up column names, so `:isActive` correctly resolves to the `active` column's type instead of falling back to `mixed`.
+- **`@embed` without prefix throws** — `QueryParser` now throws `RuntimeException` when `@embed ClassName` is declared without a prefix argument, instead of silently generating an embed that matches no columns.
+
+**Tests** — 28 new regression tests in `tests/BugFixTest.php`.
 
 ### [1.5.1]
 - **`doctrine/inflector` integration** — class name inference now uses [doctrine/inflector](https://github.com/doctrine/inflector) for accurate singularisation and PascalCase conversion. Fixes incorrect singularisation of irregular English plurals (`analyses` → `Analysis`, `matrices` → `Matrix`, `aliases` → `Alias`) that the previous built-in implementation got wrong.

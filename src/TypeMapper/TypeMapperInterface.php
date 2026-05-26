@@ -48,4 +48,21 @@ interface TypeMapperInterface
         ?string $tableName  = null,
         ?string $columnName = null,
     ): string;
+
+    /**
+     * Generate the PHP expression that hydrates a single column value from a
+     * PDO associative-array row inside a `fromRow(array $row): self` method.
+     *
+     * The expression must be a valid PHP rvalue, e.g.:
+     *   "(int) $row['id']"
+     *   "new \DateTimeImmutable((string) $row['created_at'])"
+     *   "isset($row['deleted_at']) ? new \DateTimeImmutable((string) $row['deleted_at']) : null"
+     *   "json_decode((string) $row['tags'], true) ?? []"
+     *
+     * @param string $phpType  The resolved PHP type, e.g. "int", "?string",
+     *                         "\DateTimeImmutable", "?\DateTimeImmutable"
+     * @param string $alias    The column alias (key in the $row array)
+     * @param bool   $nullable Whether the value can be null
+     */
+    public function fromRowCast(string $phpType, string $alias, bool $nullable): string;
 }

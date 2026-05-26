@@ -100,7 +100,7 @@ class ParamResolverTest extends TestCase
         );
 
         $this->assertArrayHasKey('updatedAt', $params);
-        $this->assertSame('?string', $params['updatedAt']->phpType);
+        $this->assertSame('?\\DateTimeImmutable', $params['updatedAt']->phpType);
     }
 
     // -------------------------------------------------------------------------

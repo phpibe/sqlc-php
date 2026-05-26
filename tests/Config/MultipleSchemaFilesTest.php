@@ -260,9 +260,9 @@ class NullableOverrideTest extends TestCase
         ]);
         $mapper = new \SqlcPhp\TypeMapper\MySQLTypeMapper([$override]);
 
-        // TIMESTAMP maps to string by default; nullable=false forces non-null
+        // TIMESTAMP now maps to \DateTimeImmutable; nullable=false forces non-null
         $result = $mapper->toPhpType('TIMESTAMP', true, 'users', 'created_at');
-        $this->assertSame('string', $result);
+        $this->assertSame('\DateTimeImmutable', $result);
     }
 }
 

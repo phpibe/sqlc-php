@@ -64,9 +64,9 @@ type_overrides:
     php_type: "bool"
   - db_type:  "TINYINT"
     php_type: "bool"
-  - db_type:  "TIMESTAMP"
-    php_type: "\\DateTimeImmutable"
-    nullable: true
+  # To use string instead of \DateTimeImmutable for date columns:
+  # - db_type: "DATE"
+  #   php_type: "string"
 
 # Virtual tables — views or external tables not present in the schema files (optional)
 virtual_tables:
@@ -133,9 +133,8 @@ engine:   mysql
 language: english
 
 type_overrides:
-  - db_type: "TIMESTAMP"
-    php_type: "\\DateTimeImmutable"
-    nullable: true
+  - db_type: "TINYINT"
+    php_type: "bool"
 
 targets:
   - namespace: "App\\Database\\Read"
@@ -332,7 +331,8 @@ When `nullable` is omitted, nullability is inherited from the schema.
 | `INT`, `BIGINT`, `SMALLINT`, `TINYINT` | `int` | |
 | `DECIMAL`, `FLOAT`, `DOUBLE` | `float` | |
 | `VARCHAR`, `CHAR`, `TEXT` | `string` | |
-| `DATE`, `DATETIME`, `TIMESTAMP` | `string` | override with `\DateTimeImmutable` via `type_overrides` |
+| `DATE`, `DATETIME`, `TIMESTAMP` | `\DateTimeImmutable` | `fromRow` uses `new \DateTimeImmutable(...)` |
+| `TIME` | `string` | no standard PHP time-interval type |
 | `JSON` | `array` | hydrated via `json_decode` in `fromRow` |
 | `ENUM(...)` | `EnumClass` | generates a PHP 8.1 backed enum file |
 | `BOOLEAN` | `bool` | |
@@ -1441,7 +1441,7 @@ sqlc-php/
 │       ├── TypeMapperInterface.php     # Contract all engine mappers must implement
 │       ├── TypeMapperFactory.php       # Resolves mapper by engine (mysql → MySQLTypeMapper)
 │       └── MySQLTypeMapper.php         # MySQL: SQL types → PHP types + PDO constants
-├── tests/                              # PHPUnit test suite (491 tests)
+├── tests/                              # PHPUnit test suite (510 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1449,6 +1449,25 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.1.1] — Bug fixes and DateTimeImmutable
+
+**Bug fixes**
+
+- **`MAX(alias.col)` / `MIN(alias.col)` / `SUM(alias.col)` resolved to `?string`** — `ExpressionTypeResolver.resolveInnerType()` received the inner expression already uppercased (e.g. `M.VOUCHER_NUMBER`) but the table alias map had lowercase keys (`m`). The lookup silently fell through to the `string` fallback. Fix: `strtolower($inner)` at the start of `resolveInnerType()`.
+
+**DateTimeImmutable mapping**
+
+- **`DATE`, `DATETIME`, `TIMESTAMP` now map to `\DateTimeImmutable`** — previously all three mapped to `string`, requiring a `type_override` to get proper date objects. `TIME` stays `string` — no standard PHP type for time intervals.
+- **`TypeMapperInterface::fromRowCast()`** — new method that generates the correct `fromRow()` cast expression for any PHP type. Handles `\DateTimeImmutable`, backed enums (`::from()`/`::tryFrom()`), array/JSON, and all scalars.
+- **`ModelGenerator`, `ResultDtoGenerator`, `EmbedGenerator`** — all three generators now delegate `fromRow()` cast generation to the mapper instead of maintaining their own hardcoded `buildCast()`. Adding support for any new PHP type in a future engine (e.g. PostgreSQL `uuid → Uuid`) only requires updating the mapper.
+- Users who need `string` for date columns can use `type_overrides`:
+  ```yaml
+  type_overrides:
+    - db_type: "DATE"
+      php_type: "string"
+  ```
+- 14 new tests in `tests/TypeMapper/MySQLTypeMapperTest.php`.
 
 ### [2.1.0] — virtual_tables and includes
 

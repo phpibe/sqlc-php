@@ -6,6 +6,7 @@ namespace SqlcPhp\Generator;
 
 use SqlcPhp\Parser\EmbedDefinition;
 use SqlcPhp\Resolver\ResolvedColumn;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Generates the nested value-object class for an @embed group.
@@ -29,7 +30,8 @@ use SqlcPhp\Resolver\ResolvedColumn;
 class EmbedGenerator
 {
     public function __construct(
-        private readonly string $namespace,
+        private readonly string               $namespace,
+        private readonly ?TypeMapperInterface $typeMapper = null,
     ) {}
 
     /**
@@ -91,6 +93,12 @@ PHP;
 
     private function buildCast(string $phpType, string $alias, bool $nullable): string
     {
+        if ($this->typeMapper !== null) {
+            $cast = $this->typeMapper->fromRowCast($phpType, $alias, $nullable);
+            return "            {$cast},";
+        }
+
+        // Fallback when no mapper injected
         $base   = ltrim($phpType, '?\\');
         $access = "\$row['{$alias}']";
 

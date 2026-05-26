@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.1.0</span>
+    <span class="badge-version">v2.1.1</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -988,7 +988,8 @@ targets:
               <tr><td><code>INT, BIGINT, SMALLINT, TINYINT</code></td><td><code>int</code></td><td></td></tr>
               <tr><td><code>DECIMAL, FLOAT, DOUBLE</code></td><td><code>float</code></td><td></td></tr>
               <tr><td><code>VARCHAR, CHAR, TEXT</code></td><td><code>string</code></td><td></td></tr>
-              <tr><td><code>DATE, DATETIME, TIMESTAMP</code></td><td><code>string</code></td><td>Override with <code>\DateTimeImmutable</code> via <code>type_overrides</code></td></tr>
+              <tr><td><code>DATE, DATETIME, TIMESTAMP</code></td><td><code>\DateTimeImmutable</code></td><td><code>fromRow</code> uses <code>new \DateTimeImmutable(...)</code></td></tr>
+              <tr><td><code>TIME</code></td><td><code>string</code></td><td>No standard PHP time-interval type</td></tr>
               <tr><td><code>JSON</code></td><td><code>array</code></td><td>Hydrated via <code>json_decode</code> in <code>fromRow</code></td></tr>
               <tr><td><code>ENUM(...)</code></td><td><code>EnumClass</code></td><td>Generates a PHP 8.1 backed enum file</td></tr>
               <tr><td><code>BOOLEAN</code></td><td><code>bool</code></td><td></td></tr>
@@ -1871,7 +1872,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (491 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (510 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1882,6 +1883,17 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.1.1 — Bug fixes and DateTimeImmutable</div>
+          <ul>
+            <li><strong>Bug fix: <code>MAX(alias.col)</code> resolved to <code>?string</code></strong> — <code>resolveInnerType()</code> received the inner expression uppercased (<code>M.VOUCHER_NUMBER</code>) but the alias map had lowercase keys (<code>m</code>). Fix: <code>strtolower($inner)</code> in <code>resolveInnerType()</code>. Also affected <code>MIN</code> and <code>SUM</code> with table aliases.</li>
+            <li><strong><code>DATE</code>, <code>DATETIME</code>, <code>TIMESTAMP</code> → <code>\DateTimeImmutable</code></strong> — all three now produce proper date objects. <code>fromRow</code> emits <code>new \DateTimeImmutable((string) $row['col'])</code>. <code>TIME</code> stays <code>string</code>.</li>
+            <li><strong><code>TypeMapperInterface::fromRowCast()</code></strong> — new method that generates the correct hydration expression for any PHP type. <code>ModelGenerator</code>, <code>ResultDtoGenerator</code>, and <code>EmbedGenerator</code> now delegate to the mapper instead of maintaining their own hardcoded cast logic.</li>
+            <li>To keep <code>string</code> for date columns: <code>type_overrides: [{ db_type: "DATE", php_type: "string" }]</code></li>
+            <li>14 new tests in <code>tests/TypeMapper/MySQLTypeMapperTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.1.0 — virtual_tables and includes</div>

@@ -118,9 +118,9 @@ class ExpressionTypeResolverTest extends TestCase
 
     public function test_max_does_not_produce_double_nullable(): void
     {
-        // created_at is already nullable — MAX should produce ?string, not ??string
+        // created_at is TIMESTAMP (nullable) — MAX should produce ?\DateTimeImmutable
         $result = $this->resolver->resolve('MAX(created_at)', $this->aliases);
-        $this->assertSame('?string', $result['phpType']);
+        $this->assertSame('?\\DateTimeImmutable', $result['phpType']);
         $this->assertStringStartsWith('?', $result['phpType']);
         $this->assertStringNotContainsString('??', $result['phpType']);
     }

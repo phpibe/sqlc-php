@@ -119,7 +119,7 @@ foreach ($config->targets as $i => $target) {
     $queries       = $analyzer->analyze($rawQueries);
 
     // Setup generators
-    $resultDtoGen = new ResultDtoGenerator($target->namespace);
+    $resultDtoGen = new ResultDtoGenerator($target->namespace, $typeMapper);
     $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($target->namespace) : null;
     $queryGen     = new QueryGenerator(
         $catalog, $typeMapper, $resultDtoGen, $target->namespace,

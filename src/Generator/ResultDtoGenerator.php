@@ -7,6 +7,7 @@ namespace SqlcPhp\Generator;
 use SqlcPhp\Parser\EmbedDefinition;
 use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Resolver\ResolvedColumn;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Generates a PHP readonly DTO for the result set of a query
@@ -20,7 +21,8 @@ use SqlcPhp\Resolver\ResolvedColumn;
 class ResultDtoGenerator
 {
     public function __construct(
-        private readonly string $namespace,
+        private readonly string               $namespace,
+        private readonly ?TypeMapperInterface $typeMapper = null,
     ) {}
 
     public function dtoClassName(QueryDefinition $query): string
@@ -136,7 +138,7 @@ readonly class {$className}
 PHP;
 
         // Generate one embedded value-object file per @embed group
-        $embedGen   = new EmbedGenerator($this->namespace);
+        $embedGen   = new EmbedGenerator($this->namespace, $this->typeMapper);
         $embedFiles = [];
 
         foreach ($embeds as $embed) {
@@ -167,6 +169,12 @@ PHP;
 
     private function buildCast(ResolvedColumn $col): string
     {
+        if ($this->typeMapper !== null) {
+            $cast = $this->typeMapper->fromRowCast($col->phpType, $col->alias, $col->nullable);
+            return "            {$cast},";
+        }
+
+        // Fallback for when no mapper injected (backward compatibility)
         $base     = ltrim($col->phpType, '?\\');
         $access   = "\$row['{$col->alias}']";
         $nullable = str_starts_with($col->phpType, '?');

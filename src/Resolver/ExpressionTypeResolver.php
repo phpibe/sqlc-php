@@ -259,7 +259,9 @@ class ExpressionTypeResolver
      */
     private function resolveInnerType(string $inner, array $tableAliases): string
     {
-        $inner = trim($inner);
+        // inner may come from matchesFunction() which uppercases the expression —
+        // lowercase it so alias/column name lookups work correctly
+        $inner = strtolower(trim($inner));
 
         if ($inner === '*' || $inner === '') return 'int';
 

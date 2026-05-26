@@ -221,4 +221,59 @@ class ExpressionTypeResolverTest extends TestCase
         $this->assertSame('mixed', $result['phpType']);
         $this->assertNull($result['alias']);
     }
+
+    // -------------------------------------------------------------------------
+    // Regression: table alias case sensitivity (uppercase inner from matchesFunction)
+    // -------------------------------------------------------------------------
+
+    public function test_max_with_table_alias_resolves_correctly(): void
+    {
+        // Regression: MAX(u.id) was resolving to ?string because matchesFunction()
+        // uppercases the inner — resolveInnerType received 'U.ID' but alias map
+        // had lowercase key 'u', so the lookup silently fell through to 'string'.
+        $aliases = ['u' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('MAX(u.id)', $aliases);
+        $this->assertSame('?int', $result['phpType']);
+    }
+
+    public function test_min_with_table_alias_resolves_correctly(): void
+    {
+        $aliases = ['u' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('MIN(u.price)', $aliases);
+        $this->assertSame('?float', $result['phpType']);
+    }
+
+    public function test_sum_with_table_alias_resolves_correctly(): void
+    {
+        $aliases = ['u' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('SUM(u.price)', $aliases);
+        $this->assertSame('?float', $result['phpType']);
+    }
+
+    public function test_max_without_table_alias_still_resolves_correctly(): void
+    {
+        $result = $this->resolver->resolve('MAX(id)', $this->aliases);
+        $this->assertSame('?int', $result['phpType']);
+    }
+
+    public function test_max_with_multi_table_join_aliases(): void
+    {
+        // Simulates a real-world LEFT JOIN with aggregate:
+        // MAX(m.voucher_number) where m → memory table (alias for another table)
+        $schema = <<<SQL
+            CREATE TABLE memory (
+                id             INT AUTO_INCREMENT PRIMARY KEY,
+                voucher_number INT NOT NULL
+            );
+        SQL;
+        $catalog  = new SchemaCatalog((new SchemaParser())->parse($schema));
+        $mapper   = new MySQLTypeMapper();
+        $resolver = new ExpressionTypeResolver($catalog, $mapper);
+
+        $aliases = ['m' => 'memory', 'memory' => 'memory'];
+        $result  = $resolver->resolve('MAX(m.voucher_number)', $aliases);
+
+        $this->assertSame('?int', $result['phpType']);
+    }
 }
+

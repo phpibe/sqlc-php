@@ -56,8 +56,7 @@ schema:
 
 # Global defaults — inherited by all targets unless overridden locally
 engine:   mysql    # database engine (mysql supported; postgres planned for v1.7.0)
-language: english  # inflection language for class name inference
-                   # english | spanish | french | portuguese | norwegian-bokmal | turkish
+language: english  # english | spanish | french | portuguese | norwegian-bokmal | turkish
 
 # Global type overrides — applied to all targets
 type_overrides:
@@ -68,6 +67,21 @@ type_overrides:
   - db_type:  "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
     nullable: true
+
+# Virtual tables — views or external tables not present in the schema files (optional)
+virtual_tables:
+  - name: user_summary
+    columns:
+      - { name: id,          type: INT }
+      - { name: email,       type: VARCHAR }
+      - { name: role_name,   type: VARCHAR, nullable: true }
+      - { name: order_count, type: INT }
+
+# Include additional YAML fragments — each can contain virtual_tables, type_overrides,
+# and targets sections that are merged before the main file's values (optional)
+includes:
+  - config/views.yaml
+  - config/overrides.yaml
 
 # Output targets — one or more (required)
 targets:
@@ -210,6 +224,78 @@ With `language: spanish`, tables like `usuarios`, `pedidos`, `categorias` produc
 | `users`    | `User` ✅ | — |
 
 The `@group` annotation always takes precedence over inferred names.
+
+### virtual_tables — views and external tables
+
+`virtual_tables:` declares tables that exist in the database but have no `CREATE TABLE` in the schema files — views, materialized views, or tables from other schemas.
+
+```yaml
+virtual_tables:
+  - name: user_summary
+    columns:
+      - { name: id,          type: INT }
+      - { name: email,       type: VARCHAR }
+      - { name: role_name,   type: VARCHAR, nullable: true }
+      - { name: order_count, type: INT }
+
+  - name: monthly_revenue
+    columns:
+      - { name: month,   type: INT }
+      - { name: revenue, type: DECIMAL }
+```
+
+**Nullability convention** — all columns are `NOT NULL` by default. Specify `nullable: true` only for columns that can be null. This is the inverse of schema parsing where `NOT NULL` must be explicit.
+
+Virtual tables are registered in the `SchemaCatalog` for column type resolution. Queries against them work exactly like queries against real tables. The only difference: **no `Model` class is generated** for virtual tables.
+
+```sql
+-- @name ListUserSummaries
+-- @returns :many
+SELECT * FROM user_summary;
+```
+
+Generates `UserSummaryQuery.php` with correct column types, but no `UserSummary.php` model.
+
+### includes — splitting the config
+
+`includes:` loads additional YAML fragments and merges their list fields (`virtual_tables:`, `type_overrides:`, `targets:`) into the main config. Scalar fields (`engine:`, `language:`) in include files are silently ignored.
+
+```yaml
+# sqlc.yaml
+includes:
+  - config/views/user_views.yaml
+  - config/views/order_views.yaml
+  - config/overrides/timestamps.yaml
+```
+
+```yaml
+# config/views/user_views.yaml
+virtual_tables:
+  - name: user_summary
+    columns:
+      - { name: id,    type: INT }
+      - { name: email, type: VARCHAR }
+```
+
+```yaml
+# config/views/order_views.yaml
+virtual_tables:
+  - name: order_summary
+    columns:
+      - { name: id,    type: INT }
+      - { name: total, type: DECIMAL }
+```
+
+All `virtual_tables:` entries from all includes are accumulated. Multiple include files can each declare their own `virtual_tables:` — they are all merged before processing.
+
+| Field | Behaviour |
+|---|---|
+| `virtual_tables:` | Accumulated — all entries from all includes + main file |
+| `type_overrides:` | Accumulated — includes first, main file appended last |
+| `targets:` | Accumulated — includes first, main file appended last |
+| `engine:`, `language:` | Ignored in includes — main file always controls scalars |
+
+
 
 ### Type override precedence
 
@@ -1355,7 +1441,7 @@ sqlc-php/
 │       ├── TypeMapperInterface.php     # Contract all engine mappers must implement
 │       ├── TypeMapperFactory.php       # Resolves mapper by engine (mysql → MySQLTypeMapper)
 │       └── MySQLTypeMapper.php         # MySQL: SQL types → PHP types + PDO constants
-├── tests/                              # PHPUnit test suite (467 tests)
+├── tests/                              # PHPUnit test suite (491 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1363,6 +1449,14 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.1.0] — virtual_tables and includes
+
+- **`virtual_tables:`** — declare tables that exist in the database but not in the schema files (views, materialized views, external tables). Columns default to `NOT NULL`; mark `nullable: true` only when needed. Virtual tables participate in column type resolution and `@group` inference like regular tables, but no `Model` class is generated for them.
+- **`includes:`** — split the config into multiple YAML fragments. Each include file can contain `virtual_tables:`, `type_overrides:`, and `targets:` sections, all of which are accumulated (appended) in order before the main file's values. Scalar fields (`engine`, `language`) in include files are silently ignored — the main file always controls them.
+- **Inline map syntax** in YAML — column definitions can now use `{ name: id, type: INT }` inline syntax in addition to the full multi-line block form.
+- **YAML parser fix** — `parseList` now correctly handles multiple map entries that each contain a nested sub-list (e.g. multiple `virtual_tables` entries each with their own `columns:` list).
+- **24 new tests** in `tests/VirtualTableTest.php`.
 
 ### [2.0.0] — Unified configuration
 

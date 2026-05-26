@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.0.0</span>
+    <span class="badge-version">v2.1.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -570,6 +570,8 @@
       <a class="sidebar-link" href="#multiple-schemas"><i class="bi bi-files"></i> Multiple schema files</a>
       <a class="sidebar-link" href="#multiple-queries"><i class="bi bi-file-earmark-code"></i> Per-target queries</a>
       <a class="sidebar-link" href="#multiple-targets"><i class="bi bi-diagram-3"></i> Multiple targets</a>
+      <a class="sidebar-link" href="#virtual-tables"><i class="bi bi-table"></i> virtual_tables</a>
+      <a class="sidebar-link" href="#includes"><i class="bi bi-file-earmark-plus"></i> includes</a>
       <a class="sidebar-link" href="#language"><i class="bi bi-translate"></i> Inflection language</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
       <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
@@ -635,7 +637,7 @@
       <!-- INTRO -->
       <section class="doc-section" id="intro">
         <div class="hero">
-          <img width="100%" src="./logo.png" />
+          <h1 style="margin-bottom:.5rem">sqlc-php</h1>
           <p class="hero-tagline">
             A PHP code generator inspired by <a href="https://sqlc.dev" target="_blank">sqlc</a> for Go.
             Reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes
@@ -802,6 +804,82 @@ targets:
     type_overrides:                    # merged on top of global overrides
       - column: "users.active"
         php_type: "bool"</code></pre>
+      </section>
+
+      <!-- VIRTUAL TABLES -->
+      <section class="doc-section" id="virtual-tables">
+        <h3>virtual_tables — views and external tables</h3>
+        <p style="color:var(--text-muted)"><code>virtual_tables:</code> declares tables that exist in the database but have no <code>CREATE TABLE</code> in the schema files — views, materialized views, or tables from other schemas.</p>
+
+        <pre><code class="language-yaml">virtual_tables:
+  - name: user_summary
+    columns:
+      - { name: id,          type: INT }
+      - { name: email,       type: VARCHAR }
+      - { name: role_name,   type: VARCHAR, nullable: true }
+      - { name: order_count, type: INT }
+
+  - name: monthly_revenue
+    columns:
+      - { name: month,   type: INT }
+      - { name: revenue, type: DECIMAL }</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          <strong>Nullability convention:</strong> all columns are <code>NOT NULL</code> by default. Specify <code>nullable: true</code> only for columns that can be null — the inverse of schema parsing where <code>NOT NULL</code> must be explicit.
+        </div>
+
+        <p style="color:var(--text-muted)">Virtual tables are registered in the <code>SchemaCatalog</code> for column type resolution and <code>@group</code> inference. Queries work exactly like queries against real tables. The only difference: <strong>no <code>Model</code> class is generated</strong> — since there is no real <code>CREATE TABLE</code>, there is no model to generate.</p>
+
+        <pre><code class="language-sql">-- @name ListUserSummaries
+-- @returns :many
+SELECT * FROM user_summary;</code></pre>
+
+        <p style="color:var(--text-muted)">Generates <code>UserSummaryQuery.php</code> with correct column types, but no <code>UserSummary.php</code> model.</p>
+      </section>
+
+      <!-- INCLUDES -->
+      <section class="doc-section" id="includes">
+        <h3>includes — splitting the config</h3>
+        <p style="color:var(--text-muted)"><code>includes:</code> loads additional YAML fragments and merges their list fields into the main config. Each include file can contain <code>virtual_tables:</code>, <code>type_overrides:</code>, and <code>targets:</code>. Scalar fields (<code>engine:</code>, <code>language:</code>) in include files are silently ignored — the main file always controls them.</p>
+
+        <pre><code class="language-yaml"># sqlc.yaml
+includes:
+  - config/views/user_views.yaml
+  - config/views/order_views.yaml
+  - config/overrides/timestamps.yaml</code></pre>
+
+        <pre><code class="language-yaml"># config/views/user_views.yaml
+virtual_tables:
+  - name: user_summary
+    columns:
+      - { name: id,    type: INT }
+      - { name: email, type: VARCHAR }
+
+  - name: active_users
+    columns:
+      - { name: id,    type: INT }
+      - { name: email, type: VARCHAR }</code></pre>
+
+        <pre><code class="language-yaml"># config/views/order_views.yaml
+virtual_tables:
+  - name: order_summary
+    columns:
+      - { name: id,     type: INT }
+      - { name: total,  type: DECIMAL }
+      - { name: status, type: VARCHAR }</code></pre>
+
+        <div class="doc-table-wrap" style="margin-top:1rem">
+          <table class="doc-table">
+            <thead><tr><th>Field</th><th>Behaviour in includes</th></tr></thead>
+            <tbody>
+              <tr><td><code>virtual_tables:</code></td><td>Accumulated — all entries from all includes + main file</td></tr>
+              <tr><td><code>type_overrides:</code></td><td>Accumulated — includes first, main file appended last</td></tr>
+              <tr><td><code>targets:</code></td><td>Accumulated — includes first, main file appended last</td></tr>
+              <tr><td><code>engine:</code>, <code>language:</code></td><td>Ignored — main file always controls scalar globals</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <!-- LANGUAGE -->
@@ -1793,7 +1871,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (467 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (491 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1804,6 +1882,17 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.1.0 — virtual_tables and includes</div>
+          <ul>
+            <li><strong><code>virtual_tables:</code></strong> — declare views, materialized views, or external tables in the config. Columns are <code>NOT NULL</code> by default; mark <code>nullable: true</code> only when needed. Virtual tables participate in column type resolution but no <code>Model</code> class is generated for them.</li>
+            <li><strong><code>includes:</code></strong> — split the config into multiple YAML fragments. Each include file can contain <code>virtual_tables:</code>, <code>type_overrides:</code>, and <code>targets:</code>. Multiple include files can each declare their own <code>virtual_tables:</code> — all entries are accumulated. Scalar fields (<code>engine:</code>, <code>language:</code>) in include files are ignored.</li>
+            <li><strong>Inline map syntax</strong> — column definitions support <code>{ name: id, type: INT }</code> inline syntax.</li>
+            <li><strong>YAML parser fix</strong> — multiple map entries each with their own nested sub-list (e.g. multiple <code>virtual_tables:</code> entries each with <code>columns:</code>) now parse correctly.</li>
+            <li>24 new tests in <code>tests/VirtualTableTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.0.0 — Unified configuration</div>

@@ -24,10 +24,11 @@ use SqlcPhp\Rewriter\SqlRewriter;
 class QueryAnalyzer
 {
     public function __construct(
-        private readonly ParamResolver  $paramResolver,
-        private readonly ColumnResolver $columnResolver,
-        private readonly QueryParser    $queryParser,
-        private readonly SqlRewriter    $rewriter = new SqlRewriter(),
+        private readonly ParamResolver                    $paramResolver,
+        private readonly ColumnResolver                  $columnResolver,
+        private readonly QueryParser                     $queryParser,
+        private readonly SqlRewriter                     $rewriter  = new SqlRewriter(),
+        private readonly ?\SqlcPhp\Catalog\SchemaCatalog $catalog   = null,
     ) {}
 
     /**
@@ -83,7 +84,13 @@ class QueryAnalyzer
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
 
             // @nillable or @embed on a direct-model query forces a custom DTO
-            $hasCustomizations = !empty($query->nillableColumns) || !empty($query->embeds);
+            // @nillable, @embed, or virtual table → always generate a custom DTO
+            $isVirtual = $this->catalog !== null
+                && $query->fromTable !== null
+                && ($this->catalog->getTable($query->fromTable)?->virtual ?? false);
+            $hasCustomizations = !empty($query->nillableColumns)
+                || !empty($query->embeds)
+                || $isVirtual;
             if (!$hasCustomizations) {
                 [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
             }

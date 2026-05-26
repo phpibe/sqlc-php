@@ -5,40 +5,6 @@ declare(strict_types=1);
 namespace SqlcPhp\Parser;
 
 /**
- * Represents a single column parsed from a CREATE TABLE statement.
- */
-class ColumnDefinition
-{
-    public function __construct(
-        public readonly string  $name,
-        public readonly string  $sqlType,
-        public readonly bool    $nullable,
-        public readonly bool    $autoIncrement,
-        public readonly ?string $default,
-        /** Non-empty only when sqlType === 'ENUM', contains the raw quoted values. */
-        public readonly array   $enumValues = [],
-    ) {}
-
-    /** Returns true when this column is a MySQL ENUM. */
-    public function isEnum(): bool
-    {
-        return $this->sqlType === 'ENUM' && !empty($this->enumValues);
-    }
-}
-
-/**
- * Represents a parsed table with all its columns.
- */
-class TableDefinition
-{
-    /** @param ColumnDefinition[] $columns */
-    public function __construct(
-        public readonly string $name,
-        public readonly array  $columns,
-    ) {}
-}
-
-/**
  * Parses MySQL CREATE TABLE SQL statements into structured TableDefinition objects.
  *
  * Handles:

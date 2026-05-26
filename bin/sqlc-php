@@ -76,8 +76,13 @@ foreach ($config->schemas as $schemaFile) {
 }
 
 $tables  = $schemaParser->parse($allSchemaSql);
-$catalog = new SchemaCatalog($tables);
-echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n\n";
+$catalog = new SchemaCatalog(array_merge($tables, $config->virtualTables));
+echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n";
+if (!empty($config->virtualTables)) {
+    echo "Virtual: " . count($config->virtualTables) . " virtual table(s) — " .
+         implode(', ', array_map(fn($t) => $t->name, $config->virtualTables)) . "\n";
+}
+echo "\n";
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -110,7 +115,7 @@ foreach ($config->targets as $i => $target) {
     $paramResolver = new ParamResolver($catalog, $typeMapper);
     $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
     $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);
-    $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter());
+    $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
     $queries       = $analyzer->analyze($rawQueries);
 
     // Setup generators
@@ -127,6 +132,7 @@ foreach ($config->targets as $i => $target) {
     $toWrite = [];
 
     foreach ($catalog->all() as $table) {
+        if ($table->virtual) continue;   // virtual tables have no real schema — skip
         foreach ($table->columns as $col) {
             if (!$col->isEnum()) continue;
             ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
@@ -136,6 +142,8 @@ foreach ($config->targets as $i => $target) {
 
     $tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
     foreach ($tablesUsed as $tableName) {
+        $tableDef = $catalog->getTable($tableName);
+        if ($tableDef?->virtual) continue;   // no Model for virtual tables
         ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
         $toWrite["{$cls}.php"] = ['label' => '[model]  ', 'code' => $code];
     }

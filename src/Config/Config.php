@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace SqlcPhp\Config;
 
+use SqlcPhp\Parser\ColumnDefinition;
+use SqlcPhp\Parser\TableDefinition;
+
 /**
  * Represents the parsed sqlc.yaml configuration.
  *
@@ -13,7 +16,6 @@ namespace SqlcPhp\Config;
  *
  *   schema:                              # one or many schema files (required)
  *     - database/schema/users.sql
- *     - database/schema/orders.sql
  *
  *   engine:   mysql                      # global engine default (optional, default: mysql)
  *   language: english                    # inflection language (optional, default: english)
@@ -21,39 +23,53 @@ namespace SqlcPhp\Config;
  *   type_overrides:                      # global overrides applied to all targets
  *     - db_type: "TIMESTAMP"
  *       php_type: "\\DateTimeImmutable"
- *       nullable: true
+ *
+ *   virtual_tables:                      # tables not in schema (views, mat. views, etc.)
+ *     - name: user_summary
+ *       columns:
+ *         - { name: id,        type: INT }
+ *         - { name: email,     type: VARCHAR }
+ *         - { name: role_name, type: VARCHAR, nullable: true }
+ *
+ *   includes:                            # additional YAML fragments to merge
+ *     - config/views/user_views.yaml
+ *     - config/overrides/timestamps.yaml
  *
  *   targets:                             # required — one or more output targets
  *     - namespace: "App\\Database"
  *       out:       generated
- *       queries:                         # one or many query files
+ *       queries:
  *         - queries/users.sql
- *       engine:   mysql                  # overrides global engine for this target
- *       language: spanish                # overrides global language for this target
- *       generate_interfaces: false       # default: true — set false to disable
- *       type_overrides:                  # merged on top of global overrides
+ *       engine:   mysql
+ *       language: spanish
+ *       generate_interfaces: false
+ *       type_overrides:
  *         - column: "users.active"
  *           php_type: "bool"
  */
 class Config
 {
     /**
-     * @param string[]       $schemas       Always string[] — normalised from scalar or list
-     * @param TypeOverride[] $typeOverrides Global type overrides
-     * @param Target[]       $targets       Output targets (always non-empty after validation)
+     * @param string[]                           $schemas
+     * @param TypeOverride[]                     $typeOverrides
+     * @param Target[]                           $targets
+     * @param \SqlcPhp\Parser\TableDefinition[]  $virtualTables
      */
     public function __construct(
         public readonly string $version,
-        /** All schema files — always string[]. */
         public readonly array  $schemas,
-        /** Global type overrides — applied to all targets unless overridden locally. */
         public readonly array  $typeOverrides = [],
-        /** Global engine default — can be overridden per target. */
         public readonly string $engine        = 'mysql',
-        /** Global language for inflection — can be overridden per target. */
         public readonly string $language      = 'english',
-        /** Output targets — always at least one. */
         public readonly array  $targets       = [],
+        /**
+         * Virtual tables declared via virtual_tables: or includes.
+         * Registered in SchemaCatalog for type resolution;
+         * no Model class is generated for them.
+         *
+         * @var \SqlcPhp\Parser\TableDefinition[]
+         */
+        public readonly array  $virtualTables = [],
     ) {}
 
     public static function fromFile(string $path): self
@@ -62,8 +78,9 @@ class Config
             throw new \RuntimeException("Config file not found: {$path}");
         }
 
-        $raw  = file_get_contents($path) ?: '';
-        $data = self::parseYaml($raw);
+        $baseDir = dirname(realpath($path));
+        $raw     = file_get_contents($path) ?: '';
+        $data    = self::parseYaml($raw);
 
         // schema: scalar or list (required)
         $rawSchema = $data['schema'] ?? null;
@@ -76,23 +93,35 @@ class Config
             ? array_values(array_filter(array_map('strval', $rawSchema)))
             : [(string) $rawSchema];
 
-        // Global engine and language
+        // Scalar globals — includes cannot override these
         $globalEngine   = strtolower((string) ($data['engine']   ?? 'mysql'));
         $globalLanguage = strtolower((string) ($data['language'] ?? 'english'));
 
-        // Global type_overrides
-        $globalOverrides = [];
-        foreach ($data['type_overrides'] ?? [] as $entry) {
-            if (!is_array($entry)) continue;
-            try {
-                $globalOverrides[] = TypeOverride::fromArray($entry);
-            } catch (\InvalidArgumentException $e) {
-                fwrite(STDERR, "Warning: skipping type_override — " . $e->getMessage() . "\n");
-            }
-        }
+        // Load includes first — main file values are merged on top
+        $includeData = self::loadIncludes(
+            is_array($data['includes'] ?? null) ? $data['includes'] : [],
+            $baseDir,
+            $path
+        );
 
-        // targets: (required)
-        $rawTargets = $data['targets'] ?? null;
+        // type_overrides: includes first, main file appended after
+        // (evaluation is first-match-wins, so main file entries take effect last
+        //  for db_type overrides, and column-specific always win)
+        $globalOverrides = self::parseTypeOverrides(
+            array_merge($includeData['type_overrides'], $data['type_overrides'] ?? [])
+        );
+
+        // virtual_tables: accumulated from all includes + main file
+        $virtualTables = self::parseVirtualTables(
+            array_merge($includeData['virtual_tables'], $data['virtual_tables'] ?? [])
+        );
+
+        // targets: includes first, main file appended after
+        $rawTargets = array_merge(
+            $includeData['targets'],
+            is_array($data['targets'] ?? null) ? $data['targets'] : []
+        );
+
         if (empty($rawTargets)) {
             throw new \RuntimeException(
                 "Config '{$path}': missing required 'targets' field. " .
@@ -124,14 +153,147 @@ class Config
             engine:        $globalEngine,
             language:      $globalLanguage,
             targets:       $targets,
+            virtualTables: $virtualTables,
         );
     }
 
     // -------------------------------------------------------------------------
-    // Minimal YAML parser
+    // Includes
     // -------------------------------------------------------------------------
 
-    /** @return array<string, mixed> */
+    /**
+     * Load include files and accumulate their mergeable sections.
+     *
+     * Supported sections in include files: virtual_tables, type_overrides, targets.
+     * Scalar fields (engine, language) in include files are silently ignored.
+     *
+     * @param  string[]  $includePaths  Relative or absolute paths
+     * @param  string    $baseDir       Directory of the main config file
+     * @param  string    $mainPath      Main config path (for error messages only)
+     * @return array{virtual_tables: array, type_overrides: array, targets: array}
+     */
+    private static function loadIncludes(array $includePaths, string $baseDir, string $mainPath): array
+    {
+        $accumulated = [
+            'virtual_tables' => [],
+            'type_overrides' => [],
+            'targets'        => [],
+        ];
+
+        foreach ($includePaths as $rawPath) {
+            $includePath = self::resolvePath((string) $rawPath, $baseDir);
+
+            if (!file_exists($includePath)) {
+                throw new \RuntimeException(
+                    "Config '{$mainPath}': include file not found: {$rawPath} " .
+                    "(resolved to: {$includePath})"
+                );
+            }
+
+            $raw  = file_get_contents($includePath) ?: '';
+            $data = self::parseYaml($raw);
+
+            foreach (['virtual_tables', 'type_overrides', 'targets'] as $section) {
+                if (!empty($data[$section]) && is_array($data[$section])) {
+                    $accumulated[$section] = array_merge(
+                        $accumulated[$section],
+                        $data[$section]
+                    );
+                }
+            }
+        }
+
+        return $accumulated;
+    }
+
+    private static function resolvePath(string $path, string $baseDir): string
+    {
+        // Already absolute
+        if (str_starts_with($path, '/') || preg_match('/^[A-Z]:\\\\/i', $path)) {
+            return $path;
+        }
+        return $baseDir . DIRECTORY_SEPARATOR . $path;
+    }
+
+    // -------------------------------------------------------------------------
+    // virtual_tables: parsing
+    // -------------------------------------------------------------------------
+
+    /**
+     * Parse virtual table definitions.
+     *
+     * Column nullability defaults to FALSE (NOT NULL) — specify nullable: true
+     * to mark a column as nullable. This is the inverse of schema parsing.
+     *
+     * @param  array<mixed>  $raw
+     * @return \SqlcPhp\Parser\TableDefinition[]
+     */
+    private static function parseVirtualTables(array $raw): array
+    {
+        $tables = [];
+
+        foreach ($raw as $entry) {
+            if (!is_array($entry) || empty($entry['name'])) continue;
+
+            $tableName = (string) $entry['name'];
+            $columns   = [];
+
+            foreach ($entry['columns'] ?? [] as $colEntry) {
+                if (!is_array($colEntry)) continue;
+
+                $colName  = (string) ($colEntry['name'] ?? '');
+                $sqlType  = strtoupper((string) ($colEntry['type'] ?? 'VARCHAR'));
+                // Default: NOT NULL. Only nullable when explicitly declared.
+                $nullable = filter_var($colEntry['nullable'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+                if ($colName === '') continue;
+
+                $columns[] = new ColumnDefinition(
+                    name:          $colName,
+                    sqlType:       $sqlType,
+                    nullable:      $nullable,
+                    autoIncrement: false,
+                    default:       null,
+                    enumValues:    [],
+                );
+            }
+
+            $tables[] = new TableDefinition(
+                name:    $tableName,
+                columns: $columns,
+                virtual: true,
+            );
+        }
+
+        return $tables;
+    }
+
+    // -------------------------------------------------------------------------
+    // type_overrides: parsing
+    // -------------------------------------------------------------------------
+
+    /**
+     * @param  array<mixed>  $raw
+     * @return TypeOverride[]
+     */
+    private static function parseTypeOverrides(array $raw): array
+    {
+        $overrides = [];
+        foreach ($raw as $entry) {
+            if (!is_array($entry)) continue;
+            try {
+                $overrides[] = TypeOverride::fromArray($entry);
+            } catch (\InvalidArgumentException $e) {
+                fwrite(STDERR, "Warning: skipping type_override — " . $e->getMessage() . "\n");
+            }
+        }
+        return $overrides;
+    }
+
+    // -------------------------------------------------------------------------
+    // Minimal YAML parser (methods follow below)
+    // -------------------------------------------------------------------------
+
     private static function parseYaml(string $content): array
     {
         $result = [];
@@ -182,8 +344,30 @@ class Config
         return $result;
     }
 
+    /**
+     * Parse an inline YAML map: "name: id, type: INT, nullable: true"
+     * (without the surrounding braces, which are stripped by the caller)
+     *
+     * @return array<string, string>
+     */
+    private static function parseInlineMap(string $inner): array
+    {
+        $map   = [];
+        // Split on commas not inside quotes
+        $pairs = preg_split('/,\s*(?=\w+\s*:)/', $inner) ?: [];
+
+        foreach ($pairs as $pair) {
+            $pair = trim($pair);
+            if (preg_match('/^(\w+)\s*:\s*(.+)$/', $pair, $m)) {
+                $map[trim($m[1])] = self::parseScalar(trim($m[2]));
+            }
+        }
+
+        return $map;
+    }
+
     /** @return array{0: array<mixed>, 1: int} */
-    private static function parseList(array $lines, int $i, int $total): array
+    private static function parseList(array $lines, int $i, int $total, int $minIndent = 0): array
     {
         $items       = [];
         $currentItem = null;
@@ -198,10 +382,12 @@ class Config
 
             $indent = strlen($line) - strlen(ltrim($line));
 
-            if ($indent === 0) break;
+            // Stop when indent drops to or below the caller's level
+            if ($indent <= $minIndent) break;
 
             if ($listIndent === null) $listIndent = $indent;
 
+            // New list item at the list indent level
             if ($indent <= $listIndent && str_starts_with(ltrim($line), '-')) {
                 if ($currentItem !== null) $items[] = $currentItem;
 
@@ -213,10 +399,11 @@ class Config
 
                 if ($isMapList) {
                     $currentItem = [];
-                    if (preg_match('/^(\w+)\s*:\s*(.+)$/', $afterDash, $m)) {
+                    if (preg_match('/^\{(.+)\}$/', $afterDash, $bm)) {
+                        $currentItem = self::parseInlineMap($bm[1]);
+                    } elseif (preg_match('/^(\w+)\s*:\s*(.+)$/', $afterDash, $m)) {
                         $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
                     } elseif (preg_match('/^(\w+)\s*:\s*$/', $afterDash, $m)) {
-                        // key with empty value — will be filled by subsequent lines
                         $currentItem[$m[1]] = '';
                     }
                 } else {
@@ -227,28 +414,35 @@ class Config
                 continue;
             }
 
-            if ($isMapList && is_array($currentItem)) {
-                // Check if this line is a key: value pair
+            // Continuation lines for the current map item
+            if ($isMapList && is_array($currentItem) && $indent > ($listIndent ?? 0)) {
                 if (preg_match('/^(\w+)\s*:\s*(.+)$/', $trimmed, $m)) {
                     $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+                    $i++;
                 } elseif (preg_match('/^(\w+)\s*:\s*$/', $trimmed, $m)) {
-                    // Key with no inline value — check next lines for a nested list
                     $key = $m[1];
                     $i++;
-                    // Peek ahead
                     $j = $i;
                     while ($j < $total && trim($lines[$j]) === '') $j++;
 
-                    if ($j < $total && strlen($lines[$j]) - strlen(ltrim($lines[$j])) > $indent
-                        && str_starts_with(ltrim($lines[$j]), '-')) {
-                        // Nested list
-                        [$nestedItems, $i] = self::parseList($lines, $i, $total);
-                        $currentItem[$key] = $nestedItems;
+                    if ($j < $total) {
+                        $nextIndent  = strlen($lines[$j]) - strlen(ltrim($lines[$j]));
+                        $nextTrimmed = ltrim($lines[$j]);
+
+                        if ($nextIndent > $indent && str_starts_with($nextTrimmed, '-')) {
+                            // Nested list — pass current indent as the stop level
+                            [$nestedItems, $i] = self::parseList($lines, $i, $total, $indent);
+                            $currentItem[$key] = $nestedItems;
+                        } else {
+                            $currentItem[$key] = '';
+                        }
                     } else {
                         $currentItem[$key] = '';
                     }
-                    continue;
+                } else {
+                    $i++;
                 }
+                continue;
             }
 
             $i++;

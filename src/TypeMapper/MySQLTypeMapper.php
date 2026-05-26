@@ -7,29 +7,35 @@ namespace SqlcPhp\TypeMapper;
 use SqlcPhp\Config\TypeOverride;
 use SqlcPhp\Generator\EnumGenerator;
 
-class MySQLTypeMapper
+/**
+ * MySQL-specific type mapper.
+ *
+ * Maps MySQL column types to PHP types and PDO::PARAM_* constants,
+ * applying type_overrides from sqlc.yaml first.
+ */
+class MySQLTypeMapper implements TypeMapperInterface
 {
     /** @var TypeOverride[] */
     private array $overrides;
 
     /**
-     * @param TypeOverride[]   $overrides  From sqlc.yaml type_overrides
-     * @param EnumGenerator|null $enumGen  When provided, ENUM columns map to backed enum classes
+     * @param TypeOverride[]     $overrides From sqlc.yaml type_overrides
+     * @param EnumGenerator|null $enumGen   When provided, ENUM columns map to backed enum classes
      */
     public function __construct(
-        array            $overrides = [],
+        array             $overrides = [],
         private readonly ?EnumGenerator $enumGen = null,
     ) {
         $this->overrides = $overrides;
     }
 
     /**
-     * Maps a column to a PHP type, consulting overrides first.
+     * Maps a MySQL column to a PHP type, consulting overrides first.
      *
-     * @param string $tableName   e.g. "users"
-     * @param string $columnName  e.g. "status"
-     * @param string $sqlType     e.g. "ENUM" | "JSON" | "INT"
+     * @param string $sqlType    e.g. "ENUM" | "JSON" | "INT"
      * @param bool   $nullable
+     * @param string $tableName  e.g. "users"
+     * @param string $columnName e.g. "status"
      */
     public function toPhpType(
         string $sqlType,
@@ -40,7 +46,6 @@ class MySQLTypeMapper
         // 1. Column-specific or db_type override (most specific — checked first)
         foreach ($this->overrides as $override) {
             if ($override->matches($tableName, $columnName, $sqlType)) {
-                // Nullable override takes precedence over schema nullability
                 $effectiveNullable = $override->nullable ?? $nullable;
                 $base = $override->phpType ?? $this->resolveBaseType($sqlType);
                 return $effectiveNullable ? "?{$base}" : $base;
@@ -66,10 +71,14 @@ class MySQLTypeMapper
 
     /**
      * Maps a MySQL column type to the appropriate PDO::PARAM_* constant string.
-     * Overrides do not affect PDO binding — we bind by the original SQL type.
+     * The table/column params are accepted for interface compatibility but not
+     * used — MySQL binding is determined purely by SQL type.
      */
-    public function toPdoParam(string $sqlType): string
-    {
+    public function toPdoParam(
+        string  $sqlType,
+        ?string $tableName  = null,
+        ?string $columnName = null,
+    ): string {
         $upper = strtoupper($sqlType);
 
         if (str_contains($upper, 'INT') || $upper === 'TINYINT' || $upper === 'SMALLINT') {

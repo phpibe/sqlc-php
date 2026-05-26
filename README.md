@@ -2,8 +2,6 @@
 
 A PHP code generator inspired by [sqlc](https://sqlc.dev) for Go. It reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes that use PDO under the hood — no ORM, no magic, just plain objects derived directly from your database.
 
-📚Please, read the full documentation at [sqlc-php](https://phpibe.github.io/sqlc-php)
-
 ---
 
 ## How it works
@@ -49,68 +47,77 @@ php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale
 ## Configuration — `sqlc.yaml`
 
 ```yaml
-version: "1"
-schema:  schema.sql    # single file (scalar) or list of files
-queries: queries.sql   # single file (scalar) or list of files
+version: "2"
 
-php:
-  namespace:           "App\\Database"  # PHP namespace for all generated classes
-  out:                 generated        # output directory
-  engine:              mysql            # database engine (mysql supported)
-  generate_interfaces: true             # generate *Interface alongside each Query class
-  language:            english          # inflection language (optional, default: english)
-                                        # english | spanish | french | portuguese |
-                                        # norwegian-bokmal | turkish
-
-# Optional type overrides
-type_overrides:
-  - column:   "users.active"        # target a specific table.column
-    php_type: "bool"
-
-  - db_type:  "TINYINT"             # target every column of this SQL type
-    php_type: "bool"
-
-  - db_type:  "TIMESTAMP"
-    php_type: "\\DateTimeImmutable"
-    nullable: true                    # force nullable regardless of schema
-```
-
-### Inflection language
-
-sqlc-php uses [doctrine/inflector](https://github.com/doctrine/inflector) to singularise table names when inferring class names (`users` → `User`, `analyses` → `Analysis`). The language can be set under `php:` — it is optional and defaults to `english`:
-
-```yaml
-php:
-  language: spanish   # english | spanish | french | portuguese | norwegian-bokmal | turkish
-```
-
-With `language: spanish`, tables like `usuarios`, `pedidos`, `categorias` will produce `Usuario`, `Pedido`, `Categoria` without needing a `@group` annotation on every query.
-
-With `language: english` (the default), doctrine/inflector correctly handles irregular English plurals that the previous built-in implementation missed:
-
-| Table name | Before (built-in) | After (doctrine/inflector) |
-|---|---|---|
-| `analyses` | `Analyse` ❌ | `Analysis` ✅ |
-| `matrices` | `Matrice` ❌ | `Matrix` ✅ |
-| `aliases` | `Aliase` ❌ | `Alias` ✅ |
-| `geese` | `Geese` ❌ | `Goose` ✅ |
-| `users` | `User` ✅ | `User` ✅ |
-| `orders` | `Order` ✅ | `Order` ✅ |
-| `categories` | `Category` ✅ | `Category` ✅ |
-
-The `@group` annotation always takes precedence over inferred names — if you specify `@group MyClass`, the language setting is not involved.
-
-### Multiple output targets
-
-`targets` lets you generate multiple namespaces and output directories from the same schema in a single run. Each target has its own `namespace`, `out`, and `queries` list, and can declare its own `generate_interfaces` flag and `type_overrides` that are merged on top of the root-level overrides.
-
-```yaml
-version: "1"
+# Schema files — one or many (required)
 schema:
   - database/schema/users.sql
   - database/schema/orders.sql
 
-# Global type overrides shared across all targets
+# Global defaults — inherited by all targets unless overridden locally
+engine:   mysql    # database engine (mysql supported; postgres planned for v1.7.0)
+language: english  # inflection language for class name inference
+                   # english | spanish | french | portuguese | norwegian-bokmal | turkish
+
+# Global type overrides — applied to all targets
+type_overrides:
+  - column:   "users.active"
+    php_type: "bool"
+  - db_type:  "TINYINT"
+    php_type: "bool"
+  - db_type:  "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+    nullable: true
+
+# Output targets — one or more (required)
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:
+      - database/queries/users.sql
+      - database/queries/orders.sql
+    # generate_interfaces: true   ← default, omit unless you want false
+    # engine:   mysql             ← override global engine for this target
+    # language: spanish           ← override global language for this target
+    # type_overrides:             ← merged on top of global overrides
+    #   - column: "users.bio"
+    #     php_type: "string"
+```
+
+### Minimal single-target config
+
+```yaml
+version: "2"
+schema: schema.sql
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:   queries.sql
+```
+
+`generate_interfaces` defaults to `true` — interfaces are generated unless explicitly set to `false`:
+
+```yaml
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:   queries.sql
+    generate_interfaces: false   # disable only if not needed
+```
+
+### Multiple output targets
+
+`targets` accepts any number of entries — each produces a separate generation pass using the same parsed schema:
+
+```yaml
+version: "2"
+schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
+
+engine:   mysql
+language: english
+
 type_overrides:
   - db_type: "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
@@ -122,23 +129,22 @@ targets:
     queries:
       - database/queries/read/users.sql
       - database/queries/read/orders.sql
-    generate_interfaces: true
 
   - namespace: "App\\Database\\Write"
     out:       generated/write
     queries:
       - database/queries/write/users.sql
     generate_interfaces: false
-    type_overrides:
+    type_overrides:               # merged on top of global overrides
       - column: "users.active"
         php_type: "bool"
 ```
 
-When `targets` is present, the root-level `php:` block is used as fallback defaults but each target's settings take precedence. When `targets` is absent, the root `php:` block is used as the single target.
+Each target inherits the global `engine`, `language`, and `type_overrides`. A target can override any of them locally.
 
 ### Multiple schema files
 
-`schema` accepts both a scalar string (single file) and a YAML list of paths. All files are parsed and merged into a single catalog before analysis:
+`schema` accepts both a scalar string (single file) and a YAML list. All files are parsed and merged into a single catalog:
 
 ```yaml
 schema:
@@ -147,27 +153,63 @@ schema:
   - database/schema/roles.sql
 ```
 
-### Multiple query files
+### Per-target queries
 
-`queries` accepts both a scalar string (single file) and a YAML list of paths:
+Each target has its own `queries` list. `queries` accepts a scalar or a list:
 
 ```yaml
-queries:
-  - database/queries/users.sql
-  - database/queries/roles.sql
-  - database/queries/orders.sql
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:
+      - database/queries/users.sql
+      - database/queries/roles.sql
+      - database/queries/orders.sql
 ```
 
-All files are parsed and merged before analysis. The CLI prints a per-file count alongside the total:
+The CLI prints a per-file count alongside the total:
 
 ```
 Schema : database/schema/users.sql
 Schema : database/schema/orders.sql
 Schema : 3 table(s) — users, orders, roles
-Queries: 8 query(ies) from database/queries/users.sql
-Queries: 3 query(ies) from database/queries/orders.sql
-Queries: 11 total query(ies) parsed
+
+Target : App\Database → generated/
+  Queries: 8 query(ies) from database/queries/users.sql
+  Queries: 3 query(ies) from database/queries/orders.sql
+  Queries: 11 total
 ```
+
+### Inflection language
+
+sqlc-php uses [doctrine/inflector](https://github.com/doctrine/inflector) to singularise table names when inferring class names. Set globally or per-target:
+
+```yaml
+language: spanish   # global default
+
+targets:
+  - namespace: "App\\Spanish"
+    out:       gen/es
+    queries:   queries/es.sql
+    # inherits language: spanish
+
+  - namespace: "App\\French"
+    out:       gen/fr
+    queries:   queries/fr.sql
+    language:  french   # override for this target
+```
+
+With `language: spanish`, tables like `usuarios`, `pedidos`, `categorias` produce `Usuario`, `Pedido`, `Categoria` without needing `@group` on every query.
+
+| Table name | `english` (doctrine) | `spanish` |
+|---|---|---|
+| `analyses` | `Analysis` ✅ | — |
+| `matrices` | `Matrix` ✅ | — |
+| `usuarios` | `Usuarios` ❌ | `Usuario` ✅ |
+| `pedidos`  | `Pedido` ✅ | `Pedido` ✅ |
+| `users`    | `User` ✅ | — |
+
+The `@group` annotation always takes precedence over inferred names.
 
 ### Type override precedence
 
@@ -179,26 +221,23 @@ Queries: 11 total query(ies) parsed
 
 ### Nullable override
 
-Any `type_override` entry accepts an optional `nullable` field that forces the nullability of the property regardless of how the column is declared in the schema:
+Any `type_override` entry accepts an optional `nullable` field:
 
 ```yaml
 type_overrides:
-  # Force nullable even though the column is NOT NULL in the schema
   - column:   "users.deleted_at"
     php_type: "\\Carbon\\Carbon"
-    nullable: true
+    nullable: true          # force nullable even if NOT NULL in schema
 
-  # Force NOT nullable for all TIMESTAMP columns despite schema nullability
   - db_type:  "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
-    nullable: false
+    nullable: false         # force not-null regardless of schema
 
-  # Only change nullability, keep the default type mapping
   - column:   "users.created_at"
-    nullable: false
+    nullable: false         # only change nullability, keep default type
 ```
 
-When `nullable` is omitted, the nullability is inherited from the schema column as usual.
+When `nullable` is omitted, nullability is inherited from the schema.
 
 ### Default SQL → PHP type mapping
 
@@ -1263,6 +1302,7 @@ The test suite covers:
 | Inflector | `tests/InflectorServiceTest.php` | InflectorService, all 6 languages, Config language field, group inference |
 | Bug Fixes | `tests/BugFixTest.php` | Regression tests for v1.5.2 critical and medium bug fixes |
 | IN() Params | `tests/InListParamTest.php` | IN/NOT IN detection, type inference, signature, placeholder expansion |
+| TypeMapper Factory | `tests/TypeMapper/TypeMapperFactoryTest.php` | Interface contract, factory engine resolution, unsupported engine errors |
 | Param Resolver | `tests/Resolver/ParamResolverTest.php` | WHERE/SET/UPDATE param resolution, camelCase→snake |
 | Expression Resolver | `tests/Resolver/ExpressionTypeResolverTest.php` | All aggregate and scalar functions |
 | Analyzer | `tests/Analyzer/QueryAnalyzerTest.php` | Full pipeline: model detection, JOINs, aggregates |
@@ -1312,8 +1352,10 @@ sqlc-php/
 │   ├── Rewriter/
 │   │   └── SqlRewriter.php             # Rewrites optional param conditions in SQL
 │   └── TypeMapper/
-│       └── MySQLTypeMapper.php         # Maps SQL types to PHP types and PDO constants
-├── tests/                              # PHPUnit test suite (434 tests)
+│       ├── TypeMapperInterface.php     # Contract all engine mappers must implement
+│       ├── TypeMapperFactory.php       # Resolves mapper by engine (mysql → MySQLTypeMapper)
+│       └── MySQLTypeMapper.php         # MySQL: SQL types → PHP types + PDO constants
+├── tests/                              # PHPUnit test suite (467 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1321,6 +1363,56 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.0.0] — Unified configuration
+
+- **`targets:` is now required** — the `php:` block has been removed. All configuration lives under `targets:`. This eliminates the dual configuration paths and makes the schema explicit.
+- **`generate_interfaces` defaults to `true`** — interfaces are now generated by default. Set `generate_interfaces: false` on a target only when not needed.
+- **`engine` and `language` are global fields** — no longer nested inside `php:`. Both can be overridden per target.
+- **`version: "2"`** — configs should declare `version: "2"`. Omitting it defaults to `"2"`.
+- **`schema:` and `targets:` are both required** — omitting either throws a clear `RuntimeException` at startup.
+- **`targets:` supports nested `queries:` lists** — the YAML parser was extended to handle two-level nesting (list of maps, each with its own sub-list), enabling per-target query file lists.
+- **No behavior change** — the generation pipeline is identical. Only the config surface changed.
+
+**Migration from v1:**
+
+```yaml
+# v1 (removed)
+version: "1"
+schema: schema.sql
+queries: queries.sql
+php:
+  namespace: "App\\Database"
+  out: generated
+  engine: mysql
+  generate_interfaces: true
+  language: spanish
+type_overrides:
+  - db_type: "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+
+# v2 (current)
+version: "2"
+schema: schema.sql
+engine: mysql
+language: spanish
+type_overrides:
+  - db_type: "TIMESTAMP"
+    php_type: "\\DateTimeImmutable"
+targets:
+  - namespace: "App\\Database"
+    out: generated
+    queries: queries.sql
+```
+
+### [1.6.0] — PostgreSQL groundwork
+
+- **`TypeMapperInterface`** — new interface (`src/TypeMapper/TypeMapperInterface.php`) that all type mappers must implement. Defines `toPhpType()` and `toPdoParam()` with their full signatures.
+- **`TypeMapperFactory`** — new factory (`src/TypeMapper/TypeMapperFactory.php`) that resolves the correct mapper implementation based on `engine` in `sqlc.yaml`. Currently supports `mysql`; `postgres`/`postgresql`/`pgsql` throw a clear error pointing to v1.7.0.
+- **`MySQLTypeMapper implements TypeMapperInterface`** — `MySQLTypeMapper` now explicitly implements the interface. `toPdoParam()` signature updated to accept optional `$tableName` and `$columnName` for interface compatibility.
+- **Dependency injection refactor** — all consumers (`ParamResolver`, `ColumnResolver`, `ExpressionTypeResolver`, `ModelGenerator`, `QueryGenerator`) now depend on `TypeMapperInterface` instead of the concrete `MySQLTypeMapper`. Zero behaviour change.
+- **CLI uses `TypeMapperFactory`** — `bin/sqlc-php` now calls `TypeMapperFactory::create($config->engine, ...)` instead of `new MySQLTypeMapper(...)` directly.
+- **16 new tests** in `tests/TypeMapper/TypeMapperFactoryTest.php` covering the interface contract, factory engine resolution, error messages, and unsupported engines.
 
 ### [1.5.3]
 - **`IN()` clause support** — parameters inside `IN (:param)` and `NOT IN (:param)` clauses are now automatically detected and handled. The resolver infers the element type from the column (e.g. `id IN (:ids)` → `int[] $ids`). The generated method accepts `array $ids`, validates it is non-empty, and expands placeholders at runtime using `str_replace` + `execute([...$ids])` — no manual SQL building required.
@@ -1354,7 +1446,7 @@ sqlc-php/
 
 ### [1.5.1]
 - **`doctrine/inflector` integration** — class name inference now uses [doctrine/inflector](https://github.com/doctrine/inflector) for accurate singularisation and PascalCase conversion. Fixes incorrect singularisation of irregular English plurals (`analyses` → `Analysis`, `matrices` → `Matrix`, `aliases` → `Alias`) that the previous built-in implementation got wrong.
-- **`language` config option** — new optional field under `php:` in `sqlc.yaml`. Accepts `english` (default), `spanish`, `french`, `portuguese`, `norwegian-bokmal`, `turkish`. Enables accurate class name inference for non-English table names without requiring `@group` annotations on every query.
+- **`language` config option** — new optional global field in `sqlc.yaml`. Accepts `english` (default), `spanish`, `french`, `portuguese`, `norwegian-bokmal`, `turkish`. Can be overridden per target. Enables accurate class name inference for non-English table names without requiring `@group` annotations on every query.
 - **`InflectorService`** — new class (`src/Inflector/InflectorService.php`) wrapping doctrine/inflector with a built-in English fallback for environments where the package is not installed. Transparent — no exceptions thrown when the dependency is absent.
 - **`composer.json`** — added `"doctrine/inflector": "^2.0"` to `require`.
 - **26 new tests** in `tests/InflectorServiceTest.php` covering all six supported languages, the fallback behaviour, Config parsing, QueryParser group inference, and EnumGenerator class naming.

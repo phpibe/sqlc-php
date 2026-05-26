@@ -37,7 +37,7 @@ use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ParamResolver;
 use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\Rewriter\SqlRewriter;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperFactory;
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -80,34 +80,18 @@ $catalog = new SchemaCatalog($tables);
 echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n\n";
 
 // ---------------------------------------------------------------------------
-// Build list of generation passes
-// Single-target mode: one pass from root php: config.
-// Multi-target mode: one pass per targets: entry.
 // ---------------------------------------------------------------------------
-if (!empty($config->targets)) {
-    $passes = $config->targets;
-} else {
-    $passes = [new Target(
-        namespace:          $config->namespace,
-        out:                $config->out,
-        queries:            $config->queries,
-        generateInterfaces: $config->generateInterfaces,
-        typeOverrides:      $config->typeOverrides,
-    )];
-}
-
-// ---------------------------------------------------------------------------
-// Process each pass
+// Process each target
 // ---------------------------------------------------------------------------
 $totalWritten = 0;
-$allToWrite   = []; // for verify/dry-run/diff across all passes: outDir/file => code
+$allToWrite   = []; // for verify/dry-run/diff across all targets
 
-foreach ($passes as $i => $target) {
-    $passLabel = count($passes) > 1 ? " [target " . ($i + 1) . "/" . count($passes) . "]" : '';
+foreach ($config->targets as $i => $target) {
+    $passLabel = count($config->targets) > 1 ? " [target " . ($i + 1) . "/" . count($config->targets) . "]" : '';
     echo "Target{$passLabel}: {$target->namespace} → {$target->out}/\n";
 
-    // Parse queries for this target
-    $queryParser = new QueryParser($config->language);
+    // Parse queries for this target (uses per-target language)
+    $queryParser = new QueryParser($target->language);
     $rawQueries  = [];
 
     foreach ($target->queries as $queryFile) {
@@ -121,8 +105,8 @@ foreach ($passes as $i => $target) {
     echo "  Queries: " . count($rawQueries) . " total\n";
 
     // Analyze
-    $enumGen       = new EnumGenerator($target->namespace, $config->language);
-    $typeMapper    = new MySQLTypeMapper($target->typeOverrides, $enumGen);
+    $enumGen       = new EnumGenerator($target->namespace, $target->language);
+    $typeMapper    = TypeMapperFactory::create($target->engine, $target->typeOverrides, $enumGen);
     $paramResolver = new ParamResolver($catalog, $typeMapper);
     $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
     $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);

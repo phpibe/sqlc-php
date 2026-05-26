@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SqlcPhp\Resolver;
 
 use SqlcPhp\Catalog\SchemaCatalog;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Resolves the PHP type and output alias of a SQL expression
@@ -31,7 +31,7 @@ class ExpressionTypeResolver
 {
     public function __construct(
         private readonly SchemaCatalog   $catalog,
-        private readonly MySQLTypeMapper $typeMapper,
+        private readonly TypeMapperInterface $typeMapper,
     ) {}
 
     /**

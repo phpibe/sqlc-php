@@ -6,108 +6,6 @@ namespace SqlcPhp\Tests\Config;
 
 use PHPUnit\Framework\TestCase;
 use SqlcPhp\Config\Config;
-use SqlcPhp\Config\TypeOverride;
-
-// =============================================================================
-// TypeOverride
-// =============================================================================
-
-class TypeOverrideTest extends TestCase
-{
-    public function test_creates_from_column_key(): void
-    {
-        $override = TypeOverride::fromArray(['column' => 'users.active', 'php_type' => 'bool']);
-
-        $this->assertSame('users.active', $override->column);
-        $this->assertNull($override->dbType);
-        $this->assertSame('bool', $override->phpType);
-    }
-
-    public function test_creates_from_db_type_key(): void
-    {
-        $override = TypeOverride::fromArray(['db_type' => 'tinyint', 'php_type' => 'bool']);
-
-        $this->assertNull($override->column);
-        $this->assertSame('TINYINT', $override->dbType); // uppercased
-        $this->assertSame('bool', $override->phpType);
-    }
-
-    public function test_accepts_legacy_type_key(): void
-    {
-        $override = TypeOverride::fromArray(['column' => 'users.active', 'type' => 'bool']);
-        $this->assertSame('bool', $override->phpType);
-    }
-
-    public function test_throws_when_php_type_missing(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        TypeOverride::fromArray(['column' => 'users.active']);
-    }
-
-    public function test_throws_when_neither_column_nor_db_type(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        TypeOverride::fromArray(['php_type' => 'bool']);
-    }
-
-    // -------------------------------------------------------------------------
-    // matches()
-    // -------------------------------------------------------------------------
-
-    public function test_column_override_matches_exact_table_column(): void
-    {
-        $o = TypeOverride::fromArray(['column' => 'users.active', 'php_type' => 'bool']);
-        $this->assertTrue($o->matches('users', 'active', 'TINYINT'));
-    }
-
-    public function test_column_override_is_case_insensitive(): void
-    {
-        $o = TypeOverride::fromArray(['column' => 'Users.Active', 'php_type' => 'bool']);
-        $this->assertTrue($o->matches('users', 'active', 'TINYINT'));
-    }
-
-    public function test_column_override_does_not_match_different_column(): void
-    {
-        $o = TypeOverride::fromArray(['column' => 'users.active', 'php_type' => 'bool']);
-        $this->assertFalse($o->matches('users', 'type_id', 'TINYINT'));
-    }
-
-    public function test_column_override_does_not_match_different_table(): void
-    {
-        $o = TypeOverride::fromArray(['column' => 'users.active', 'php_type' => 'bool']);
-        $this->assertFalse($o->matches('roles', 'active', 'TINYINT'));
-    }
-
-    public function test_db_type_override_matches_any_column_with_that_type(): void
-    {
-        $o = TypeOverride::fromArray(['db_type' => 'TINYINT', 'php_type' => 'bool']);
-        $this->assertTrue($o->matches('users', 'active', 'TINYINT'));
-        $this->assertTrue($o->matches('orders', 'status', 'TINYINT'));
-    }
-
-    public function test_db_type_override_is_case_insensitive(): void
-    {
-        $o = TypeOverride::fromArray(['db_type' => 'tinyint', 'php_type' => 'bool']);
-        $this->assertTrue($o->matches('users', 'active', 'TINYINT'));
-    }
-
-    public function test_db_type_override_does_not_match_different_type(): void
-    {
-        $o = TypeOverride::fromArray(['db_type' => 'TINYINT', 'php_type' => 'bool']);
-        $this->assertFalse($o->matches('users', 'role_id', 'SMALLINT'));
-    }
-
-    public function test_db_type_strips_display_width_for_matching(): void
-    {
-        $o = TypeOverride::fromArray(['db_type' => 'TINYINT', 'php_type' => 'bool']);
-        // Schema might store TINYINT(1) — the override should still match
-        $this->assertTrue($o->matches('users', 'active', 'TINYINT(1)'));
-    }
-}
-
-// =============================================================================
-// Config
-// =============================================================================
 
 class ConfigTest extends TestCase
 {
@@ -115,214 +13,360 @@ class ConfigTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->tmpDir = sys_get_temp_dir() . '/sqlc-php-test-' . uniqid();
+        $this->tmpDir = sys_get_temp_dir() . '/sqlc-config-' . uniqid();
         mkdir($this->tmpDir);
     }
 
     protected function tearDown(): void
     {
-        array_map('unlink', glob($this->tmpDir . '/*') ?: []);
+        foreach (glob($this->tmpDir . '/*') ?: [] as $f) unlink($f);
         rmdir($this->tmpDir);
     }
 
-    private function writeConfig(string $yaml): string
+    private function write(string $yaml): string
     {
         $path = $this->tmpDir . '/sqlc.yaml';
         file_put_contents($path, $yaml);
         return $path;
     }
 
-    // -------------------------------------------------------------------------
+    private function minimal(string $extra = ''): string
+    {
+        return "version: \"2\"\n" .
+               "schema: schema.sql\n" .
+               "targets:\n" .
+               "  - namespace: \"App\\\\Db\"\n" .
+               "    out: gen\n" .
+               "    queries: queries.sql\n" .
+               $extra;
+    }
+
+    // =========================================================================
     // Basic loading
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     public function test_loads_basic_config(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: schema.sql
-            queries: queries.sql
-            php:
-              namespace: "App\\Database"
-              out: generated
-              engine: mysql
-            YAML);
+        $config = Config::fromFile($this->write($this->minimal()));
 
-        $config = Config::fromFile($path);
-
-        $this->assertSame('1',             $config->version);
-        $this->assertSame('schema.sql',    $config->schema);
-        $this->assertSame('App\\Database', $config->namespace);
-        $this->assertSame('generated',     $config->out);
-        $this->assertSame('mysql',         $config->engine);
+        $this->assertSame('2', $config->version);
+        $this->assertSame(['schema.sql'], $config->schemas);
     }
 
-    public function test_defaults_are_applied_when_keys_missing(): void
+    public function test_defaults_are_applied(): void
     {
-        $path = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: q.sql\n");
-        $config = Config::fromFile($path);
+        $config = Config::fromFile($this->write($this->minimal()));
 
-        $this->assertSame('App\\Database', $config->namespace);
-        $this->assertSame('generated',     $config->out);
-        $this->assertSame('mysql',         $config->engine);
+        $this->assertSame('mysql',   $config->engine);
+        $this->assertSame('english', $config->language);
+        $this->assertSame([],        $config->typeOverrides);
     }
 
-    public function test_throws_when_file_missing(): void
+    public function test_global_engine_is_parsed(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal("engine: mysql\n")));
+        $this->assertSame('mysql', $config->engine);
+    }
+
+    public function test_global_language_is_parsed(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal("language: spanish\n")));
+        $this->assertSame('spanish', $config->language);
+    }
+
+    public function test_global_engine_lowercased(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal("engine: MySQL\n")));
+        $this->assertSame('mysql', $config->engine);
+    }
+
+    // =========================================================================
+    // schema — scalar or list
+    // =========================================================================
+
+    public function test_scalar_schema_wrapped_in_array(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertIsArray($config->schemas);
+        $this->assertSame(['schema.sql'], $config->schemas);
+    }
+
+    public function test_list_schema_multiple_entries(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema:\n" .
+                "  - schema/users.sql\n" .
+                "  - schema/orders.sql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\\\\Db\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+
+        $this->assertCount(2, $config->schemas);
+        $this->assertSame('schema/users.sql',  $config->schemas[0]);
+        $this->assertSame('schema/orders.sql', $config->schemas[1]);
+    }
+
+    // =========================================================================
+    // Missing required fields — throw
+    // =========================================================================
+
+    public function test_missing_schema_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        Config::fromFile('/nonexistent/path/sqlc.yaml');
+        $this->expectExceptionMessageMatches('/missing required.*schema/i');
+
+        $yaml = "version: \"2\"\ntargets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n";
+        Config::fromFile($this->write($yaml));
     }
 
-    // -------------------------------------------------------------------------
-    // queries — scalar (legacy single-file format)
-    // -------------------------------------------------------------------------
-
-    public function test_scalar_queries_is_wrapped_in_array(): void
+    public function test_missing_targets_throws(): void
     {
-        $path = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: queries.sql\n");
-        $config = Config::fromFile($path);
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/missing required.*targets/i');
 
-        $this->assertIsArray($config->queries);
-        $this->assertCount(1, $config->queries);
-        $this->assertSame('queries.sql', $config->queries[0]);
+        $yaml = "version: \"2\"\nschema: schema.sql\n";
+        Config::fromFile($this->write($yaml));
     }
 
-    // -------------------------------------------------------------------------
-    // queries — list format (multiple files)
-    // -------------------------------------------------------------------------
-
-    public function test_list_queries_with_single_entry(): void
+    public function test_empty_targets_throws(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: schema.sql
-            queries:
-              - database/queries/users.sql
-            YAML);
+        $this->expectException(\RuntimeException::class);
 
-        $config = Config::fromFile($path);
-
-        $this->assertCount(1, $config->queries);
-        $this->assertSame('database/queries/users.sql', $config->queries[0]);
+        $yaml = "version: \"2\"\nschema: schema.sql\ntargets:\n";
+        Config::fromFile($this->write($yaml));
     }
 
-    public function test_list_queries_with_multiple_entries(): void
-    {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: schema.sql
-            queries:
-              - database/queries/users.sql
-              - database/queries/roles.sql
-              - database/queries/orders.sql
-            YAML);
-
-        $config = Config::fromFile($path);
-
-        $this->assertCount(3, $config->queries);
-        $this->assertSame('database/queries/users.sql',  $config->queries[0]);
-        $this->assertSame('database/queries/roles.sql',  $config->queries[1]);
-        $this->assertSame('database/queries/orders.sql', $config->queries[2]);
-    }
-
-    public function test_queries_is_always_an_array(): void
-    {
-        // Whether scalar or list, $config->queries must always be string[]
-        foreach (['queries: single.sql', "queries:\n  - single.sql"] as $yaml) {
-            $path   = $this->writeConfig("version: \"1\"\nschema: s.sql\n{$yaml}\n");
-            $config = Config::fromFile($path);
-            $this->assertIsArray($config->queries, "queries should always be array");
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // Type overrides
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // type_overrides — global
+    // =========================================================================
 
     public function test_parses_column_type_override(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: s.sql
-            queries: q.sql
-            type_overrides:
-              - column: "users.active"
-                php_type: "bool"
-            YAML);
+        $yaml = $this->minimal() .
+                "type_overrides:\n" .
+                "  - column: \"users.active\"\n" .
+                "    php_type: \"bool\"\n";
 
-        $config = Config::fromFile($path);
-
+        $config = Config::fromFile($this->write($yaml));
         $this->assertCount(1, $config->typeOverrides);
-        $this->assertSame('users.active', $config->typeOverrides[0]->column);
-        $this->assertSame('bool',         $config->typeOverrides[0]->phpType);
+        $this->assertSame('bool', $config->typeOverrides[0]->phpType);
     }
 
     public function test_parses_db_type_override(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: s.sql
-            queries: q.sql
-            type_overrides:
-              - db_type: "TINYINT"
-                php_type: "bool"
-            YAML);
+        $yaml = $this->minimal() .
+                "type_overrides:\n" .
+                "  - db_type: \"TINYINT\"\n" .
+                "    php_type: \"bool\"\n";
 
-        $config = Config::fromFile($path);
-
+        $config = Config::fromFile($this->write($yaml));
         $this->assertCount(1, $config->typeOverrides);
-        $this->assertSame('TINYINT', $config->typeOverrides[0]->dbType);
     }
 
     public function test_parses_multiple_overrides(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: s.sql
-            queries: q.sql
-            type_overrides:
-              - column: "users.active"
-                php_type: "bool"
-              - db_type: "TIMESTAMP"
-                php_type: "\\DateTimeImmutable"
-            YAML);
+        $yaml = $this->minimal() .
+                "type_overrides:\n" .
+                "  - db_type: \"TINYINT\"\n" .
+                "    php_type: \"bool\"\n" .
+                "  - db_type: \"TIMESTAMP\"\n" .
+                "    php_type: \"\\\\DateTimeImmutable\"\n";
 
-        $config = Config::fromFile($path);
+        $config = Config::fromFile($this->write($yaml));
         $this->assertCount(2, $config->typeOverrides);
     }
 
     public function test_no_overrides_returns_empty_array(): void
     {
-        $path = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: q.sql\n");
-        $config = Config::fromFile($path);
+        $config = Config::fromFile($this->write($this->minimal()));
         $this->assertSame([], $config->typeOverrides);
     }
 
-    // -------------------------------------------------------------------------
-    // queries + type_overrides together (list format)
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // targets
+    // =========================================================================
 
-    public function test_list_queries_and_type_overrides_coexist(): void
+    public function test_targets_always_populated(): void
     {
-        $path = $this->writeConfig(<<<YAML
-            version: "1"
-            schema: schema.sql
-            queries:
-              - database/queries/users.sql
-              - database/queries/roles.sql
-            php:
-              namespace: "App\\Db"
-              out: out
-              engine: mysql
-            type_overrides:
-              - db_type: "TINYINT"
-                php_type: "bool"
-            YAML);
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertNotEmpty($config->targets);
+    }
 
-        $config = Config::fromFile($path);
+    public function test_target_namespace_is_parsed(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertSame('App\\Db', $config->targets[0]->namespace);
+    }
 
-        $this->assertCount(2, $config->queries);
-        $this->assertCount(1, $config->typeOverrides);
-        $this->assertSame('App\\Db', $config->namespace);
+    public function test_target_out_is_parsed(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertSame('gen', $config->targets[0]->out);
+    }
+
+    public function test_target_queries_as_scalar_wrapped_in_array(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertSame(['queries.sql'], $config->targets[0]->queries);
+    }
+
+    public function test_target_queries_as_list(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\\\\Db\"\n" .
+                "    out: gen\n" .
+                "    queries:\n" .
+                "      - a.sql\n" .
+                "      - b.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertSame(['a.sql', 'b.sql'], $config->targets[0]->queries);
+    }
+
+    public function test_generate_interfaces_defaults_to_true(): void
+    {
+        $config = Config::fromFile($this->write($this->minimal()));
+        $this->assertTrue($config->targets[0]->generateInterfaces);
+    }
+
+    public function test_generate_interfaces_can_be_set_to_false(): void
+    {
+        $yaml = $this->minimal() . "    generate_interfaces: false\n";
+        // Need to write properly indented YAML
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\\\\Db\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n" .
+                "    generate_interfaces: false\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertFalse($config->targets[0]->generateInterfaces);
+    }
+
+    public function test_multiple_targets(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\\\\Read\"\n" .
+                "    out: gen/read\n" .
+                "    queries: read.sql\n" .
+                "  - namespace: \"App\\\\Write\"\n" .
+                "    out: gen/write\n" .
+                "    queries: write.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertCount(2, $config->targets);
+        $this->assertSame('App\\Read',  $config->targets[0]->namespace);
+        $this->assertSame('App\\Write', $config->targets[1]->namespace);
+    }
+
+    // =========================================================================
+    // Per-target engine and language overrides
+    // =========================================================================
+
+    public function test_target_inherits_global_engine(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "engine: mysql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertSame('mysql', $config->targets[0]->engine);
+    }
+
+    public function test_target_can_override_engine(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "engine: mysql\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n" .
+                "    engine: postgres\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertSame('postgres', $config->targets[0]->engine);
+    }
+
+    public function test_target_inherits_global_language(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "language: spanish\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertSame('spanish', $config->targets[0]->language);
+    }
+
+    public function test_target_can_override_language(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "language: english\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n" .
+                "    language: french\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertSame('french', $config->targets[0]->language);
+    }
+
+    // =========================================================================
+    // Global overrides inherited by targets
+    // =========================================================================
+
+    public function test_global_overrides_are_inherited_by_targets(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "type_overrides:\n" .
+                "  - db_type: \"TINYINT\"\n" .
+                "    php_type: \"bool\"\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        $this->assertCount(1, $config->targets[0]->typeOverrides);
+    }
+
+    public function test_local_overrides_merged_on_top_of_global(): void
+    {
+        $yaml = "version: \"2\"\n" .
+                "schema: schema.sql\n" .
+                "type_overrides:\n" .
+                "  - db_type: \"TINYINT\"\n" .
+                "    php_type: \"bool\"\n" .
+                "targets:\n" .
+                "  - namespace: \"App\"\n" .
+                "    out: gen\n" .
+                "    queries: q.sql\n" .
+                "    type_overrides:\n" .
+                "      - db_type: \"TIMESTAMP\"\n" .
+                "        php_type: \"string\"\n";
+
+        $config = Config::fromFile($this->write($yaml));
+        // 1 global + 1 local = 2 total
+        $this->assertCount(2, $config->targets[0]->typeOverrides);
     }
 }

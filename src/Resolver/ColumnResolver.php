@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SqlcPhp\Resolver;
 
 use SqlcPhp\Catalog\SchemaCatalog;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Resolves the output columns of a SELECT statement against the schema catalog.
@@ -28,7 +28,7 @@ class ColumnResolver
 
     public function __construct(
         private readonly SchemaCatalog          $catalog,
-        private readonly MySQLTypeMapper        $typeMapper,
+        private readonly TypeMapperInterface        $typeMapper,
         private readonly ParamResolver          $paramResolver,
         private readonly ExpressionTypeResolver $exprResolver,
     ) {}

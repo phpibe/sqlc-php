@@ -1,0 +1,51 @@
+<?php
+
+declare(strict_types=1);
+
+namespace SqlcPhp\TypeMapper;
+
+/**
+ * Contract for SQL-type → PHP-type mapping.
+ *
+ * Each database engine provides its own implementation:
+ *   - MySQLTypeMapper      (engine: mysql)
+ *   - PostgreSQLTypeMapper (engine: postgres) — v1.7.0
+ *
+ * All consumers depend on this interface, not on a concrete mapper class.
+ * The correct implementation is resolved by TypeMapperFactory based on
+ * the `engine` field in sqlc.yaml.
+ */
+interface TypeMapperInterface
+{
+    /**
+     * Map a SQL column type to a PHP native type string.
+     *
+     * @param string $sqlType     SQL column type, e.g. "INT", "VARCHAR", "JSONB"
+     * @param bool   $nullable    Whether the column is nullable
+     * @param string $tableName   Table name — used for column-specific overrides
+     * @param string $columnName  Column name — used for column-specific overrides
+     *
+     * @return string PHP type string, e.g. "int", "?string", "array", "OrderStatus"
+     */
+    public function toPhpType(
+        string $sqlType,
+        bool   $nullable,
+        string $tableName  = '',
+        string $columnName = '',
+    ): string;
+
+    /**
+     * Map a SQL column type to the appropriate PDO::PARAM_* constant string.
+     *
+     * @param string       $sqlType    SQL column type
+     * @param string|null  $tableName  Optional — used for column-specific overrides
+     * @param string|null  $columnName Optional — used for column-specific overrides
+     *
+     * @return string e.g. "PDO::PARAM_INT", "PDO::PARAM_STR"
+     */
+    public function toPdoParam(
+        string  $sqlType,
+        ?string $tableName  = null,
+        ?string $columnName = null,
+    ): string;
+}

@@ -7,53 +7,53 @@ namespace SqlcPhp\Config;
 /**
  * Represents the parsed sqlc.yaml configuration.
  *
- * Both `schema` and `queries` accept a scalar string or a YAML list:
+ * Canonical format (v2):
  *
- *   schema: database/schema.sql              # single file (legacy)
- *   schema:                                   # multiple files
+ *   version: "2"
+ *
+ *   schema:                              # one or many schema files (required)
  *     - database/schema/users.sql
  *     - database/schema/orders.sql
  *
- *   queries: database/queries/users.sql      # single file (legacy)
- *   queries:                                  # multiple files
- *     - database/queries/users.sql
- *     - database/queries/roles.sql
+ *   engine:   mysql                      # global engine default (optional, default: mysql)
+ *   language: english                    # inflection language (optional, default: english)
+ *
+ *   type_overrides:                      # global overrides applied to all targets
+ *     - db_type: "TIMESTAMP"
+ *       php_type: "\\DateTimeImmutable"
+ *       nullable: true
+ *
+ *   targets:                             # required — one or more output targets
+ *     - namespace: "App\\Database"
+ *       out:       generated
+ *       queries:                         # one or many query files
+ *         - queries/users.sql
+ *       engine:   mysql                  # overrides global engine for this target
+ *       language: spanish                # overrides global language for this target
+ *       generate_interfaces: false       # default: true — set false to disable
+ *       type_overrides:                  # merged on top of global overrides
+ *         - column: "users.active"
+ *           php_type: "bool"
  */
 class Config
 {
     /**
      * @param string[]       $schemas       Always string[] — normalised from scalar or list
-     * @param string[]       $queries       Always string[] — normalised from scalar or list
-     * @param TypeOverride[] $typeOverrides
-     * @param Target[]       $targets       Multiple output targets; empty = single-target mode
+     * @param TypeOverride[] $typeOverrides Global type overrides
+     * @param Target[]       $targets       Output targets (always non-empty after validation)
      */
     public function __construct(
         public readonly string $version,
-        /** First schema file — kept for single-file backward compatibility. */
-        public readonly string $schema,
-        public readonly array  $queries,
-        public readonly string $namespace,
-        public readonly string $out,
-        public readonly string $engine,
-        public readonly array  $typeOverrides = [],
-        /** When true, a *Interface file is generated alongside each Query class. */
-        public readonly bool   $generateInterfaces = false,
         /** All schema files — always string[]. */
-        public readonly array  $schemas = [],
-        /**
-         * Multiple output targets. When non-empty, each target's namespace/out/queries
-         * override the root-level settings for that target's generation pass.
-         */
-        public readonly array  $targets = [],
-        /**
-         * Language for inflection (singularisation of table names).
-         * Accepts any value supported by doctrine/inflector Language constants.
-         * Defaults to 'english' when omitted.
-         *
-         * Supported values: english | spanish | french | portuguese |
-         *                   norwegian-bokmal | turkish
-         */
-        public readonly string $language = 'english',
+        public readonly array  $schemas,
+        /** Global type overrides — applied to all targets unless overridden locally. */
+        public readonly array  $typeOverrides = [],
+        /** Global engine default — can be overridden per target. */
+        public readonly string $engine        = 'mysql',
+        /** Global language for inflection — can be overridden per target. */
+        public readonly string $language      = 'english',
+        /** Output targets — always at least one. */
+        public readonly array  $targets       = [],
     ) {}
 
     public static function fromFile(string $path): self
@@ -64,49 +64,66 @@ class Config
 
         $raw  = file_get_contents($path) ?: '';
         $data = self::parseYaml($raw);
-        $php  = $data['php'] ?? [];
 
-        // schema: scalar or list
-        $rawSchema = $data['schema'] ?? 'schema.sql';
-        $schemas   = is_array($rawSchema)
+        // schema: scalar or list (required)
+        $rawSchema = $data['schema'] ?? null;
+        if ($rawSchema === null) {
+            throw new \RuntimeException(
+                "Config '{$path}': missing required 'schema' field."
+            );
+        }
+        $schemas = is_array($rawSchema)
             ? array_values(array_filter(array_map('strval', $rawSchema)))
             : [(string) $rawSchema];
 
-        // queries: scalar or list
-        $rawQueries = $data['queries'] ?? 'queries.sql';
-        $queries    = is_array($rawQueries)
-            ? array_values(array_filter(array_map('strval', $rawQueries)))
-            : [(string) $rawQueries];
+        // Global engine and language
+        $globalEngine   = strtolower((string) ($data['engine']   ?? 'mysql'));
+        $globalLanguage = strtolower((string) ($data['language'] ?? 'english'));
 
-        $overrides = [];
+        // Global type_overrides
+        $globalOverrides = [];
         foreach ($data['type_overrides'] ?? [] as $entry) {
             if (!is_array($entry)) continue;
             try {
-                $overrides[] = TypeOverride::fromArray($entry);
+                $globalOverrides[] = TypeOverride::fromArray($entry);
             } catch (\InvalidArgumentException $e) {
                 fwrite(STDERR, "Warning: skipping type_override — " . $e->getMessage() . "\n");
             }
         }
 
-        // targets: multiple output target blocks
+        // targets: (required)
+        $rawTargets = $data['targets'] ?? null;
+        if (empty($rawTargets)) {
+            throw new \RuntimeException(
+                "Config '{$path}': missing required 'targets' field. " .
+                "Define at least one target under 'targets:'."
+            );
+        }
+
         $targets = [];
-        foreach ($data['targets'] ?? [] as $entry) {
+        foreach ($rawTargets as $entry) {
             if (!is_array($entry)) continue;
-            $targets[] = Target::fromArray($entry, $overrides);
+            $targets[] = Target::fromArray(
+                $entry,
+                $globalOverrides,
+                $globalEngine,
+                $globalLanguage,
+            );
+        }
+
+        if (empty($targets)) {
+            throw new \RuntimeException(
+                "Config '{$path}': 'targets' is defined but contains no valid entries."
+            );
         }
 
         return new self(
-            version:            (string) ($data['version'] ?? '1'),
-            schema:             $schemas[0] ?? 'schema.sql',
-            queries:            $queries,
-            namespace:          (string) ($php['namespace'] ?? 'App\\Database'),
-            out:                (string) ($php['out']       ?? 'generated'),
-            engine:             (string) ($php['engine']    ?? 'mysql'),
-            typeOverrides:      $overrides,
-            generateInterfaces: filter_var($php['generate_interfaces'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            schemas:            $schemas,
-            targets:            $targets,
-            language:           strtolower((string) ($php['language'] ?? 'english')),
+            version:       (string) ($data['version'] ?? '2'),
+            schemas:       $schemas,
+            typeOverrides: $globalOverrides,
+            engine:        $globalEngine,
+            language:      $globalLanguage,
+            targets:       $targets,
         );
     }
 
@@ -198,6 +215,9 @@ class Config
                     $currentItem = [];
                     if (preg_match('/^(\w+)\s*:\s*(.+)$/', $afterDash, $m)) {
                         $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+                    } elseif (preg_match('/^(\w+)\s*:\s*$/', $afterDash, $m)) {
+                        // key with empty value — will be filled by subsequent lines
+                        $currentItem[$m[1]] = '';
                     }
                 } else {
                     $currentItem = self::parseScalar($afterDash);
@@ -207,9 +227,28 @@ class Config
                 continue;
             }
 
-            if ($isMapList && is_array($currentItem)
-                && preg_match('/^(\w+)\s*:\s*(.+)$/', $trimmed, $m)) {
-                $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+            if ($isMapList && is_array($currentItem)) {
+                // Check if this line is a key: value pair
+                if (preg_match('/^(\w+)\s*:\s*(.+)$/', $trimmed, $m)) {
+                    $currentItem[$m[1]] = self::parseScalar(trim($m[2]));
+                } elseif (preg_match('/^(\w+)\s*:\s*$/', $trimmed, $m)) {
+                    // Key with no inline value — check next lines for a nested list
+                    $key = $m[1];
+                    $i++;
+                    // Peek ahead
+                    $j = $i;
+                    while ($j < $total && trim($lines[$j]) === '') $j++;
+
+                    if ($j < $total && strlen($lines[$j]) - strlen(ltrim($lines[$j])) > $indent
+                        && str_starts_with(ltrim($lines[$j]), '-')) {
+                        // Nested list
+                        [$nestedItems, $i] = self::parseList($lines, $i, $total);
+                        $currentItem[$key] = $nestedItems;
+                    } else {
+                        $currentItem[$key] = '';
+                    }
+                    continue;
+                }
             }
 
             $i++;
@@ -254,7 +293,6 @@ class Config
         $raw = trim($raw);
 
         if (preg_match('/^"([^"]*)"/', $raw, $m)) {
-            // Unescape common YAML double-quoted escape sequences
             return str_replace(['\\\\', '\\"', '\\n', '\\t'], ['\\', '"', "\n", "\t"], $m[1]);
         }
         if (preg_match("/^'([^']*)'/", $raw, $m)) return $m[1];

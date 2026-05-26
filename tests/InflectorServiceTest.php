@@ -175,7 +175,7 @@ class InflectorServiceTest extends TestCase
         $tmpDir = sys_get_temp_dir() . '/sqlc-lang-' . uniqid();
         mkdir($tmpDir);
         file_put_contents($tmpDir . '/sqlc.yaml',
-            "version: \"1\"\nschema: s.sql\nqueries: q.sql\n"
+            "version: \"2\"\nschema: s.sql\ntargets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n"
         );
 
         $config = Config::fromFile($tmpDir . '/sqlc.yaml');
@@ -190,7 +190,7 @@ class InflectorServiceTest extends TestCase
         $tmpDir = sys_get_temp_dir() . '/sqlc-lang-' . uniqid();
         mkdir($tmpDir);
         file_put_contents($tmpDir . '/sqlc.yaml',
-            "version: \"1\"\nschema: s.sql\nqueries: q.sql\nphp:\n  language: spanish\n"
+            "version: \"2\"\nschema: s.sql\nlanguage: spanish\ntargets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n"
         );
 
         $config = Config::fromFile($tmpDir . '/sqlc.yaml');
@@ -205,7 +205,7 @@ class InflectorServiceTest extends TestCase
         $tmpDir = sys_get_temp_dir() . '/sqlc-lang-' . uniqid();
         mkdir($tmpDir);
         file_put_contents($tmpDir . '/sqlc.yaml',
-            "version: \"1\"\nschema: s.sql\nqueries: q.sql\nphp:\n  language: Spanish\n"
+            "version: \"2\"\nschema: s.sql\nlanguage: Spanish\ntargets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n"
         );
 
         $config = Config::fromFile($tmpDir . '/sqlc.yaml');

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace SqlcPhp\Resolver;
 
 use SqlcPhp\Catalog\SchemaCatalog;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Resolves named SQL parameters (`:paramName`) to typed QueryParam objects
@@ -22,7 +22,7 @@ class ParamResolver
 {
     public function __construct(
         private readonly SchemaCatalog   $catalog,
-        private readonly MySQLTypeMapper $typeMapper,
+        private readonly TypeMapperInterface $typeMapper,
     ) {}
 
     /**

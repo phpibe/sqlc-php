@@ -6,7 +6,7 @@ namespace SqlcPhp\Generator;
 
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Parser\QueryParser;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Generates PHP readonly DTO classes from table definitions.
@@ -18,7 +18,7 @@ class ModelGenerator
 {
     public function __construct(
         private readonly SchemaCatalog  $catalog,
-        private readonly MySQLTypeMapper $typeMapper,
+        private readonly TypeMapperInterface $typeMapper,
         private readonly QueryParser    $queryParser,
         private readonly string         $namespace,
     ) {}

@@ -8,7 +8,7 @@ use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Parser\ReturnType;
 use SqlcPhp\Resolver\QueryParam;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Generates one PHP Query class per @group, containing one method per query.
@@ -17,7 +17,7 @@ class QueryGenerator
 {
     public function __construct(
         private readonly SchemaCatalog      $catalog,
-        private readonly MySQLTypeMapper    $typeMapper,
+        private readonly TypeMapperInterface    $typeMapper,
         private readonly ResultDtoGenerator $resultDtoGen,
         private readonly string             $namespace,
         private readonly bool               $generateInterfaces = false,

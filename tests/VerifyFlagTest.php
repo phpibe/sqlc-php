@@ -51,13 +51,12 @@ class VerifyFlagTest extends TestCase
         );
 
         file_put_contents($this->tmpDir . '/sqlc.yaml',
-            "version: \"1\"\n" .
-            "schema:  schema.sql\n" .
-            "queries: queries.sql\n" .
-            "php:\n" .
-            "  namespace: \"App\\\\Database\"\n" .
-            "  out: out\n" .
-            "  engine: mysql\n"
+            "version: \"2\"\n" .
+            "schema: schema.sql\n" .
+            "targets:\n" .
+            "  - namespace: \"App\\\\Database\"\n" .
+            "    out: out\n" .
+            "    queries: queries.sql\n"
         );
     }
 
@@ -141,7 +140,7 @@ use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ParamResolver;
 use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\Rewriter\SqlRewriter;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperFactory;
 
 \$args       = array_slice(\$argv, 1);
 \$verifyMode = in_array('--verify', \$args, true);
@@ -154,30 +153,33 @@ echo "Config : {\$configPath}\n\n";
 
 \$config = Config::fromFile(\$configPath);
 
-\$tables  = (new SchemaParser())->parse(file_get_contents(\$config->schema) ?: '');
+\$allSql = '';
+foreach (\$config->schemas as \$f) \$allSql .= "\n" . (file_get_contents(\$f) ?: '');
+\$tables  = (new SchemaParser())->parse(\$allSql);
 \$catalog = new SchemaCatalog(\$tables);
 
-\$queryParser = new QueryParser();
+\$target      = \$config->targets[0];
+\$queryParser = new QueryParser(\$target->language);
 \$rawQueries  = [];
-foreach (\$config->queries as \$queryFile) {
+foreach (\$target->queries as \$queryFile) {
     \$parsed     = \$queryParser->parse(file_get_contents(\$queryFile) ?: '');
     \$rawQueries = array_merge(\$rawQueries, \$parsed);
 }
 
-\$enumGen       = new EnumGenerator(\$config->namespace);
-\$typeMapper    = new MySQLTypeMapper(\$config->typeOverrides, \$enumGen);
+\$enumGen       = new EnumGenerator(\$target->namespace, \$target->language);
+\$typeMapper    = TypeMapperFactory::create(\$target->engine, \$target->typeOverrides, \$enumGen);
 \$paramResolver = new ParamResolver(\$catalog, \$typeMapper);
 \$exprResolver  = new ExpressionTypeResolver(\$catalog, \$typeMapper);
 \$colResolver   = new ColumnResolver(\$catalog, \$typeMapper, \$paramResolver, \$exprResolver);
 \$analyzer      = new QueryAnalyzer(\$paramResolver, \$colResolver, \$queryParser, new SqlRewriter());
 \$queries       = \$analyzer->analyze(\$rawQueries);
 
-\$resultDtoGen  = new ResultDtoGenerator(\$config->namespace);
-\$interfaceGen  = \$config->generateInterfaces ? new InterfaceGenerator(\$config->namespace) : null;
-\$queryGen      = new QueryGenerator(\$catalog, \$typeMapper, \$resultDtoGen, \$config->namespace, \$config->generateInterfaces, \$interfaceGen);
-\$modelGen      = new ModelGenerator(\$catalog, \$typeMapper, \$queryParser, \$config->namespace);
+\$resultDtoGen  = new ResultDtoGenerator(\$target->namespace);
+\$interfaceGen  = \$target->generateInterfaces ? new InterfaceGenerator(\$target->namespace) : null;
+\$queryGen      = new QueryGenerator(\$catalog, \$typeMapper, \$resultDtoGen, \$target->namespace, \$target->generateInterfaces, \$interfaceGen);
+\$modelGen      = new ModelGenerator(\$catalog, \$typeMapper, \$queryParser, \$target->namespace);
 
-\$outDir  = rtrim(\$config->out, '/');
+\$outDir  = rtrim(\$target->out, '/');
 \$toWrite = [];
 
 foreach (\$catalog->all() as \$table) {

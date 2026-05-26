@@ -41,7 +41,7 @@ class MultipleSchemaFilesTest extends TestCase
 
     public function test_scalar_schema_is_wrapped_in_array(): void
     {
-        $path   = $this->writeConfig("version: \"1\"\nschema: schema.sql\nqueries: q.sql\n");
+        $path   = $this->writeConfig("version: \"2\"\nschema: schema.sql\ntargets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n");
         $config = Config::fromFile($path);
 
         $this->assertIsArray($config->schemas);
@@ -51,10 +51,10 @@ class MultipleSchemaFilesTest extends TestCase
 
     public function test_scalar_schema_sets_schema_property_for_compatibility(): void
     {
-        $path   = $this->writeConfig("version: \"1\"\nschema: schema.sql\nqueries: q.sql\n");
+        $path   = $this->writeConfig("version: \"2\"\nschema: schema.sql\ntargets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n");
         $config = Config::fromFile($path);
 
-        $this->assertSame('schema.sql', $config->schema);
+        $this->assertSame('schema.sql', $config->schemas[0]);
     }
 
     // -------------------------------------------------------------------------
@@ -64,10 +64,10 @@ class MultipleSchemaFilesTest extends TestCase
     public function test_list_schema_with_single_entry(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema:\n" .
             "  - database/schema/users.sql\n" .
-            "queries: q.sql\n"
+            "targets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n"
         );
         $config = Config::fromFile($path);
 
@@ -78,12 +78,12 @@ class MultipleSchemaFilesTest extends TestCase
     public function test_list_schema_with_multiple_entries(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema:\n" .
             "  - database/schema/users.sql\n" .
             "  - database/schema/orders.sql\n" .
             "  - database/schema/roles.sql\n" .
-            "queries: q.sql\n"
+            "targets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n"
         );
         $config = Config::fromFile($path);
 
@@ -96,8 +96,8 @@ class MultipleSchemaFilesTest extends TestCase
     public function test_schema_is_always_array(): void
     {
         foreach ([
-            "version: \"1\"\nschema: single.sql\nqueries: q.sql\n",
-            "version: \"1\"\nschema:\n  - single.sql\nqueries: q.sql\n",
+            "version: \"2\"\nschema: single.sql\ntargets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n",
+            "version: \"2\"\nschema:\n  - single.sql\ntargets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n",
         ] as $yaml) {
             $path   = $this->writeConfig($yaml);
             $config = Config::fromFile($path);
@@ -108,32 +108,35 @@ class MultipleSchemaFilesTest extends TestCase
     public function test_schema_first_entry_populates_schema_property(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema:\n" .
             "  - first.sql\n" .
             "  - second.sql\n" .
-            "queries: q.sql\n"
+            "targets:\n  - namespace: \"App\\\\Db\"\n    out: gen\n    queries: q.sql\n"
         );
         $config = Config::fromFile($path);
 
-        $this->assertSame('first.sql', $config->schema);
+        $this->assertSame('first.sql', $config->schemas[0]);
     }
 
     public function test_multiple_schemas_and_queries_coexist(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema:\n" .
             "  - schema/users.sql\n" .
             "  - schema/orders.sql\n" .
-            "queries:\n" .
-            "  - queries/users.sql\n" .
-            "  - queries/orders.sql\n"
+            "targets:\n" .
+            "  - namespace: \"App\\\\Db\"\n" .
+            "    out: gen\n" .
+            "    queries:\n" .
+            "      - queries/users.sql\n" .
+            "      - queries/orders.sql\n"
         );
         $config = Config::fromFile($path);
 
         $this->assertCount(2, $config->schemas);
-        $this->assertCount(2, $config->queries);
+        $this->assertCount(2, $config->targets[0]->queries);
     }
 }
 

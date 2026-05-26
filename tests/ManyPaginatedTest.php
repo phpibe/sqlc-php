@@ -27,7 +27,7 @@ use SqlcPhp\TypeMapper\MySQLTypeMapper;
 // ManyPaginatedTest
 // =============================================================================
 
-class NewFeaturesV14Test extends TestCase
+class ManyPaginatedTest extends TestCase
 {
     private QueryParser   $parser;
     private QueryAnalyzer $analyzer;
@@ -296,9 +296,15 @@ class MultipleTargetsTest extends TestCase
         $this->assertSame(['a.sql', 'b.sql'], $t->queries);
     }
 
-    public function test_target_generate_interfaces_default_false(): void
+    public function test_target_generate_interfaces_defaults_to_true(): void
     {
         $t = Target::fromArray(['namespace' => 'App\\Db', 'out' => 'gen', 'queries' => 'q.sql']);
+        $this->assertTrue($t->generateInterfaces);
+    }
+
+    public function test_target_generate_interfaces_can_be_set_false(): void
+    {
+        $t = Target::fromArray(['namespace' => 'App\\Db', 'out' => 'gen', 'queries' => 'q.sql', 'generate_interfaces' => false]);
         $this->assertFalse($t->generateInterfaces);
     }
 
@@ -316,7 +322,7 @@ class MultipleTargetsTest extends TestCase
     public function test_config_parses_targets_block(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema: schema.sql\n" .
             "targets:\n" .
             "  - namespace: \"App\\\\Read\"\n" .
@@ -333,17 +339,20 @@ class MultipleTargetsTest extends TestCase
         $this->assertSame('App\\Write', $config->targets[1]->namespace);
     }
 
-    public function test_config_empty_targets_when_not_specified(): void
+    public function test_config_requires_targets_field(): void
     {
-        $path   = $this->writeConfig("version: \"1\"\nschema: s.sql\nqueries: q.sql\n");
-        $config = Config::fromFile($path);
-        $this->assertSame([], $config->targets);
+        // targets: is now required — omitting it throws
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/missing required.*targets/i');
+
+        $path = $this->writeConfig("version: \"2\"\nschema: schema.sql\n");
+        Config::fromFile($path);
     }
 
     public function test_config_targets_each_have_correct_queries(): void
     {
         $path = $this->writeConfig(
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema: schema.sql\n" .
             "targets:\n" .
             "  - namespace: \"App\\\\Read\"\n" .
@@ -404,13 +413,12 @@ class DryRunDiffTest extends TestCase
             "-- @name ListUsers\n-- @returns :many\nSELECT users.* FROM users;\n"
         );
         file_put_contents($this->tmpDir . '/sqlc.yaml',
-            "version: \"1\"\n" .
+            "version: \"2\"\n" .
             "schema: schema.sql\n" .
-            "queries: queries.sql\n" .
-            "php:\n" .
-            "  namespace: \"App\\\\Database\"\n" .
-            "  out: out\n" .
-            "  engine: mysql\n"
+            "targets:\n" .
+            "  - namespace: \"App\\\\Database\"\n" .
+            "    out: out\n" .
+            "    queries: queries.sql\n"
         );
     }
 
@@ -452,7 +460,7 @@ use SqlcPhp\Generator\{EnumGenerator, InterfaceGenerator, ModelGenerator, QueryG
 use SqlcPhp\Parser\{SchemaParser, QueryParser};
 use SqlcPhp\Resolver\{ColumnResolver, ParamResolver, ExpressionTypeResolver};
 use SqlcPhp\Rewriter\SqlRewriter;
-use SqlcPhp\TypeMapper\MySQLTypeMapper;
+use SqlcPhp\TypeMapper\TypeMapperFactory;
 
 \$args       = array_slice(\$argv, 1);
 \$verifyMode = in_array('--verify',  \$args, true);
@@ -483,7 +491,7 @@ foreach (\$passes as \$target) {
     \$rq = [];
     foreach (\$target->queries as \$f) \$rq = array_merge(\$rq, \$qp->parse(file_get_contents(\$f)));
     \$eg  = new EnumGenerator(\$target->namespace);
-    \$tm  = new MySQLTypeMapper(\$target->typeOverrides, \$eg);
+    \$tm  = TypeMapperFactory::create(\$config->engine, \$target->typeOverrides, \$eg);
     \$pr  = new ParamResolver(\$catalog, \$tm);
     \$er  = new ExpressionTypeResolver(\$catalog, \$tm);
     \$cr  = new ColumnResolver(\$catalog, \$tm, \$pr, \$er);

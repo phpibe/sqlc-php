@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v1.5.3</span>
+    <span class="badge-version">v2.0.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -568,7 +568,7 @@
       <div class="sidebar-group-label">Configuration</div>
       <a class="sidebar-link" href="#config"><i class="bi bi-gear"></i> sqlc.yaml</a>
       <a class="sidebar-link" href="#multiple-schemas"><i class="bi bi-files"></i> Multiple schema files</a>
-      <a class="sidebar-link" href="#multiple-queries"><i class="bi bi-file-earmark-code"></i> Multiple query files</a>
+      <a class="sidebar-link" href="#multiple-queries"><i class="bi bi-file-earmark-code"></i> Per-target queries</a>
       <a class="sidebar-link" href="#multiple-targets"><i class="bi bi-diagram-3"></i> Multiple targets</a>
       <a class="sidebar-link" href="#language"><i class="bi bi-translate"></i> Inflection language</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
@@ -636,7 +636,6 @@
       <section class="doc-section" id="intro">
         <div class="hero">
           <img width="100%" src="./logo.png" />
-
           <p class="hero-tagline">
             A PHP code generator inspired by <a href="https://sqlc.dev" target="_blank">sqlc</a> for Go.
             Reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes
@@ -695,35 +694,54 @@ php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale</c
       <!-- CONFIG -->
       <section class="doc-section" id="config">
         <h2><i class="bi bi-gear me-2" style="color:var(--accent)"></i>Configuration — <code>sqlc.yaml</code></h2>
-        <pre><code class="language-yaml">version: "1"
-schema:  schema.sql    # single file (scalar) or list of files
-queries: queries.sql   # single file (scalar) or list of files
+        <pre><code class="language-yaml">version: "2"
 
-php:
-  namespace:           "App\\Database"  # PHP namespace for all generated classes
-  out:                 generated        # output directory
-  engine:              mysql            # database engine (mysql supported)
-  generate_interfaces: true             # generate *Interface alongside each Query class
-  language:            english          # optional — english (default) | spanish | french
-                                        # portuguese | norwegian-bokmal | turkish
+# Schema files — one or many (required)
+schema:
+  - database/schema/users.sql
+  - database/schema/orders.sql
 
-# Optional type overrides
+# Global defaults — inherited by all targets unless overridden locally
+engine:   mysql    # database engine (mysql supported; postgres planned for v1.7.0)
+language: english  # english | spanish | french | portuguese | norwegian-bokmal | turkish
+
+# Global type overrides — applied to all targets
 type_overrides:
-  - column:   "users.active"        # target a specific table.column
+  - db_type: "TINYINT"
     php_type: "bool"
-
-  - db_type:  "TINYINT"             # target every column of this SQL type
-    php_type: "bool"
-
-  - db_type:  "TIMESTAMP"
+  - db_type: "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
-    nullable: true                    # force nullable regardless of schema</code></pre>
+    nullable: true
+
+# Output targets — one or more (required)
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:
+      - database/queries/users.sql
+      - database/queries/orders.sql
+    # generate_interfaces: true   ← default, omit unless you want false
+    # engine:   mysql             ← override global engine for this target
+    # language: spanish           ← override global language for this target</code></pre>
+
+        <h3>Minimal single-target config</h3>
+        <pre><code class="language-yaml">version: "2"
+schema: schema.sql
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:   queries.sql</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          <code>generate_interfaces</code> defaults to <code>true</code> — interfaces are generated automatically. Set <code>generate_interfaces: false</code> on a target only when not needed.
+        </div>
       </section>
 
       <!-- MULTIPLE SCHEMAS -->
       <section class="doc-section" id="multiple-schemas">
         <h3>Multiple schema files</h3>
-        <p style="color:var(--text-muted)"><code>schema</code> accepts both a scalar string (single file) and a YAML list of paths. All files are parsed and merged into a single catalog before analysis:</p>
+        <p style="color:var(--text-muted)"><code>schema</code> accepts both a scalar string (single file) and a YAML list. All files are parsed and merged into a single catalog:</p>
         <pre><code class="language-yaml">schema:
   - database/schema/users.sql
   - database/schema/orders.sql
@@ -732,31 +750,38 @@ type_overrides:
 
       <!-- MULTIPLE QUERIES -->
       <section class="doc-section" id="multiple-queries">
-        <h3>Multiple query files</h3>
-        <p style="color:var(--text-muted)"><code>queries</code> accepts both a scalar string and a YAML list of paths:</p>
-        <pre><code class="language-yaml">queries:
-  - database/queries/users.sql
-  - database/queries/roles.sql
-  - database/queries/orders.sql</code></pre>
+        <h3>Per-target queries</h3>
+        <p style="color:var(--text-muted)">Each target has its own <code>queries</code> list. <code>queries</code> accepts a scalar or a list:</p>
+        <pre><code class="language-yaml">targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:
+      - database/queries/users.sql
+      - database/queries/roles.sql
+      - database/queries/orders.sql</code></pre>
         <p style="color:var(--text-muted)">The CLI prints a per-file count alongside the total:</p>
         <pre><code class="language-text">Schema : database/schema/users.sql
 Schema : database/schema/orders.sql
 Schema : 3 table(s) — users, orders, roles
-Queries: 8 query(ies) from database/queries/users.sql
-Queries: 3 query(ies) from database/queries/orders.sql
-Queries: 11 total query(ies) parsed</code></pre>
+
+Target : App\Database → generated/
+  Queries: 8 query(ies) from database/queries/users.sql
+  Queries: 3 query(ies) from database/queries/orders.sql
+  Queries: 11 total</code></pre>
       </section>
 
       <!-- MULTIPLE OUTPUT TARGETS -->
       <section class="doc-section" id="multiple-targets">
         <h3>Multiple output targets</h3>
-        <p style="color:var(--text-muted)"><code>targets</code> lets you generate multiple namespaces and output directories from the same schema in a single run. Each target has its own <code>namespace</code>, <code>out</code>, <code>queries</code>, and optional overrides merged on top of the root-level ones:</p>
-        <pre><code class="language-yaml">version: "1"
+        <p style="color:var(--text-muted)"><code>targets</code> accepts any number of entries. Each produces a separate generation pass using the same schema. Each target inherits the global <code>engine</code>, <code>language</code>, and <code>type_overrides</code>, and can override any of them locally:</p>
+        <pre><code class="language-yaml">version: "2"
 schema:
   - database/schema/users.sql
   - database/schema/orders.sql
 
-# Global overrides shared across all targets
+engine:   mysql
+language: english
+
 type_overrides:
   - db_type: "TIMESTAMP"
     php_type: "\\DateTimeImmutable"
@@ -768,31 +793,35 @@ targets:
     queries:
       - database/queries/read/users.sql
       - database/queries/read/orders.sql
-    generate_interfaces: true
 
   - namespace: "App\\Database\\Write"
     out:       generated/write
     queries:
       - database/queries/write/users.sql
+    generate_interfaces: false
     type_overrides:                    # merged on top of global overrides
       - column: "users.active"
         php_type: "bool"</code></pre>
-        <div class="callout callout-info">
-          <i class="bi bi-info-circle callout-icon"></i>
-          When <code>targets</code> is absent, the root <code>php:</code> block is used as the single target. The two formats are fully backward compatible.
-        </div>
       </section>
 
       <!-- LANGUAGE -->
       <section class="doc-section" id="language">
         <h3>Inflection language</h3>
-        <p style="color:var(--text-muted)">sqlc-php uses <a href="https://github.com/doctrine/inflector" target="_blank">doctrine/inflector</a> to singularise table names when inferring class names. The language is optional and defaults to <code>english</code>:</p>
-        <pre><code class="language-yaml">php:
-  language: spanish   # english | spanish | french | portuguese | norwegian-bokmal | turkish</code></pre>
+        <p style="color:var(--text-muted)">sqlc-php uses <a href="https://github.com/doctrine/inflector" target="_blank">doctrine/inflector</a> to singularise table names when inferring class names. Set globally or per-target:</p>
+        <pre><code class="language-yaml">language: spanish   # global default
 
-        <p style="color:var(--text-muted)">With <code>language: spanish</code>, tables like <code>usuarios</code>, <code>pedidos</code>, <code>categorias</code> will produce <code>Usuario</code>, <code>Pedido</code>, <code>Categoria</code> without needing a <code>@group</code> annotation on every query.</p>
+targets:
+  - namespace: "App\\Spanish"
+    out:       gen/es
+    queries:   queries/es.sql
+    # inherits language: spanish
 
-        <p style="color:var(--text-muted)">With <code>language: english</code> (default), doctrine/inflector correctly handles irregular English plurals that the previous built-in rules missed:</p>
+  - namespace: "App\\French"
+    out:       gen/fr
+    queries:   queries/fr.sql
+    language:  french   # override for this target</code></pre>
+
+        <p style="color:var(--text-muted)">With <code>language: spanish</code>, tables like <code>usuarios</code>, <code>pedidos</code>, <code>categorias</code> produce <code>Usuario</code>, <code>Pedido</code>, <code>Categoria</code> without needing a <code>@group</code> annotation on every query.</p>
 
         <div class="doc-table-wrap">
           <table class="doc-table">
@@ -1706,6 +1735,7 @@ declare(strict_types=1);
               <tr><td>Inflector</td><td><code>InflectorServiceTest.php</code></td><td>InflectorService, all 6 languages, Config language field, group inference</td></tr>
               <tr><td>Bug Fixes</td><td><code>BugFixTest.php</code></td><td>Regression tests for v1.5.2 critical and medium bug fixes</td></tr>
               <tr><td>IN() Params</td><td><code>InListParamTest.php</code></td><td>IN/NOT IN detection, type inference, signature, placeholder expansion, all return types</td></tr>
+              <tr><td>TypeMapper Factory</td><td><code>TypeMapperFactoryTest.php</code></td><td>Interface contract, factory engine resolution, unsupported engine errors</td></tr>
               <tr><td>Param Resolver</td><td><code>ParamResolverTest.php</code></td><td>WHERE/SET resolution, camelCase→snake, fallback</td></tr>
               <tr><td>Expression Resolver</td><td><code>ExpressionTypeResolverTest.php</code></td><td>COUNT/SUM/AVG/MIN/MAX/COALESCE/CAST/CASE alias and type</td></tr>
               <tr><td>Analyzer</td><td><code>QueryAnalyzerTest.php</code></td><td>Full pipeline: model detection, JOIN DTOs, aggregates</td></tr>
@@ -1760,8 +1790,10 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; ├── <span class="dir">Rewriter/</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">SqlRewriter.php</span> <span class="comment">            # Rewrites optional param conditions</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; └── <span class="dir">TypeMapper/</span></div>
-          <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # Maps SQL types to PHP types and PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (434 tests)</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
+          <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (467 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1772,6 +1804,29 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.0.0 — Unified configuration</div>
+          <ul>
+            <li><strong><code>targets:</code> is now required</strong> — the <code>php:</code> block has been removed. All output configuration lives under <code>targets:</code>.</li>
+            <li><strong><code>generate_interfaces</code> defaults to <code>true</code></strong> — interfaces are generated by default. Set <code>false</code> only to disable.</li>
+            <li><strong><code>engine</code> and <code>language</code> are global fields</strong> — no longer nested inside <code>php:</code>. Both can be overridden per target.</li>
+            <li><strong><code>schema:</code> and <code>targets:</code> are required</strong> — omitting either throws a clear error at startup.</li>
+            <li><strong>YAML parser extended</strong> — supports nested <code>queries:</code> lists inside target map entries (two-level nesting).</li>
+            <li><strong>Migration:</strong> rename <code>php: { namespace, out, engine, language, generate_interfaces }</code> fields into a <code>targets:</code> entry; move top-level <code>queries:</code> into the target.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v1.6.0 — PostgreSQL groundwork</div>
+          <ul>
+            <li><strong><code>TypeMapperInterface</code></strong> — new interface that all engine type mappers must implement. Defines <code>toPhpType()</code> and <code>toPdoParam()</code> with their full signatures.</li>
+            <li><strong><code>TypeMapperFactory</code></strong> — resolves the correct mapper implementation from the <code>engine</code> field in <code>sqlc.yaml</code>. Trying <code>engine: postgres</code> throws a clear error pointing to v1.7.0.</li>
+            <li><strong>Dependency injection refactor</strong> — all consumers (<code>ParamResolver</code>, <code>ColumnResolver</code>, <code>ExpressionTypeResolver</code>, <code>ModelGenerator</code>, <code>QueryGenerator</code>) now depend on <code>TypeMapperInterface</code> instead of the concrete <code>MySQLTypeMapper</code>. Zero behaviour change.</li>
+            <li><strong>CLI uses <code>TypeMapperFactory</code></strong> — <code>bin/sqlc-php</code> now calls <code>TypeMapperFactory::create($config->engine, ...)</code> instead of instantiating MySQL directly.</li>
+            <li>16 new tests in <code>tests/TypeMapper/TypeMapperFactoryTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v1.5.3</div>
@@ -1806,7 +1861,7 @@ declare(strict_types=1);
           <div class="changelog-version">v1.5.1</div>
           <ul>
             <li><strong>doctrine/inflector integration</strong> — class name inference now uses <a href="https://github.com/doctrine/inflector" target="_blank">doctrine/inflector</a> for accurate singularisation. Fixes irregular English plurals: <code>analyses</code> → <code>Analysis</code>, <code>matrices</code> → <code>Matrix</code>, <code>aliases</code> → <code>Alias</code>.</li>
-            <li><strong><code>language</code> config option</strong> — new optional field under <code>php:</code>. Accepts <code>english</code> (default), <code>spanish</code>, <code>french</code>, <code>portuguese</code>, <code>norwegian-bokmal</code>, <code>turkish</code>. Enables accurate class name inference for non-English table names without requiring <code>@group</code> on every query.</li>
+            <li><strong><code>language</code> config option</strong> — new optional global field in <code>sqlc.yaml</code>. Accepts <code>english</code> (default), <code>spanish</code>, <code>french</code>, <code>portuguese</code>, <code>norwegian-bokmal</code>, <code>turkish</code>. Can be overridden per target.</li>
             <li><strong><code>InflectorService</code></strong> — new wrapper class with a built-in English fallback for environments where doctrine/inflector is not installed. Transparent — no exceptions thrown.</li>
             <li><strong><code>composer.json</code></strong> — added <code>"doctrine/inflector": "^2.0"</code> to <code>require</code>.</li>
             <li>26 new tests in <code>tests/InflectorServiceTest.php</code> covering all six supported languages, fallback behaviour, Config parsing, QueryParser group inference, and EnumGenerator class naming.</li>

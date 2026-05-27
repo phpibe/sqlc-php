@@ -145,13 +145,33 @@ class ExpressionTypeResolver
         }
 
         if ($this->matchesFunction($upper, 'IF', $inner)) {
-            // IF(cond, true_val, false_val) → type of true_val, nullable
-            $args = $this->splitArgs($inner);
-            $trueArg = $args[1] ?? '';
-            $innerType = $this->resolveInnerType(trim($trueArg), $tableAliases);
-            $base = ltrim($innerType, '?');
+            // IF(cond, true_val, false_val)
+            // Type: resolved from true_val; if true_val is a literal NULL, use false_val.
+            // Nullable: true when either branch can be NULL.
+            $args    = $this->splitArgs($inner);
+            $trueArg = trim($args[1] ?? '');
+            $falseArg = trim($args[2] ?? '');
+
+            // If true_val is NULL literal, derive type from false_val
+            $trueUpper = strtoupper($trueArg);
+            if ($trueUpper === 'NULL') {
+                $base = $this->resolveInnerType($falseArg, $tableAliases);
+            } else {
+                $base = $this->resolveInnerType($trueArg, $tableAliases);
+                // If still couldn't resolve from true_val, try false_val
+                if ($base === 'string' && strtoupper($falseArg) !== 'NULL' && $falseArg !== '') {
+                    $falseBase = $this->resolveInnerType($falseArg, $tableAliases);
+                    if ($falseBase !== 'string') $base = $falseBase;
+                }
+            }
+
+            $base = ltrim($base, '?\\');
+
+            // Nullable when either branch is NULL
+            $nullable = $trueUpper === 'NULL' || strtoupper($falseArg) === 'NULL';
+
             return [
-                'phpType' => "?{$base}",
+                'phpType' => $nullable ? "?{$base}" : $base,
                 'alias'   => 'if',
             ];
         }
@@ -285,7 +305,31 @@ class ExpressionTypeResolver
 
         if ($inner === '*' || $inner === '') return 'int';
 
-        // table.col or alias.col
+        // ── Numeric literal ──────────────────────────────────────────────────
+        // e.g. 0, 1, 42, -1, 3.14  — common in IF(cond, 0, expr)
+        if (preg_match('/^-?\d+$/', $inner))        return 'int';
+        if (preg_match('/^-?\d+\.\d+$/', $inner))   return 'float';
+
+        // ── Arithmetic expression ────────────────────────────────────────────
+        // e.g. mcc.end_num - MAX(m.voucher_number)
+        // Detect +, -, *, / operators at depth 0 (outside any parens)
+        // Then resolve the type from the left operand
+        $arithLeft = $this->extractArithmeticLeft($inner);
+        if ($arithLeft !== null && $arithLeft !== $inner) {
+            return $this->resolveInnerType($arithLeft, $tableAliases);
+        }
+
+        // ── Nested function call ─────────────────────────────────────────────
+        // e.g. max(m.voucher_number) — recurse via resolve()
+        if (preg_match('/^(\w+)\((.+)\)$/', $inner, $m)) {
+            $nestedResult = $this->resolve(strtoupper($m[1]) . '(' . $m[2] . ')', $tableAliases);
+            if ($nestedResult['phpType'] !== 'mixed') {
+                $base = ltrim($nestedResult['phpType'], '?');
+                return $base;
+            }
+        }
+
+        // ── table.col or alias.col ───────────────────────────────────────────
         if (preg_match('/^[`"]?(\w+)[`"]?\.[`"]?(\w+)[`"]?$/', $inner, $m)) {
             $realTable = $tableAliases[$m[1]] ?? $m[1];
             $col       = $this->findColumn($realTable, $m[2]);
@@ -294,7 +338,7 @@ class ExpressionTypeResolver
             );
         }
 
-        // bare col name
+        // ── bare column name ─────────────────────────────────────────────────
         if (preg_match('/^[`"]?(\w+)[`"]?$/', $inner, $m)) {
             foreach (array_unique(array_values($tableAliases)) as $tbl) {
                 $col = $this->findColumn($tbl, $m[1]);
@@ -305,6 +349,29 @@ class ExpressionTypeResolver
         }
 
         return 'string';
+    }
+
+    /**
+     * Extract the left-hand side of an arithmetic expression at depth 0.
+     * Returns null if no arithmetic operator is found at depth 0.
+     *
+     * "mcc.end_num - MAX(m.voucher_number)"  →  "mcc.end_num"
+     * "a + b * c"                             →  "a"
+     * "MAX(a+b)"                              →  null (operator is inside parens)
+     */
+    private function extractArithmeticLeft(string $expr): ?string
+    {
+        $depth = 0;
+        for ($i = 0; $i < strlen($expr); $i++) {
+            $ch = $expr[$i];
+            if ($ch === '(') { $depth++; continue; }
+            if ($ch === ')') { $depth--; continue; }
+            if ($depth === 0 && in_array($ch, ['+', '-', '*', '/'], true)) {
+                $left = trim(substr($expr, 0, $i));
+                return $left !== '' ? $left : null;
+            }
+        }
+        return null;
     }
 
     /**

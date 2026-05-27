@@ -258,8 +258,6 @@ class ExpressionTypeResolverTest extends TestCase
 
     public function test_max_with_multi_table_join_aliases(): void
     {
-        // Simulates a real-world LEFT JOIN with aggregate:
-        // MAX(m.voucher_number) where m → memory table (alias for another table)
         $schema = <<<SQL
             CREATE TABLE memory (
                 id             INT AUTO_INCREMENT PRIMARY KEY,
@@ -274,6 +272,92 @@ class ExpressionTypeResolverTest extends TestCase
         $result  = $resolver->resolve('MAX(m.voucher_number)', $aliases);
 
         $this->assertSame('?int', $result['phpType']);
+    }
+
+    public function test_if_with_integer_literal_true_val_resolves_to_int(): void
+    {
+        // IF(expr, 0, other) — true_val is integer literal 0
+        $aliases = ['mcc' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('IF(MAX(id) >= price, 0, price - MAX(id))', $aliases);
+        $this->assertSame('int', $result['phpType']);
+    }
+
+    public function test_if_with_null_true_val_uses_false_val_type(): void
+    {
+        // IF(cond, NULL, col) → ?type derived from false_val
+        $aliases = ['u' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('IF(id > 0, NULL, id)', $aliases);
+        $this->assertStringContainsString('int', $result['phpType']);
+        $this->assertStringStartsWith('?', $result['phpType']); // nullable because true_val is NULL
+    }
+
+    public function test_if_both_non_null_branches_not_nullable(): void
+    {
+        // IF(cond, 0, 1) — both literals, not nullable
+        $result = $this->resolver->resolve('IF(id > 0, 0, 1)', $this->aliases);
+        $this->assertSame('int', $result['phpType']);
+        $this->assertStringStartsNotWith('?', $result['phpType']);
+    }
+
+    public function test_if_with_null_false_val_is_nullable(): void
+    {
+        $result = $this->resolver->resolve('IF(id > 0, id, NULL)', $this->aliases);
+        $this->assertStringStartsWith('?', $result['phpType']);
+    }
+
+    public function test_resolve_inner_type_integer_literal(): void
+    {
+        // resolveInnerType should recognise bare numeric literals
+        $result = $this->resolver->resolve('IF(1=1, 0, id)', $this->aliases);
+        $this->assertSame('int', $result['phpType']);
+    }
+
+    public function test_resolve_inner_type_float_literal(): void
+    {
+        $result = $this->resolver->resolve('IF(1=1, 3.14, price)', $this->aliases);
+        $this->assertSame('float', $result['phpType']);
+    }
+
+    public function test_arithmetic_expression_derives_type_from_left_operand(): void
+    {
+        // end_num - MAX(voucher) — left operand is INT column → int
+        $aliases = ['mcc' => 'users', 'users' => 'users'];
+        $result  = $this->resolver->resolve('IF(MAX(id)>=price, 0, price - MAX(id))', $aliases);
+        $this->assertSame('int', $result['phpType']);
+    }
+
+    public function test_if_full_query_integration(): void
+    {
+        // Full integration: the exact expression from the reported bug
+        $schema = <<<SQL
+            CREATE TABLE memory_cae_configs (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                end_num INT NOT NULL,
+                country_id INT NOT NULL,
+                active TINYINT NOT NULL
+            );
+            CREATE TABLE memory (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                voucher_number INT NOT NULL
+            );
+        SQL;
+
+        $catalog  = new SchemaCatalog((new SchemaParser())->parse($schema));
+        $mapper   = new MySQLTypeMapper();
+        $resolver = new ExpressionTypeResolver($catalog, $mapper);
+
+        $aliases = [
+            'mcc' => 'memory_cae_configs', 'memory_cae_configs' => 'memory_cae_configs',
+            'm'   => 'memory',             'memory' => 'memory',
+        ];
+
+        $result = $resolver->resolve(
+            'IF(MAX(m.voucher_number) >= mcc.end_num, 0, mcc.end_num - MAX(m.voucher_number))',
+            $aliases
+        );
+
+        $this->assertSame('int', $result['phpType'],
+            'IF(MAX(INT)>=INT, 0, INT-MAX(INT)) should resolve to int, not string');
     }
 }
 

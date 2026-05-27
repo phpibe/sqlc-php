@@ -233,7 +233,7 @@ class WatcherTest extends TestCase
 
     public function test_version_is_updated_to_reflect_watch_mode(): void
     {
-        // Watch mode ships in v2.4.3
-        $this->assertSame('2.4.3', \SqlcPhp\Version::VERSION);
+        // Watch mode ships in v2.4.0
+        $this->assertSame('2.4.4', \SqlcPhp\Version::VERSION);
     }
 }

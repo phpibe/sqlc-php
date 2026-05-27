@@ -181,17 +181,36 @@ class SqlRewriter
             (' . $token . '\b)              # capture group 3: :paramName
         /ix';
 
+        // Use a unique suffixed param for the IS NULL check so that PDO in
+        // native prepared statement mode (\PDO::ATTR_EMULATE_PREPARES = false)
+        // doesn't reject the query for having the same named param twice.
+        //
+        // (:active IS NULL OR col = :active)            ← broken with native PDO
+        // (:active_chk IS NULL OR col = :active)        ← correct: two distinct names
+        //
+        // The generated method binds both :active and :active_chk to the same $active value.
+        $nullCheckToken = ':' . $paramName . '_chk';
+
         $sql = preg_replace_callback(
             $pattern,
-            function (array $m) use ($paramName): string {
+            function (array $m) use ($paramName, $nullCheckToken): string {
                 $lhs = $m[1];
                 $op  = $m[2];
                 $ref = ":{$paramName}";
-                return "({$ref} IS NULL OR {$lhs} {$op} {$ref})";
+                return "({$nullCheckToken} IS NULL OR {$lhs} {$op} {$ref})";
             },
             $sql
         ) ?? $sql;
 
         return $sql;
+    }
+
+    /**
+     * Returns the null-check param name for a given optional param.
+     * The method generator must bind this token alongside the original param.
+     */
+    public static function nullCheckParam(string $paramName): string
+    {
+        return $paramName . '_chk';
     }
 }

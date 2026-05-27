@@ -455,6 +455,13 @@ PHP;
             $lines = [];
             foreach ($regularParams as $param) {
                 $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+                // @optional params produce (:name_chk IS NULL OR col OP :name) in SQL.
+                // PDO native mode rejects duplicate named params, so we use a separate
+                // token :name_chk for the IS NULL check and bind it to the same value.
+                if ($param->optional) {
+                    $chk = $param->name . '_chk';
+                    $lines[] = "        \$stmt->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+                }
             }
             return implode("\n", $lines) . "\n";
         }
@@ -480,6 +487,10 @@ PHP;
         // Bind regular named params
         foreach ($regularParams as $param) {
             $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+            if ($param->optional) {
+                $chk = $param->name . '_chk';
+                $lines[] = "        \$stmt->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+            }
         }
 
         // execute() receives positional values for all IN lists merged in order

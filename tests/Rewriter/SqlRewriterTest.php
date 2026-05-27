@@ -46,7 +46,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users WHERE status = :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
         $this->assertSame(
-            'SELECT * FROM users WHERE (:status IS NULL OR status = :status)',
+            'SELECT * FROM users WHERE (:status_chk IS NULL OR status = :status)',
             $result
         );
     }
@@ -56,7 +56,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users WHERE users.status = :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
         $this->assertSame(
-            'SELECT * FROM users WHERE (:status IS NULL OR users.status = :status)',
+            'SELECT * FROM users WHERE (:status_chk IS NULL OR users.status = :status)',
             $result
         );
     }
@@ -69,56 +69,56 @@ class SqlRewriterTest extends TestCase
     {
         $sql    = 'SELECT * FROM users WHERE status <> :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
-        $this->assertStringContainsString(':status IS NULL OR status <> :status', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR status <> :status', $result);
     }
 
     public function test_rewrites_not_equals_bang_operator(): void
     {
         $sql    = 'SELECT * FROM users WHERE status != :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
-        $this->assertStringContainsString(':status IS NULL OR status != :status', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR status != :status', $result);
     }
 
     public function test_rewrites_greater_than_operator(): void
     {
         $sql    = 'SELECT * FROM users WHERE age > :minAge';
         $result = $this->rewriter->rewrite($sql, ['minAge']);
-        $this->assertStringContainsString(':minAge IS NULL OR age > :minAge', $result);
+        $this->assertStringContainsString(':minAge_chk IS NULL OR age > :minAge', $result);
     }
 
     public function test_rewrites_less_than_operator(): void
     {
         $sql    = 'SELECT * FROM users WHERE age < :maxAge';
         $result = $this->rewriter->rewrite($sql, ['maxAge']);
-        $this->assertStringContainsString(':maxAge IS NULL OR age < :maxAge', $result);
+        $this->assertStringContainsString(':maxAge_chk IS NULL OR age < :maxAge', $result);
     }
 
     public function test_rewrites_greater_than_or_equal_operator(): void
     {
         $sql    = 'SELECT * FROM orders WHERE total >= :minTotal';
         $result = $this->rewriter->rewrite($sql, ['minTotal']);
-        $this->assertStringContainsString(':minTotal IS NULL OR total >= :minTotal', $result);
+        $this->assertStringContainsString(':minTotal_chk IS NULL OR total >= :minTotal', $result);
     }
 
     public function test_rewrites_less_than_or_equal_operator(): void
     {
         $sql    = 'SELECT * FROM orders WHERE total <= :maxTotal';
         $result = $this->rewriter->rewrite($sql, ['maxTotal']);
-        $this->assertStringContainsString(':maxTotal IS NULL OR total <= :maxTotal', $result);
+        $this->assertStringContainsString(':maxTotal_chk IS NULL OR total <= :maxTotal', $result);
     }
 
     public function test_rewrites_like_operator(): void
     {
         $sql    = 'SELECT * FROM users WHERE name LIKE :pattern';
         $result = $this->rewriter->rewrite($sql, ['pattern']);
-        $this->assertStringContainsString(':pattern IS NULL OR name LIKE :pattern', $result);
+        $this->assertStringContainsString(':pattern_chk IS NULL OR name LIKE :pattern', $result);
     }
 
     public function test_rewrites_ilike_operator(): void
     {
         $sql    = 'SELECT * FROM users WHERE name ILIKE :pattern';
         $result = $this->rewriter->rewrite($sql, ['pattern']);
-        $this->assertStringContainsString(':pattern IS NULL OR name ILIKE :pattern', $result);
+        $this->assertStringContainsString(':pattern_chk IS NULL OR name ILIKE :pattern', $result);
     }
 
     // -------------------------------------------------------------------------
@@ -130,8 +130,8 @@ class SqlRewriterTest extends TestCase
         $sql = 'SELECT * FROM users WHERE status = :status AND name LIKE :pattern';
         $result = $this->rewriter->rewrite($sql, ['status', 'pattern']);
 
-        $this->assertStringContainsString(':status IS NULL OR status = :status', $result);
-        $this->assertStringContainsString(':pattern IS NULL OR name LIKE :pattern', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR status = :status', $result);
+        $this->assertStringContainsString(':pattern_chk IS NULL OR name LIKE :pattern', $result);
     }
 
     public function test_non_optional_param_is_not_rewritten(): void
@@ -142,7 +142,7 @@ class SqlRewriterTest extends TestCase
         // :id is NOT optional — must remain unchanged
         $this->assertStringContainsString('id = :id', $result);
         // :status IS optional — must be rewritten
-        $this->assertStringContainsString(':status IS NULL OR status = :status', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR status = :status', $result);
     }
 
     // -------------------------------------------------------------------------
@@ -154,8 +154,10 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users WHERE a = :val AND b = :val';
         $result = $this->rewriter->rewrite($sql, ['val']);
 
-        // Both conditions must be rewritten
-        $this->assertSame(2, substr_count($result, ':val IS NULL'));
+        // Both conditions must be rewritten with the _chk null-check token
+        $this->assertSame(2, substr_count($result, ':val_chk IS NULL'));
+        // And the original :val token must appear twice (the actual comparison)
+        $this->assertSame(2, substr_count($result, ':val)'));
     }
 
     // -------------------------------------------------------------------------
@@ -168,7 +170,7 @@ class SqlRewriterTest extends TestCase
         $result = $this->rewriter->rewrite($sql, ['status']);
 
         $this->assertMatchesRegularExpression(
-            '/\(\s*:status IS NULL OR status = :status\s*\)/',
+            '/\(\s*:status_chk IS NULL OR status = :status\s*\)/',
             $result
         );
     }
@@ -196,7 +198,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users INNER JOIN roles ON roles.id = users.role_id WHERE users.active = :active';
         $result = $this->rewriter->rewrite($sql, ['active']);
 
-        $this->assertStringContainsString(':active IS NULL OR', $result);
+        $this->assertStringContainsString(':active_chk IS NULL OR', $result);
         $this->assertStringContainsString('ON roles.id = users.role_id', $result); // ON untouched
     }
 
@@ -205,7 +207,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users LEFT JOIN roles ON roles.id = users.role_id WHERE users.active = :active';
         $result = $this->rewriter->rewrite($sql, ['active']);
 
-        $this->assertStringContainsString(':active IS NULL OR', $result);
+        $this->assertStringContainsString(':active_chk IS NULL OR', $result);
     }
 
     public function test_right_join_with_param_in_where_is_allowed(): void
@@ -213,7 +215,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users RIGHT JOIN roles ON roles.id = users.role_id WHERE users.status = :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
 
-        $this->assertStringContainsString(':status IS NULL OR', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $result);
     }
 
     public function test_cross_join_with_param_in_where_is_allowed(): void
@@ -221,7 +223,7 @@ class SqlRewriterTest extends TestCase
         $sql    = 'SELECT * FROM users CROSS JOIN roles WHERE users.status = :status';
         $result = $this->rewriter->rewrite($sql, ['status']);
 
-        $this->assertStringContainsString(':status IS NULL OR', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $result);
     }
 
     public function test_throws_when_param_appears_in_on_clause(): void
@@ -241,7 +243,7 @@ class SqlRewriterTest extends TestCase
         $result = $this->rewriter->rewrite($sql, ['name']);
 
         $this->assertStringContainsString('ON roles.id = users.role_id', $result);
-        $this->assertStringNotContainsString(':name IS NULL OR roles.id', $result);
+        $this->assertStringNotContainsString(':name_chk IS NULL OR roles.id', $result);
     }
 
     public function test_reported_bug_query_now_works(): void
@@ -261,7 +263,7 @@ GROUP BY mcc.id
 SQL;
         $result = $this->rewriter->rewrite($sql, ['active'], 'ListActiveCaeValidity');
 
-        $this->assertStringContainsString('(:active IS NULL OR mcc.active = :active)', $result);
+        $this->assertStringContainsString('(:active_chk IS NULL OR mcc.active = :active)', $result);
         $this->assertStringContainsString("ON m.voucher_type = CASE", $result); // ON untouched
     }
 
@@ -329,8 +331,8 @@ SQL;
         $sql    = 'SELECT * FROM users WHERE status = :status AND active = :active';
         $result = $this->rewriter->rewrite($sql, ['status', 'active'], 'ListUsers');
 
-        $this->assertStringContainsString(':status IS NULL OR', $result);
-        $this->assertStringContainsString(':active IS NULL OR', $result);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $result);
+        $this->assertStringContainsString(':active_chk IS NULL OR', $result);
     }
 
     public function test_no_error_on_query_without_optional_params_even_with_join(): void

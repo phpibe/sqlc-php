@@ -144,7 +144,7 @@ class OptionalParamTest extends TestCase
             "SELECT * FROM users WHERE status = :status;"
         );
 
-        $this->assertStringContainsString(':status IS NULL OR', $queries[0]->sql);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $queries[0]->sql);
     }
 
     public function test_analyzer_does_not_rewrite_non_optional_param(): void
@@ -221,7 +221,7 @@ class OptionalParamTest extends TestCase
             "SELECT * FROM users WHERE status = :status;"
         );
 
-        $this->assertStringContainsString(':status IS NULL OR', $code);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $code);
     }
 
     public function test_docblock_notes_optional_param(): void
@@ -247,7 +247,7 @@ class OptionalParamTest extends TestCase
             WHERE users.status = :status;
         SQL);
 
-        $this->assertStringContainsString(':status IS NULL OR', $code);
+        $this->assertStringContainsString(':status_chk IS NULL OR', $code);
         $this->assertStringContainsString('ON roles.id = users.role_id', $code);
     }
 
@@ -312,6 +312,31 @@ class OptionalParamTest extends TestCase
             LEFT JOIN roles ON roles.id = :roleId
             WHERE users.active = 1;
         SQL);
+    }
+
+    public function test_generated_method_binds_chk_param_for_optional(): void
+    {
+        // Regression: PDO native mode rejects duplicate named params.
+        // The generated method must bind both :active and :active_chk.
+        $code = $this->generate(
+            "-- @name List\n-- @returns :many\n-- @optional active\n" .
+            "SELECT * FROM users WHERE active = :active;"
+        );
+
+        $this->assertStringContainsString("bindValue(':active_chk'", $code);
+        $this->assertStringContainsString("bindValue(':active'",     $code);
+        // Both bound to the same $active variable
+        $this->assertSame(2, substr_count($code, '$active,'));
+    }
+
+    public function test_chk_param_is_not_added_for_non_optional_params(): void
+    {
+        $code = $this->generate(
+            "-- @name Get\n-- @returns :one\nSELECT * FROM users WHERE id = :id;"
+        );
+
+        $this->assertStringNotContainsString('id_chk', $code);
+        $this->assertStringContainsString("bindValue(':id'", $code);
     }
 
     public function test_both_params_optional_all_have_defaults(): void

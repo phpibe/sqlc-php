@@ -10,7 +10,7 @@ namespace SqlcPhp;
  */
 final class Version
 {
-    public const VERSION = '2.4.0';
+    public const VERSION = '2.4.2';
 
     public const BANNER = <<<TEXT
 sqlc-php v2.4.0 — PHP code generator inspired by sqlc

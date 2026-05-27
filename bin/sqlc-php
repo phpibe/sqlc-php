@@ -38,157 +38,308 @@ use SqlcPhp\Resolver\ParamResolver;
 use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\Rewriter\SqlRewriter;
 use SqlcPhp\TypeMapper\TypeMapperFactory;
+use SqlcPhp\Version;
+use SqlcPhp\Watcher;
 
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
-$args       = array_slice($argv, 1);
-$verifyMode = in_array('--verify',   $args, true);
-$dryRun     = in_array('--dry-run',  $args, true);
-$diffMode   = in_array('--diff',     $args, true);
-$args       = array_values(array_filter($args, fn($a) => !in_array($a, ['--verify', '--dry-run', '--diff'])));
+$args        = array_slice($argv, 1);
+$verifyMode  = in_array('--verify',   $args, true);
+$dryRun      = in_array('--dry-run',  $args, true);
+$diffMode    = in_array('--diff',     $args, true);
+$watchMode   = in_array('--watch',    $args, true);
+$showVersion = in_array('--version',  $args, true) || in_array('-v', $args, true);
+
+// --interval=N  (milliseconds, default 500)
+$pollInterval = 500;
+foreach ($args as $arg) {
+    if (preg_match('/^--interval=(\d+)$/', $arg, $m)) {
+        $pollInterval = max(100, (int) $m[1]);
+    }
+}
+
+$args = array_values(array_filter($args, fn($a) => !in_array($a, [
+    '--verify', '--dry-run', '--diff', '--watch', '--version', '-v',
+]) && !str_starts_with($a, '--interval=')));
+
 $configPath = $args[0] ?? 'sqlc.yaml';
 
-echo "sqlc-php — PHP code generator\n";
+// --version: print and exit
+if ($showVersion) {
+    echo Version::BANNER . "\n";
+    exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// Core generation function — runs one full pass and returns metadata
+// ---------------------------------------------------------------------------
+
+/**
+ * Run one full generation pass.
+ *
+ * @return array{
+ *   written:    int,
+ *   toWrite:    array<string, string>,
+ *   watchPaths: string[],
+ *   error:      string|null,
+ * }
+ */
+function runGeneration(
+    string $configPath,
+    bool   $verifyMode,
+    bool   $dryRun,
+    bool   $diffMode,
+    bool   $silent = false,
+): array {
+    $result = [
+        'written'    => 0,
+        'toWrite'    => [],
+        'watchPaths' => [$configPath],
+        'error'      => null,
+    ];
+
+    try {
+        $config = Config::fromFile($configPath);
+    } catch (\RuntimeException $e) {
+        $result['error'] = $e->getMessage();
+        return $result;
+    }
+
+    // Collect watch paths: config + all schemas + all query files
+    $result['watchPaths'] = array_unique(array_merge(
+        [$configPath],
+        $config->schemas,
+        ...array_map(fn($t) => $t->queries, $config->targets),
+    ));
+
+    // Parse schema
+    $schemaParser = new SchemaParser();
+    $allSchemaSql = '';
+
+    foreach ($config->schemas as $schemaFile) {
+        if (!file_exists($schemaFile)) {
+            $result['error'] = "Schema file not found: {$schemaFile}";
+            return $result;
+        }
+        $allSchemaSql .= "\n" . (file_get_contents($schemaFile) ?: '');
+        if (!$silent) echo "Schema : {$schemaFile}\n";
+    }
+
+    $tables  = $schemaParser->parse($allSchemaSql);
+    $catalog = new SchemaCatalog(array_merge($tables, $config->virtualTables));
+
+    if (!$silent) {
+        echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n";
+        if (!empty($config->virtualTables)) {
+            echo "Virtual: " . count($config->virtualTables) . " virtual table(s) — " .
+                 implode(', ', array_map(fn($t) => $t->name, $config->virtualTables)) . "\n";
+        }
+        echo "\n";
+    }
+
+    $allToWrite   = [];
+    $totalWritten = 0;
+
+    foreach ($config->targets as $i => $target) {
+        $passLabel = count($config->targets) > 1
+            ? " [target " . ($i + 1) . "/" . count($config->targets) . "]"
+            : '';
+
+        if (!$silent) echo "Target{$passLabel}: {$target->namespace} → {$target->out}/\n";
+
+        $queryParser = new QueryParser($target->language);
+        $rawQueries  = [];
+
+        foreach ($target->queries as $queryFile) {
+            if (!file_exists($queryFile)) {
+                $result['error'] = "Queries file not found: {$queryFile}";
+                return $result;
+            }
+            $parsed     = $queryParser->parse(file_get_contents($queryFile) ?: '');
+            $rawQueries = array_merge($rawQueries, $parsed);
+            if (!$silent) echo "  Queries: " . count($parsed) . " query(ies) from {$queryFile}\n";
+        }
+        if (!$silent) echo "  Queries: " . count($rawQueries) . " total\n";
+
+        $enumGen       = new EnumGenerator($target->namespace, $target->language);
+        $typeMapper    = TypeMapperFactory::create($target->engine, $target->typeOverrides, $enumGen);
+        $paramResolver = new ParamResolver($catalog, $typeMapper);
+        $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
+        $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);
+        $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
+        $queries       = $analyzer->analyze($rawQueries);
+
+        $resultDtoGen = new ResultDtoGenerator($target->namespace, $typeMapper);
+        $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($target->namespace) : null;
+        $queryGen     = new QueryGenerator(
+            $catalog, $typeMapper, $resultDtoGen, $target->namespace,
+            $target->generateInterfaces, $interfaceGen,
+            $target->preparedStatementCache,
+        );
+        $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $target->namespace);
+
+        $outDir  = $target->out;
+        $toWrite = [];
+
+        foreach ($catalog->all() as $table) {
+            if ($table->virtual) continue;
+            foreach ($table->columns as $col) {
+                if (!$col->isEnum()) continue;
+                ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
+                $toWrite["{$cls}.php"] = ['label' => '[enum]   ', 'code' => $code];
+            }
+        }
+
+        $tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
+        foreach ($tablesUsed as $tableName) {
+            $tableDef = $catalog->getTable($tableName);
+            if ($tableDef?->virtual) continue;
+            ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
+            $toWrite["{$cls}.php"] = ['label' => '[model]  ', 'code' => $code];
+        }
+
+        // @dto collision detection
+        $dtoRegistry = [];
+        foreach ($queries as $query) {
+            if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
+            if ($query->returns->value === ':exec') continue;
+            $dtoName = $resultDtoGen->dtoClassName($query);
+            $shape   = implode(',', array_map(fn($c) => $c->alias . ':' . $c->phpType, $query->resultColumns));
+            if (isset($dtoRegistry[$dtoName]) && $dtoRegistry[$dtoName] !== $shape) {
+                fwrite(STDERR, "Warning: @dto '{$dtoName}' is used by multiple queries with " .
+                    "different column shapes. The last writer wins — verify the generated file.\n");
+            }
+            $dtoRegistry[$dtoName] = $shape;
+        }
+
+        foreach ($queries as $query) {
+            if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
+            if ($query->returns->value === ':exec') continue;
+            $r = $resultDtoGen->generate($query);
+            $toWrite["{$r['className']}.php"] = ['label' => '[dto]    ', 'code' => $r['code']];
+            foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
+                $toWrite["{$ecls}.php"] = ['label' => '[embed]  ', 'code' => $ec];
+            }
+        }
+
+        foreach ($queryGen->generate($queries) as ['className' => $cls, 'code' => $code]) {
+            $toWrite["{$cls}.php"] = ['label' => '[query]  ', 'code' => $code];
+        }
+
+        foreach ($queryGen->generateInterfaces($queries) as ['className' => $cls, 'code' => $code]) {
+            $toWrite["{$cls}.php"] = ['label' => '[iface]  ', 'code' => $code];
+        }
+
+        foreach ($toWrite as $file => $entry) {
+            $allToWrite["{$outDir}/{$file}"] = $entry['code'];
+        }
+
+        if (!$verifyMode && !$dryRun && !$diffMode) {
+            if (!is_dir($outDir) && !mkdir($outDir, 0755, true)) {
+                $result['error'] = "Cannot create output directory: {$outDir}";
+                return $result;
+            }
+            foreach ($toWrite as $file => ['label' => $label, 'code' => $code]) {
+                file_put_contents("{$outDir}/{$file}", $code);
+                if (!$silent) echo "  {$label}{$outDir}/{$file}\n";
+                $totalWritten++;
+            }
+        }
+
+        if (!$silent) echo "\n";
+    }
+
+    $result['written']  = $totalWritten;
+    $result['toWrite']  = $allToWrite;
+
+    return $result;
+}
+
+// ---------------------------------------------------------------------------
+// --watch mode
+// ---------------------------------------------------------------------------
+if ($watchMode) {
+    if ($verifyMode || $dryRun || $diffMode) {
+        fwrite(STDERR, "Error: --watch cannot be combined with --verify, --dry-run, or --diff.\n");
+        exit(1);
+    }
+
+    echo "sqlc-php v" . Version::VERSION . " — watching for changes\n";
+    echo "Config : {$configPath}\n";
+    echo "Press Ctrl+C to stop.\n\n";
+
+    // Graceful shutdown on SIGINT (Ctrl+C) — only on platforms that support it
+    if (function_exists('pcntl_signal')) {
+        pcntl_signal(SIGINT, function () {
+            echo "\n\nWatch mode stopped.\n";
+            exit(0);
+        });
+    }
+
+    $watcher = new Watcher([$configPath]);
+
+    // Run first pass immediately
+    $r = runGeneration($configPath, false, false, false, silent: false);
+    if ($r['error'] !== null) {
+        fwrite(STDERR, "[ERROR] " . $r['error'] . "\n\n");
+    } else {
+        echo "✓ " . $r['written'] . " file(s) written.\n\n";
+        $watcher->setAll($r['watchPaths']);
+    }
+
+    $intervalUs = $pollInterval * 1000;
+
+    while (true) {
+        if (function_exists('pcntl_signal_dispatch')) {
+            pcntl_signal_dispatch();
+        }
+
+        usleep($intervalUs);
+
+        $changed = $watcher->poll();
+
+        if (empty($changed)) {
+            continue;
+        }
+
+        $timestamp = date('H:i:s');
+        $changedStr = implode(', ', array_map('basename', $changed));
+        echo "[{$timestamp}] Change detected: {$changedStr}\n";
+
+        $r = runGeneration($configPath, false, false, false, silent: true);
+
+        if ($r['error'] !== null) {
+            fwrite(STDERR, "[{$timestamp}] Error: " . $r['error'] . "\n\n");
+        } else {
+            // Update watch list in case config/queries changed
+            $watcher->setAll($r['watchPaths']);
+            echo "[{$timestamp}] ✓ " . $r['written'] . " file(s) written.\n\n";
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Normal single-run mode
+// ---------------------------------------------------------------------------
+echo "sqlc-php v" . Version::VERSION . " — PHP code generator\n";
 if ($verifyMode) echo "Mode   : VERIFY  (no files will be written)\n";
 if ($dryRun)     echo "Mode   : DRY-RUN (no files will be written)\n";
 if ($diffMode)   echo "Mode   : DIFF    (no files will be written)\n";
 echo "Config : {$configPath}\n\n";
 
-try {
-    $config = Config::fromFile($configPath);
-} catch (\RuntimeException $e) {
-    fwrite(STDERR, "Error: " . $e->getMessage() . "\n"); exit(1);
+$r = runGeneration($configPath, $verifyMode, $dryRun, $diffMode);
+
+if ($r['error'] !== null) {
+    fwrite(STDERR, "Error: " . $r['error'] . "\n");
+    exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// Parse schema (shared across all targets)
-// ---------------------------------------------------------------------------
-$schemaParser = new SchemaParser();
-$allSchemaSql = '';
-
-foreach ($config->schemas as $schemaFile) {
-    if (!file_exists($schemaFile)) {
-        fwrite(STDERR, "Error: Schema file not found: {$schemaFile}\n"); exit(1);
-    }
-    $allSchemaSql .= "\n" . (file_get_contents($schemaFile) ?: '');
-    echo "Schema : {$schemaFile}\n";
-}
-
-$tables  = $schemaParser->parse($allSchemaSql);
-$catalog = new SchemaCatalog(array_merge($tables, $config->virtualTables));
-echo "Schema : " . count($tables) . " table(s) — " . implode(', ', array_column($tables, 'name')) . "\n";
-if (!empty($config->virtualTables)) {
-    echo "Virtual: " . count($config->virtualTables) . " virtual table(s) — " .
-         implode(', ', array_map(fn($t) => $t->name, $config->virtualTables)) . "\n";
-}
-echo "\n";
+$allToWrite   = $r['toWrite'];
+$totalWritten = $r['written'];
 
 // ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-// Process each target
-// ---------------------------------------------------------------------------
-$totalWritten = 0;
-$allToWrite   = []; // for verify/dry-run/diff across all targets
-
-foreach ($config->targets as $i => $target) {
-    $passLabel = count($config->targets) > 1 ? " [target " . ($i + 1) . "/" . count($config->targets) . "]" : '';
-    echo "Target{$passLabel}: {$target->namespace} → {$target->out}/\n";
-
-    // Parse queries for this target (uses per-target language)
-    $queryParser = new QueryParser($target->language);
-    $rawQueries  = [];
-
-    foreach ($target->queries as $queryFile) {
-        if (!file_exists($queryFile)) {
-            fwrite(STDERR, "Error: Queries file not found: {$queryFile}\n"); exit(1);
-        }
-        $parsed     = $queryParser->parse(file_get_contents($queryFile) ?: '');
-        $rawQueries = array_merge($rawQueries, $parsed);
-        echo "  Queries: " . count($parsed) . " query(ies) from {$queryFile}\n";
-    }
-    echo "  Queries: " . count($rawQueries) . " total\n";
-
-    // Analyze
-    $enumGen       = new EnumGenerator($target->namespace, $target->language);
-    $typeMapper    = TypeMapperFactory::create($target->engine, $target->typeOverrides, $enumGen);
-    $paramResolver = new ParamResolver($catalog, $typeMapper);
-    $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
-    $colResolver   = new ColumnResolver($catalog, $typeMapper, $paramResolver, $exprResolver);
-    $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
-    $queries       = $analyzer->analyze($rawQueries);
-
-    // Setup generators
-    $resultDtoGen = new ResultDtoGenerator($target->namespace, $typeMapper);
-    $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($target->namespace) : null;
-    $queryGen     = new QueryGenerator(
-        $catalog, $typeMapper, $resultDtoGen, $target->namespace,
-        $target->generateInterfaces, $interfaceGen,
-    );
-    $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $target->namespace);
-
-    // Collect files
-    $outDir  = $target->out;
-    $toWrite = [];
-
-    foreach ($catalog->all() as $table) {
-        if ($table->virtual) continue;   // virtual tables have no real schema — skip
-        foreach ($table->columns as $col) {
-            if (!$col->isEnum()) continue;
-            ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
-            $toWrite["{$cls}.php"] = ['label' => '[enum]   ', 'code' => $code];
-        }
-    }
-
-    $tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
-    foreach ($tablesUsed as $tableName) {
-        $tableDef = $catalog->getTable($tableName);
-        if ($tableDef?->virtual) continue;   // no Model for virtual tables
-        ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
-        $toWrite["{$cls}.php"] = ['label' => '[model]  ', 'code' => $code];
-    }
-
-    foreach ($queries as $query) {
-        if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
-        if ($query->returns->value === ':exec') continue;
-        $result = $resultDtoGen->generate($query);
-        $toWrite["{$result['className']}.php"] = ['label' => '[dto]    ', 'code' => $result['code']];
-        // @embed value objects
-        foreach ($result['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
-            $toWrite["{$ecls}.php"] = ['label' => '[embed]  ', 'code' => $ec];
-        }
-    }
-
-    foreach ($queryGen->generate($queries) as ['className' => $cls, 'code' => $code]) {
-        $toWrite["{$cls}.php"] = ['label' => '[query]  ', 'code' => $code];
-    }
-
-    foreach ($queryGen->generateInterfaces($queries) as ['className' => $cls, 'code' => $code]) {
-        $toWrite["{$cls}.php"] = ['label' => '[iface]  ', 'code' => $code];
-    }
-
-    // Accumulate for multi-pass verify/dry-run/diff
-    foreach ($toWrite as $file => $entry) {
-        $allToWrite["{$outDir}/{$file}"] = $entry['code'];
-    }
-
-    // Write immediately in normal mode
-    if (!$verifyMode && !$dryRun && !$diffMode) {
-        if (!is_dir($outDir) && !mkdir($outDir, 0755, true)) {
-            fwrite(STDERR, "Error: Cannot create output directory: {$outDir}\n"); exit(1);
-        }
-        foreach ($toWrite as $file => ['label' => $label, 'code' => $code]) {
-            file_put_contents("{$outDir}/{$file}", $code);
-            echo "  {$label}{$outDir}/{$file}\n";
-            $totalWritten++;
-        }
-    }
-
-    echo "\n";
-}
-
-// ---------------------------------------------------------------------------
-// --verify — compare against existing files, exit 1 if stale
+// --verify
 // ---------------------------------------------------------------------------
 if ($verifyMode) {
     $diffs   = [];
@@ -218,7 +369,7 @@ if ($verifyMode) {
 }
 
 // ---------------------------------------------------------------------------
-// --dry-run — print generated code to stdout, write nothing
+// --dry-run
 // ---------------------------------------------------------------------------
 if ($dryRun) {
     foreach ($allToWrite as $path => $code) {
@@ -232,7 +383,7 @@ if ($dryRun) {
 }
 
 // ---------------------------------------------------------------------------
-// --diff — show unified diff between current and generated, write nothing
+// --diff
 // ---------------------------------------------------------------------------
 if ($diffMode) {
     $hasChanges = false;
@@ -280,7 +431,6 @@ function produceDiff(string $old, string $new): string
     $newLines = explode("\n", $new);
     $output   = '';
 
-    // Simple line-by-line diff: find first and last difference, show context
     $firstDiff = null;
     $lastDiff  = 0;
     $max       = max(count($oldLines), count($newLines));
@@ -294,7 +444,7 @@ function produceDiff(string $old, string $new): string
 
     if ($firstDiff === null) return '';
 
-    $ctx   = 3; // context lines
+    $ctx   = 3;
     $start = max(0, $firstDiff - $ctx);
     $end   = min($max - 1, $lastDiff + $ctx);
 

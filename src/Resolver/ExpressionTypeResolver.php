@@ -193,6 +193,26 @@ class ExpressionTypeResolver
             }
         }
 
+        // ── NULL literal ─────────────────────────────────────────────────────
+
+        if ($upper === 'NULL') {
+            return [
+                'phpType' => 'mixed',   // NULL literal — always null at runtime
+                'alias'   => 'null',
+            ];
+        }
+
+        // ── Subquery ─────────────────────────────────────────────────────────
+
+        if (str_starts_with($upper, '(SELECT') || str_starts_with($upper, '( SELECT')) {
+            fwrite(STDERR, "sqlc-php: column type from subquery could not be resolved — using mixed. " .
+                "Add a type_override for the alias or use @column to rename it.\n");
+            return [
+                'phpType' => 'mixed',
+                'alias'   => null,
+            ];
+        }
+
         // ── CASE WHEN ─────────────────────────────────────────────────────────
 
         if (str_starts_with($upper, 'CASE')) {

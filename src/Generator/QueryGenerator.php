@@ -20,8 +20,9 @@ class QueryGenerator
         private readonly TypeMapperInterface    $typeMapper,
         private readonly ResultDtoGenerator $resultDtoGen,
         private readonly string             $namespace,
-        private readonly bool               $generateInterfaces = false,
-        private readonly ?InterfaceGenerator $interfaceGen = null,
+        private readonly bool               $generateInterfaces     = false,
+        private readonly ?InterfaceGenerator $interfaceGen          = null,
+        private readonly bool               $preparedStatementCache = false,
     ) {}
 
     /**
@@ -83,6 +84,11 @@ class QueryGenerator
             ? ' implements ' . $this->interfaceGen->interfaceName($className)
             : '';
 
+        // Prepared statement cache property — only included when the feature is on
+        $stmtsProperty = $this->preparedStatementCache
+            ? "\n    /** @var array<string, \\PDOStatement> */\n    private array \$stmts = [];\n"
+            : '';
+
         return <<<PHP
 <?php
 
@@ -101,7 +107,7 @@ class {$className}{$implements}
 {
     public function __construct(
         private readonly PDO \$pdo,
-    ) {}
+    ) {}{$stmtsProperty}
 
 {$methodsStr}
 }
@@ -116,8 +122,24 @@ PHP;
             ':one'            => $this->renderOneMethod($query),
             ':opt'            => $this->renderOptMethod($query),
             ':exec'           => $this->renderExecMethod($query),
+            ':batch'          => $this->renderBatchMethod($query),
+            ':transaction'    => $this->renderTransactionMethod($query),
             default           => $this->renderManyMethod($query),
         };
+    }
+
+    /**
+     * Generate the $stmt = ... prepare line.
+     * With prepared_statement_cache on: uses $this->stmts[__FUNCTION__] ??= ...
+     * Without: direct $this->pdo->prepare(...)
+     */
+    private function renderPrepare(QueryDefinition $query): string
+    {
+        $sqlLiteral = $this->renderSqlLiteral($query->sql);
+        if ($this->preparedStatementCache) {
+            return "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n";
+        }
+        return "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
     }
 
     // -------------------------------------------------------------------------
@@ -132,7 +154,7 @@ PHP;
         $bindings    = $this->renderBindings($query);
         $prepare     = $this->hasInListParams($query)
             ? ''
-            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+            : $this->renderPrepare($query);
         $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
@@ -200,9 +222,7 @@ PHP;
         $signature   = $this->buildSignature($query, $returnClass);
         $docblock    = $this->buildDocblock($query, "@return {$returnClass}");
         $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query)
-            ? ''
-            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
         $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
         $exception   = 'No record found for query "' . $query->name . '"';
 
@@ -231,9 +251,7 @@ PHP;
         $signature   = $this->buildSignature($query, "?{$returnClass}");
         $docblock    = $this->buildDocblock($query, "@return {$returnClass}|null");
         $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query)
-            ? ''
-            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
         $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
@@ -256,9 +274,7 @@ PHP;
         $signature   = $this->buildSignature($query, 'void');
         $docblock    = $this->buildDocblock($query, 'Executes the statement.');
         $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query)
-            ? ''
-            : '        $stmt = $this->pdo->prepare(' . $this->renderSqlLiteral($query->sql) . ');' . "\n";
+        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
         $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
 
         return <<<PHP
@@ -487,6 +503,136 @@ PHP;
             if ($p->inList) return true;
         }
         return false;
+    }
+
+    // -------------------------------------------------------------------------
+    // :batch — run the same query N times inside a transaction
+    // -------------------------------------------------------------------------
+
+    private function renderBatchMethod(QueryDefinition $query): string
+    {
+        if (empty($query->params)) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': :batch requires at least one named parameter."
+            );
+        }
+
+        // Build the shape array for the @param docblock: array{name: type, ...}
+        $shapeEntries = implode(', ', array_map(
+            fn($p) => $p->name . ': ' . $p->phpType,
+            $query->params
+        ));
+        $returnTag  = "@return int Number of rows processed";
+        $docblock   = $this->buildDocblock($query, $returnTag);
+        $sqlLiteral = $this->renderSqlLiteral($query->sql);
+
+        // Generate bindValue lines for a single row from $row
+        $bindLines = [];
+        foreach ($query->params as $param) {
+            $bindLines[] = "            \$stmt->bindValue(':{$param->name}', \$row['{$param->name}'], {$param->pdoParam});";
+        }
+        $bindStr = implode("\n", $bindLines);
+
+        $methodName = $query->name;
+        $signature  = "function {$methodName}(array \$rows): int";
+
+        return <<<PHP
+{$docblock}
+    /**
+     * Executes the query once per row in \$rows, inside a single transaction.
+     * Rolls back and re-throws on any failure.
+     *
+     * @param array<array{{$shapeEntries}}> \$rows
+     */
+    public {$signature}
+    {
+        if (empty(\$rows)) return 0;
+
+        \$stmt = \$this->pdo->prepare({$sqlLiteral});
+        \$this->pdo->beginTransaction();
+        try {
+            foreach (\$rows as \$row) {
+{$bindStr}
+                \$stmt->execute();
+            }
+            \$this->pdo->commit();
+        } catch (\Throwable \$e) {
+            \$this->pdo->rollBack();
+            throw \$e;
+        }
+
+        return count(\$rows);
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // :transaction — run multiple :exec queries in one transaction
+    // -------------------------------------------------------------------------
+
+    private function renderTransactionMethod(QueryDefinition $query): string
+    {
+        // :transaction is a meta-query — the SQL is a comma-separated list of
+        // @name values to call in sequence. Format:
+        //   -- @name TransferFunds
+        //   -- @returns :transaction
+        //   -- @calls debitAccount,creditAccount
+        // The SQL body is empty; @calls references other queries in the same group.
+
+        $signature = $this->buildSignature($query, 'void');
+        $docblock  = $this->buildDocblock($query, 'Executes multiple queries in a single transaction.');
+
+        // Parse @calls from the sql body (stored as the raw SQL for :transaction)
+        $calls     = array_filter(array_map('trim', explode(',', trim($query->sql))));
+
+        if (empty($calls)) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': :transaction requires @calls with a comma-separated " .
+                "list of method names to execute (e.g. -- @calls debitAccount,creditAccount)."
+            );
+        }
+
+        // Build the call lines — each callee receives the same params as this method
+        $callLines = [];
+        foreach ($calls as $callee) {
+            // Forward matching params if the param name appears in this method's params
+            $callLines[] = "            \$this->{$callee}(...func_get_args());";
+        }
+        $callStr = implode("\n", $callLines);
+
+        // For :transaction methods the params are not auto-forwarded generically —
+        // the user declares them explicitly and we call each sub-method with $this->method($arg)
+        // For simplicity, emit individual $this->callee() calls without args;
+        // the user can use @param to override the call signature.
+        $callLinesSimple = [];
+        foreach ($calls as $callee) {
+            $callLinesSimple[] = "            \$this->{$callee}();";
+        }
+
+        // If the query has params, pass them through to all callees
+        if (!empty($query->params)) {
+            $paramPassStr = implode(', ', array_map(fn($p) => "\${$p->name}", $query->params));
+            $callLinesSimple = [];
+            foreach ($calls as $callee) {
+                $callLinesSimple[] = "            \$this->{$callee}({$paramPassStr});";
+            }
+        }
+        $callStr = implode("\n", $callLinesSimple);
+
+        return <<<PHP
+{$docblock}
+    public {$signature}
+    {
+        \$this->pdo->beginTransaction();
+        try {
+{$callStr}
+            \$this->pdo->commit();
+        } catch (\Throwable \$e) {
+            \$this->pdo->rollBack();
+            throw \$e;
+        }
+    }
+PHP;
     }
 
     /**

@@ -46,6 +46,13 @@ readonly class Target
         public string $engine             = 'mysql',
         /** Inflection language for this target — inherited from global if not specified. */
         public string $language           = 'english',
+        /**
+         * When true, generated Query classes reuse PDOStatement objects across calls
+         * via a private $stmts cache (using __FUNCTION__ as key).
+         * Avoids re-preparing the same SQL on every invocation — useful in loops.
+         * Default: false.
+         */
+        public bool   $preparedStatementCache = false,
     ) {}
 
     /**
@@ -81,13 +88,14 @@ readonly class Target
             : filter_var($rawGi, FILTER_VALIDATE_BOOLEAN);
 
         return new self(
-            namespace:          (string) ($data['namespace'] ?? 'App\\Database'),
-            out:                rtrim((string) ($data['out'] ?? 'generated'), '/'),
-            queries:            $queries,
-            generateInterfaces: $generateInterfaces,
-            typeOverrides:      array_merge($globalOverrides, $localOverrides),
-            engine:             strtolower((string) ($data['engine']   ?? $globalEngine)),
-            language:           strtolower((string) ($data['language'] ?? $globalLanguage)),
+            namespace:             (string) ($data['namespace'] ?? 'App\\Database'),
+            out:                   rtrim((string) ($data['out'] ?? 'generated'), '/'),
+            queries:               $queries,
+            generateInterfaces:    $generateInterfaces,
+            typeOverrides:         array_merge($globalOverrides, $localOverrides),
+            engine:                strtolower((string) ($data['engine']   ?? $globalEngine)),
+            language:              strtolower((string) ($data['language'] ?? $globalLanguage)),
+            preparedStatementCache: filter_var($data['prepared_statement_cache'] ?? false, FILTER_VALIDATE_BOOLEAN),
         );
     }
 }

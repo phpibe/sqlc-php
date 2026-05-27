@@ -9,6 +9,7 @@ use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Parser\ReturnType;
 use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ParamResolver;
+use SqlcPhp\Resolver\ResolvedColumn;
 use SqlcPhp\Resolver\QueryParam;
 use SqlcPhp\Rewriter\SqlRewriter;
 
@@ -84,16 +85,34 @@ class QueryAnalyzer
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
 
             // @nillable or @embed on a direct-model query forces a custom DTO
-            // @nillable, @embed, or virtual table → always generate a custom DTO
+            // @nillable, @embed, @column, or virtual table → always generate a custom DTO
             $isVirtual = $this->catalog !== null
                 && $query->fromTable !== null
                 && ($this->catalog->getTable($query->fromTable)?->virtual ?? false);
             $hasCustomizations = !empty($query->nillableColumns)
                 || !empty($query->embeds)
+                || !empty($query->columnAliases)
                 || $isVirtual;
             if (!$hasCustomizations) {
                 [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
             }
+        }
+
+        // Apply @column renames — rename column aliases after resolution
+        if (!empty($query->columnAliases)) {
+            $resultColumns = array_map(function (ResolvedColumn $col) use ($query): ResolvedColumn {
+                $newAlias = $query->columnAliases[$col->alias] ?? null;
+                if ($newAlias === null) return $col;
+
+                return new ResolvedColumn(
+                    alias:      $newAlias,
+                    columnName: $col->columnName,
+                    tableName:  $col->tableName,
+                    sqlType:    $col->sqlType,
+                    nullable:   $col->nullable,
+                    phpType:    $col->phpType,
+                );
+            }, $resultColumns);
         }
 
         return new QueryDefinition(
@@ -111,6 +130,8 @@ class QueryAnalyzer
             deprecated:           $query->deprecated,
             nillableColumns:      $query->nillableColumns,
             embeds:               $query->embeds,
+            dtoClassName:         $query->dtoClassName,
+            columnAliases:        $query->columnAliases,
         );
     }
 

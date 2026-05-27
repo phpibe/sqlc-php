@@ -17,6 +17,8 @@ enum ReturnType: string
     case One           = ':one';
     case Opt           = ':opt';
     case Exec          = ':exec';
+    case Batch         = ':batch';
+    case Transaction   = ':transaction';
 }
 
 /**
@@ -64,6 +66,20 @@ class QueryDefinition
          * @var EmbedDefinition[]
          */
         public readonly array      $embeds = [],
+        /**
+         * When @dto ClassName is declared, this overrides the auto-generated
+         * {QueryName}Row DTO class name with the specified ClassName.
+         * Multiple queries can share the same @dto name if their column shapes match.
+         */
+        public readonly ?string    $dtoClassName = null,
+        /**
+         * Column renames declared via @column originalName alias.
+         * Applied after column resolution — renames the alias of matching columns
+         * in the result DTO without requiring SQL AS clauses.
+         *
+         * @var array<string, string>  originalName → alias
+         */
+        public readonly array      $columnAliases = [],
     ) {}
 }
 
@@ -122,6 +138,8 @@ class QueryParser
         $nillableColumns  = [];
         $deprecated       = null;
         $embeds           = [];
+        $dtoClassName     = null;
+        $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -144,6 +162,15 @@ class QueryParser
                     $nillableColumns[] = $m[1];
                 } elseif (preg_match('/@deprecated(?:\s+(.+))?$/i', $comment, $m)) {
                     $deprecated = isset($m[1]) ? trim($m[1]) : '';
+                } elseif (preg_match('/@dto\s+(\w+)/i', $comment, $m)) {
+                    $dtoClassName = $m[1];
+                } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
+                    // @calls query1,query2,query3 — used by :transaction
+                    // Store as the SQL body so the generator can retrieve it
+                    $sqlLines = [trim($m[1])];
+                } elseif (preg_match('/@column\s+(\w+)\s+(\w+)/i', $comment, $m)) {
+                    // @column originalName alias  — rename a result column in the DTO
+                    $columnAliases[$m[1]] = $m[2];
                 } elseif (preg_match('/@embed\s+(\w+)\s+(\w+)/i', $comment, $m)) {
                     // @embed ClassName prefix_  (trailing underscore optional)
                     $prefix   = rtrim($m[2], '_') . '_';
@@ -169,6 +196,12 @@ class QueryParser
 
         if ($group === null && $fromTable !== null) {
             $group = $this->toPascalCase($this->toSingular($fromTable));
+        }
+
+        // For :transaction, the SQL is @calls content with no FROM table.
+        // Derive the group from the method name itself.
+        if ($group === null && $returns !== null && $returns->value === ':transaction') {
+            $group = 'Query'; // will be overridden if @group is specified
         }
 
         if ($group === null) {
@@ -206,6 +239,8 @@ class QueryParser
             deprecated:       $deprecated,
             nillableColumns:  $nillableColumns,
             embeds:           $embeds,
+            dtoClassName:     $dtoClassName,
+            columnAliases:    $columnAliases,
         );
     }
     private function extractFromTable(string $sql): ?string
@@ -216,6 +251,10 @@ class QueryParser
         }
         // UPDATE table SET …
         if (preg_match('/^\s*UPDATE\s+[`"]?(\w+)[`"]?/i', $sql, $m)) {
+            return $m[1];
+        }
+        // INSERT INTO table
+        if (preg_match('/INSERT\s+INTO\s+[`"]?(\w+)[`"]?/i', $sql, $m)) {
             return $m[1];
         }
         return null;

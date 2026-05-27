@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.1.1</span>
+    <span class="badge-version">v2.4.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -591,6 +591,8 @@
       <a class="sidebar-link" href="#joins"><i class="bi bi-intersect"></i> JOINs → Row DTO</a>
       <a class="sidebar-link" href="#aggregates"><i class="bi bi-calculator"></i> Aggregates</a>
       <a class="sidebar-link" href="#exec"><i class="bi bi-pencil-square"></i> UPDATE / DELETE</a>
+      <a class="sidebar-link" href="#batch"><i class="bi bi-stack"></i> :batch</a>
+      <a class="sidebar-link" href="#transaction"><i class="bi bi-arrow-repeat"></i> :transaction</a>
       <a class="sidebar-link" href="#in-clause"><i class="bi bi-list-ul"></i> IN() clauses</a>
       <a class="sidebar-link" href="#many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
       <a class="sidebar-link" href="#enums"><i class="bi bi-list-check"></i> MySQL ENUM</a>
@@ -688,7 +690,9 @@
         <pre><code class="language-bash">php ./vendor/bin/sqlc-php sqlc.yaml            # generate files
 php ./vendor/bin/sqlc-php --dry-run sqlc.yaml  # preview without writing
 php ./vendor/bin/sqlc-php --diff    sqlc.yaml  # show what would change
-php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale</code></pre>
+php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale
+php ./vendor/bin/sqlc-php --watch   sqlc.yaml  # watch for changes, auto-regenerate
+php ./vendor/bin/sqlc-php --version            # print version and exit</code></pre>
       </section>
 
       <hr class="section-divider">
@@ -724,7 +728,8 @@ targets:
       - database/queries/orders.sql
     # generate_interfaces: true   ← default, omit unless you want false
     # engine:   mysql             ← override global engine for this target
-    # language: spanish           ← override global language for this target</code></pre>
+    # language: spanish           ← override global language for this target
+    # prepared_statement_cache: false  ← set true to cache PDOStatements across calls</code></pre>
 
         <h3>Minimal single-target config</h3>
         <pre><code class="language-yaml">version: "2"
@@ -1011,7 +1016,10 @@ targets:
 -- @optional paramName          optional — passing null skips the filter condition entirely
 -- @deprecated reason           optional — marks the generated method as @deprecated
 -- @nillable columnAlias        optional — forces a result column to be nullable in the DTO
--- @embed   ClassName prefix_   optional — groups prefixed columns into a nested object</code></pre>
+-- @embed   ClassName prefix_   optional — groups prefixed columns into a nested object
+-- @dto     ClassName          optional — overrides the auto-generated DTO class name
+-- @column  originalName alias  optional — renames a result column without SQL AS
+-- @calls   method1,method2    optional — used with :transaction to list methods to call</code></pre>
 
         <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
           <span class="annotation ann-required">@name</span> <small style="color:var(--text-muted)">required</small>
@@ -1022,6 +1030,8 @@ targets:
           <span class="annotation ann-optional">@deprecated</span>
           <span class="annotation ann-optional">@nillable</span>
           <span class="annotation ann-optional">@embed</span>
+          <span class="annotation ann-optional">@dto</span>
+          <span class="annotation ann-optional">@column</span>
         </div>
       </section>
 
@@ -1196,6 +1206,105 @@ UPDATE users SET active = :active, updated_at = :updatedAt WHERE id = :id;
 DELETE FROM users WHERE id = :id;</code></pre>
         <pre><code class="language-php">public function updateUserActive(?bool $active, ?string $updatedAt, ?int $id): void
 public function deleteUser(?int $id): void</code></pre>
+      </section>
+
+      <!-- BATCH -->
+      <section class="doc-section" id="batch">
+        <h2><i class="bi bi-stack me-2" style="color:var(--accent-3)"></i>:batch — bulk operations</h2>
+        <p style="color:var(--text-muted)">Executes the same INSERT or UPDATE query N times inside a single PDO transaction. The method accepts <code>array $rows</code> and returns <code>int</code> (number of rows processed). Rolls back and re-throws on any failure.</p>
+
+        <pre><code class="language-sql">-- @name InsertUsers
+-- @group User
+-- @returns :batch
+INSERT INTO users (email, username) VALUES (:email, :username);</code></pre>
+
+        <p style="color:var(--text-muted)">Generated method:</p>
+        <pre><code class="language-php">public function insertUsers(array $rows): int
+{
+    if (empty($rows)) return 0;
+
+    $stmt = $this->pdo->prepare('INSERT INTO users (email, username) VALUES (:email, :username)');
+    $this->pdo->beginTransaction();
+    try {
+        foreach ($rows as $row) {
+            $stmt->bindValue(':email',    $row['email'],    PDO::PARAM_STR);
+            $stmt->bindValue(':username', $row['username'], PDO::PARAM_STR);
+            $stmt->execute();
+        }
+        $this->pdo->commit();
+    } catch (\Throwable $e) {
+        $this->pdo->rollBack();
+        throw $e;
+    }
+    return count($rows);
+}</code></pre>
+
+        <p style="color:var(--text-muted)">Usage:</p>
+        <pre><code class="language-php">$count = $userQuery->insertUsers([
+    ['email' => 'alice@example.com', 'username' => 'alice'],
+    ['email' => 'bob@example.com',   'username' => 'bob'],
+]);</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          The statement is prepared once and reused for each row — no overhead from multiple prepare calls. An empty <code>$rows</code> array returns 0 immediately without opening a transaction.
+        </div>
+      </section>
+
+      <!-- TRANSACTION -->
+      <section class="doc-section" id="transaction">
+        <h2><i class="bi bi-arrow-repeat me-2" style="color:var(--accent-2)"></i>:transaction — multi-method transactions</h2>
+        <p style="color:var(--text-muted)">Groups multiple <code>:exec</code> methods from the same Query class into a single transaction. Use <code>@calls</code> to list the methods to call in sequence. Requires <code>@group</code> since there is no SQL to infer the group from.</p>
+
+        <pre><code class="language-sql">-- @name DebitAccount
+-- @group Account
+-- @returns :exec
+UPDATE accounts SET balance = balance - :amount WHERE id = :accountId;
+
+-- @name CreditAccount
+-- @group Account
+-- @returns :exec
+UPDATE accounts SET balance = balance + :amount WHERE id = :accountId;
+
+-- @name TransferFunds
+-- @group Account
+-- @returns :transaction
+-- @calls debitAccount,creditAccount</code></pre>
+
+        <p style="color:var(--text-muted)">Generated transaction method:</p>
+        <pre><code class="language-php">public function transferFunds(): void
+{
+    $this->pdo->beginTransaction();
+    try {
+        $this->debitAccount();
+        $this->creditAccount();
+        $this->pdo->commit();
+    } catch (\Throwable $e) {
+        $this->pdo->rollBack();
+        throw $e;
+    }
+}</code></pre>
+
+        <h3>Passing parameters to called methods</h3>
+        <p style="color:var(--text-muted)">If the <code>:transaction</code> method declares params via <code>@param</code>, they are forwarded to all callee methods:</p>
+        <pre><code class="language-sql">-- @name TransferFunds
+-- @group Account
+-- @returns :transaction
+-- @param amount accounts.balance
+-- @param accountId accounts.id
+-- @calls debitAccount,creditAccount</code></pre>
+        <pre><code class="language-php">public function transferFunds(float $amount, int $accountId): void
+{
+    $this->pdo->beginTransaction();
+    try {
+        $this->debitAccount($amount, $accountId);
+        $this->creditAccount($amount, $accountId);
+        $this->pdo->commit();
+    } catch (\Throwable $e) {
+        $this->pdo->rollBack();
+        throw $e;
+    }
+}</code></pre>
       </section>
 
       <!-- IN CLAUSE -->
@@ -1872,7 +1981,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (510 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (573 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1883,6 +1992,38 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.4.0 — Watch mode</div>
+          <ul>
+            <li><strong><code>--watch</code> flag</strong> — starts a polling loop that regenerates automatically when any watched file changes (schema, queries, or <code>sqlc.yaml</code>). The watch list updates dynamically when the config changes.</li>
+            <li><strong><code>--interval=N</code></strong> — polling interval in milliseconds (default 500, minimum 100).</li>
+            <li><strong><code>Watcher</code> class</strong> — <code>src/Watcher.php</code> tracks files by <code>filemtime</code> with <code>clearstatcache()</code> on each poll. The watch list can be replaced at runtime via <code>setAll()</code>.</li>
+            <li><strong>CLI refactored</strong> — generation logic extracted into <code>runGeneration()</code> function shared by single-run and watch-loop modes.</li>
+            <li>16 new tests in <code>tests/WatcherTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.3.0</div>
+          <ul>
+            <li><strong><code>:batch</code></strong> — executes the same query N times in a single PDO transaction. Method accepts <code>array $rows</code>, returns <code>int</code> (rows processed). Rolls back on any failure.</li>
+            <li><strong><code>:transaction</code> + <code>@calls</code></strong> — groups multiple methods into a transaction method. Declare with <code>-- @calls method1,method2</code>. Requires <code>@group</code>.</li>
+            <li><strong>Prepared statement caching</strong> — opt-in via <code>prepared_statement_cache: true</code> in a target. Emits <code>$this->stmts[__FUNCTION__] ??= $pdo->prepare(...)</code> for all methods.</li>
+            <li><strong>Bug fixes</strong>: <code>NULL AS alias</code> → <code>mixed</code>; subquery in SELECT emits warning; virtual table JOIN aliases resolve correctly.</li>
+            <li>26 new tests in <code>tests/NewFeaturesV23Test.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.2.0</div>
+          <ul>
+            <li><strong><code>@dto ClassName</code></strong> — overrides the auto-generated <code>{QueryName}Row</code> DTO class name. Multiple queries can share the same <code>@dto</code> name when their column shapes match. A warning is emitted on shape mismatch.</li>
+            <li><strong><code>@column originalName alias</code></strong> — renames a result column in the generated DTO without adding <code>AS</code> to the SQL. Works on <code>SELECT *</code>, JOIN, and aggregate queries.</li>
+            <li><strong><code>Version::VERSION</code> and <code>--version</code> flag</strong> — <code>src/Version.php</code> is the single source of truth for the project version. <code>php vendor/bin/sqlc-php --version</code> prints the version banner and exits.</li>
+            <li>21 new tests in <code>tests/NewFeaturesV22Test.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.1.1 — Bug fixes and DateTimeImmutable</div>

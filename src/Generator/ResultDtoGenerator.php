@@ -27,7 +27,7 @@ class ResultDtoGenerator
 
     public function dtoClassName(QueryDefinition $query): string
     {
-        return ucfirst($query->name) . 'Row';
+        return $query->dtoClassName ?? ucfirst($query->name) . 'Row';
     }
 
     /**

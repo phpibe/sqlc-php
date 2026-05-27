@@ -36,10 +36,13 @@ composer require phpibe/sqlc-php
 Then run the CLI from your project root:
 
 ```bash
-php ./vendor/bin/sqlc-php sqlc.yaml            # generate files
-php ./vendor/bin/sqlc-php --dry-run sqlc.yaml  # preview without writing
-php ./vendor/bin/sqlc-php --diff    sqlc.yaml  # show what would change
-php ./vendor/bin/sqlc-php --verify  sqlc.yaml  # CI check — exit 1 if stale
+php ./vendor/bin/sqlc-php sqlc.yaml                      # generate files
+php ./vendor/bin/sqlc-php --dry-run  sqlc.yaml           # preview without writing
+php ./vendor/bin/sqlc-php --diff     sqlc.yaml           # show what would change
+php ./vendor/bin/sqlc-php --verify   sqlc.yaml           # CI check — exit 1 if stale
+php ./vendor/bin/sqlc-php --watch    sqlc.yaml           # watch for changes, auto-regenerate
+php ./vendor/bin/sqlc-php --watch --interval=250 sqlc.yaml  # custom poll interval (ms)
+php ./vendor/bin/sqlc-php --version                      # print version and exit
 ```
 
 ---
@@ -352,6 +355,9 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 -- @deprecated reason           optional — marks the generated method as @deprecated
 -- @nillable columnAlias        optional — forces a result column to be nullable in the DTO
 -- @embed    ClassName prefix_  optional — groups prefixed columns into a nested object
+-- @dto      ClassName          optional — overrides the auto-generated DTO class name
+-- @column   originalName alias optional — renames a result column in the DTO without SQL AS
+-- @calls    method1,method2    optional — used with :transaction to list methods to call
 ```
 
 ### Return type semantics
@@ -363,6 +369,8 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 | `:one` | `ModelClass` | Returns the object; **throws `RuntimeException`** if no row found |
 | `:opt` | `ModelClass\|null` | Returns the object or `null` if no row found |
 | `:exec` | `void` | Executes the statement (INSERT, UPDATE, DELETE) |
+| `:batch` | `int` | Executes the same INSERT/UPDATE N times in a transaction; returns row count |
+| `:transaction` | `void` | Runs multiple `@calls` methods sequentially in one transaction |
 
 ---
 
@@ -637,6 +645,69 @@ SELECT users.* FROM users WHERE id NOT IN (:excludedIds);
 
 ```php
 public function excludeIds(array $excludedIds): array
+```
+
+---
+
+### :batch — bulk operations in a transaction
+
+Executes the same INSERT or UPDATE query N times inside a single PDO transaction. Rolls back and re-throws on any failure.
+
+```sql
+-- @name InsertUsers
+-- @group User
+-- @returns :batch
+INSERT INTO users (email, username) VALUES (:email, :username);
+```
+
+```php
+$count = $userQuery->insertUsers([
+    ['email' => 'alice@example.com', 'username' => 'alice'],
+    ['email' => 'bob@example.com',   'username' => 'bob'],
+]);
+// → int (number of rows processed)
+```
+
+The statement is prepared once and reused for every row. An empty `$rows` array returns `0` without opening a transaction.
+
+---
+
+### :transaction — multi-method transactions
+
+Groups multiple `:exec` methods from the same Query class into a single transaction via `@calls`. Requires `@group` since there is no SQL to infer the group from.
+
+```sql
+-- @name TransferFunds
+-- @group Account
+-- @returns :transaction
+-- @calls debitAccount,creditAccount
+```
+
+```php
+// Wraps $this->debitAccount() and $this->creditAccount() in beginTransaction/commit/rollBack
+public function transferFunds(): void { ... }
+```
+
+If the `:transaction` method has `@param` declarations, they are forwarded to all callee methods.
+
+---
+
+### Prepared statement caching
+
+Opt-in per target. Caches PDOStatement objects to avoid re-preparing the same SQL on every call — especially useful in loops.
+
+```yaml
+targets:
+  - namespace: "App\\Database"
+    out: generated
+    queries: queries.sql
+    prepared_statement_cache: true
+```
+
+With caching enabled, the generated class includes `private array $stmts = []` and every method uses:
+
+```php
+$stmt = $this->stmts[__FUNCTION__] ??= $this->pdo->prepare('SELECT ...');
 ```
 
 ---
@@ -1441,7 +1512,7 @@ sqlc-php/
 │       ├── TypeMapperInterface.php     # Contract all engine mappers must implement
 │       ├── TypeMapperFactory.php       # Resolves mapper by engine (mysql → MySQLTypeMapper)
 │       └── MySQLTypeMapper.php         # MySQL: SQL types → PHP types + PDO constants
-├── tests/                              # PHPUnit test suite (510 tests)
+├── tests/                              # PHPUnit test suite (573 tests)
 ├── sqlc.yaml                           # Example configuration
 └── phpunit.xml                         # Test configuration
 ```
@@ -1449,6 +1520,34 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.4.0] — Watch mode
+
+- **`--watch` flag** — starts a file-system polling loop that regenerates automatically when any watched file changes. Watched files include `sqlc.yaml`, all `schema:` files, and all `queries:` files from every target. On config change the watch list is updated automatically to reflect new files.
+- **`--interval=N`** — set the polling interval in milliseconds (default: 500ms, minimum: 100ms). Example: `--watch --interval=250`.
+- **`Watcher` class** — `src/Watcher.php` tracks files by `filemtime` and returns changed paths on each `poll()` call. The watch list can be replaced at runtime via `setAll()` to adapt to config changes.
+- **`runGeneration()` function** — the CLI generation logic was refactored into a top-level `runGeneration(configPath, verifyMode, dryRun, diffMode, silent)` function, enabling both single-run and watch-loop invocation without code duplication.
+- **`--watch` cannot be combined with `--verify`, `--dry-run`, or `--diff`** — attempting this prints an error and exits 1.
+- 16 new tests in `tests/WatcherTest.php`.
+
+### [2.3.0]
+
+- **`:batch` return type** — executes the same query N times inside a single PDO transaction with automatic rollback. The method accepts `array $rows`, binds each row's values, and returns `int` (affected row count). Throws `\Throwable` on failure and rolls back.
+- **`:transaction` return type** — groups multiple `:exec` calls from the same Query class into a single transaction method. Declare with `@calls method1,method2` to specify which methods to call in sequence. Requires `@group` annotation.
+- **`@calls` annotation** — companion to `:transaction`. Lists the method names to call in the transaction, comma-separated.
+- **Prepared statement caching** — opt-in per target via `prepared_statement_cache: true` in `sqlc.yaml`. Generates a `private array $stmts = []` property and uses `$this->stmts[__FUNCTION__] ??= $this->pdo->prepare(...)` for all non-IN-list methods.
+- **`INSERT INTO` group inference** — `extractFromTable` now recognises `INSERT INTO table` for `:batch` queries, enabling automatic `@group` inference from the INSERT target table.
+- **`NULL` literal → `mixed`** — `NULL AS alias` in SELECT is now correctly handled in `ExpressionTypeResolver` instead of falling through to the default.
+- **Subquery in FROM emits warning** — `(SELECT ...)` in a SELECT expression now writes a warning to stderr instead of silently returning `mixed`.
+- **Virtual table JOIN alias resolution** — columns from virtual tables accessed via aliases (`vs.order_count` where `vs` → `user_summary`) now resolve to the correct type. The `QueryAnalyzer` receives the `SchemaCatalog` to look up virtual table columns via alias.
+- 26 new tests in `tests/NewFeaturesV23Test.php`.
+
+### [2.2.0]
+
+- **`@dto ClassName`** — overrides the auto-generated `{QueryName}Row` DTO class name. Multiple queries can share the same `@dto` name if their column shapes match. A warning is emitted when two queries with different shapes declare the same `@dto` name.
+- **`@column originalName alias`** — renames a result column in the generated DTO without adding `AS` to the SQL. Works on `SELECT *` queries (forces a custom DTO), JOIN queries, and aggregate queries. Multiple `@column` annotations can be stacked.
+- **`Version::VERSION` and `--version` flag** — `src/Version.php` is the single source of truth for the project version. `php vendor/bin/sqlc-php --version` (or `-v`) prints the version and exits.
+- 21 new tests in `tests/NewFeaturesV22Test.php`.
 
 ### [2.1.1] — Bug fixes and DateTimeImmutable
 

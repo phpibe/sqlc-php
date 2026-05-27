@@ -234,18 +234,37 @@ class OptionalParamTest extends TestCase
         $this->assertStringContainsString('Pass null to skip this filter', $code);
     }
 
-    public function test_analyzer_throws_when_optional_used_with_join(): void
+    public function test_analyzer_allows_optional_with_join_when_param_in_where(): void
     {
+        // The fix: JOIN + WHERE-only @optional is now allowed
+        // :status is in WHERE, not in ON — safe to rewrite
+        $code = $this->generate(<<<SQL
+            -- @name SearchWithRole
+            -- @returns :many
+            -- @optional status
+            SELECT users.id, users.email FROM users
+            INNER JOIN roles ON roles.id = users.role_id
+            WHERE users.status = :status;
+        SQL);
+
+        $this->assertStringContainsString(':status IS NULL OR', $code);
+        $this->assertStringContainsString('ON roles.id = users.role_id', $code);
+    }
+
+    public function test_analyzer_throws_when_optional_param_in_on_clause(): void
+    {
+        // :roleId in the ON condition is before the WHERE clause — unsafe
+        // The analyzer's assertOptionalInWhereContext catches this first
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/JOIN/');
+        $this->expectExceptionMessageMatches('/appears before the WHERE clause/');
 
         $this->analyze(<<<SQL
             -- @name SearchWithRole
             -- @returns :many
-            -- @optional status
-            SELECT users.* FROM users
-            INNER JOIN roles ON roles.id = users.role_id
-            WHERE users.status = :status;
+            -- @optional roleId
+            SELECT users.id FROM users
+            LEFT JOIN roles ON roles.id = :roleId
+            WHERE users.active = 1;
         SQL);
     }
 
@@ -282,15 +301,16 @@ class OptionalParamTest extends TestCase
     public function test_analyzer_error_message_contains_query_name(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches("/Query 'searchWithRole'/");
+        $this->expectExceptionMessageMatches("/Query 'searchWithRole'/i");
 
+        // :roleId in ON → triggers the error; query name should appear in message
         $this->analyze(<<<SQL
             -- @name SearchWithRole
             -- @returns :many
-            -- @optional status
-            SELECT users.* FROM users
-            INNER JOIN roles ON roles.id = users.role_id
-            WHERE users.status = :status;
+            -- @optional roleId
+            SELECT users.id FROM users
+            LEFT JOIN roles ON roles.id = :roleId
+            WHERE users.active = 1;
         SQL);
     }
 

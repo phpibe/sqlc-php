@@ -115,6 +115,14 @@ class QueryAnalyzer
             }, $resultColumns);
         }
 
+        // Validate @counted: only valid on :many-paginated
+        if ($query->counted && $query->returns !== ReturnType::ManyPaginated) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @counted is only valid on :many-paginated queries. " .
+                "Got: {$query->returns->value}"
+            );
+        }
+
         return new QueryDefinition(
             name:                 $query->name,
             group:                $query->group,
@@ -132,6 +140,7 @@ class QueryAnalyzer
             embeds:               $query->embeds,
             dtoClassName:         $query->dtoClassName,
             columnAliases:        $query->columnAliases,
+            counted:              $query->counted,
         );
     }
 

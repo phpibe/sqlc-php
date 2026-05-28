@@ -80,6 +80,13 @@ class QueryDefinition
          * @var array<string, string>  originalName → alias
          */
         public readonly array      $columnAliases = [],
+        /**
+         * When true, an additional {name}Count() method is generated alongside
+         * the :many-paginated method. The count method wraps the original SQL in
+         * a SELECT COUNT(*) FROM (...) AS _count_subquery and returns int.
+         * Only valid on :many-paginated queries.
+         */
+        public readonly bool       $counted = false,
     ) {}
 }
 
@@ -139,6 +146,7 @@ class QueryParser
         $deprecated       = null;
         $embeds           = [];
         $dtoClassName     = null;
+        $counted          = false;
         $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
@@ -164,6 +172,8 @@ class QueryParser
                     $deprecated = isset($m[1]) ? trim($m[1]) : '';
                 } elseif (preg_match('/@dto\s+(\w+)/i', $comment, $m)) {
                     $dtoClassName = $m[1];
+                } elseif (preg_match('/^@counted\b/i', $comment)) {
+                    $counted = true;
                 } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
                     // @calls query1,query2,query3 — used by :transaction
                     // Store as the SQL body so the generator can retrieve it
@@ -241,6 +251,7 @@ class QueryParser
             embeds:           $embeds,
             dtoClassName:     $dtoClassName,
             columnAliases:    $columnAliases,
+            counted:          $counted,
         );
     }
     private function extractFromTable(string $sql): ?string

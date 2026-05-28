@@ -116,7 +116,7 @@ PHP;
 
     private function renderMethod(QueryDefinition $query): string
     {
-        return match ($query->returns->value) {
+        $main = match ($query->returns->value) {
             ':many'           => $this->renderManyMethod($query),
             ':many-paginated' => $this->renderManyPaginatedMethod($query),
             ':one'            => $this->renderOneMethod($query),
@@ -126,6 +126,13 @@ PHP;
             ':transaction'    => $this->renderTransactionMethod($query),
             default           => $this->renderManyMethod($query),
         };
+
+        // @counted on :many-paginated — emit an additional {name}Count() method
+        if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
+            $main .= "\n\n" . $this->renderCountMethod($query);
+        }
+
+        return $main;
     }
 
     /**
@@ -208,6 +215,58 @@ PHP;
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
             \$stmt->fetchAll(PDO::FETCH_ASSOC),
         );
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // @counted — companion COUNT method for :many-paginated
+    // -------------------------------------------------------------------------
+
+    /**
+     * Generates a {name}Count() method that returns the total number of rows
+     * matching the query's WHERE conditions — without LIMIT/OFFSET applied.
+     *
+     * SQL: SELECT COUNT(*) AS _total FROM (<original_sql>) AS _count_subquery
+     *
+     * The method signature mirrors the main :many-paginated method but without
+     * the $limit and $offset parameters, since those don't affect the total count.
+     */
+    private function renderCountMethod(QueryDefinition $query): string
+    {
+        // Signature: same user params as the main method, no $limit/$offset
+        $userParams = $this->buildParamList($query);
+        $countName  = $query->name . 'Count';
+        $signature  = "{$countName}({$userParams}): int";
+
+        $docblock = $this->buildDocblock($query, '@return int Total number of rows matching the filter conditions.');
+
+        // The SQL for the count wraps the original (already @optional-rewritten) SQL.
+        // We must NOT include LIMIT/OFFSET — the :many-paginated renderer injects those
+        // into the prepared statement separately; they never appear in $query->sql.
+        // Wrapping in a subquery correctly handles GROUP BY, HAVING, and DISTINCT.
+        $innerSql   = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
+        $innerSql   = rtrim($innerSql, ';');
+        $countSql   = "SELECT COUNT(*) AS _total FROM ({$innerSql}) AS _count_subquery";
+        $sqlLiteral = $this->renderSqlLiteral($countSql);
+
+        // Bindings: same as the main method but without :limit/:offset
+        // renderBindings only emits the user-defined params — limit/offset are
+        // bound separately in renderManyPaginatedMethod, so we get exactly what we need.
+        $bindings = $this->renderBindings($query);
+
+        $prepare = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+
+        return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+{$prepare}{$bindings}        \$stmt->execute();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
     }
 PHP;
     }
@@ -342,6 +401,8 @@ PHP;
     /**
      * Build a PHP parameter list from resolved QueryParams.
      * Optional params receive a `= null` default value.
+     * For :many-paginated queries, :limit and :offset are auto-injected by the
+     * generator and must not appear in the user-facing parameter list.
      */
     private function buildParamList(QueryDefinition $query): string
     {
@@ -350,9 +411,15 @@ PHP;
         $required = [];
         $optional = [];
 
+        // :limit and :offset are auto-injected for :many-paginated — skip them here
+        $isPaginated    = $query->returns->value === ':many-paginated';
+        $paginationKeys = ['limit', 'offset'];
+
         foreach ($query->params as $param) {
+            if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
+                continue;
+            }
             if ($param->inList) {
-                // IN(:param) → array $param  (always required, never optional)
                 $required[] = "array \${$param->name}";
             } elseif ($param->optional) {
                 $type       = str_starts_with($param->phpType, '?')
@@ -380,6 +447,11 @@ PHP;
         }
 
         foreach ($query->params as $param) {
+            // Skip auto-injected pagination params for :many-paginated
+            if ($query->returns->value === ':many-paginated'
+                && in_array($param->name, ['limit', 'offset'], true)) {
+                continue;
+            }
             if ($param->inList) {
                 $base     = ltrim($param->phpType, '?');
                 $lines[]  = "     * @param {$base}[] \${$param->name} List of values for IN() clause — must be non-empty.";
@@ -453,17 +525,24 @@ PHP;
             // Standard path: bindValue only
             if (empty($regularParams)) return '';
             $lines = [];
+
+            // For :many-paginated, :limit and :offset are bound separately in the
+            // main render method — skip them here so they don't double-bind and
+            // so the count method doesn't bind them at all.
+            $isPaginated    = $query->returns->value === ':many-paginated';
+            $paginationKeys = ['limit', 'offset'];
+
             foreach ($regularParams as $param) {
+                if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
+                    continue;
+                }
                 $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
-                // @optional params produce (:name_chk IS NULL OR col OP :name) in SQL.
-                // PDO native mode rejects duplicate named params, so we use a separate
-                // token :name_chk for the IS NULL check and bind it to the same value.
                 if ($param->optional) {
                     $chk = $param->name . '_chk';
                     $lines[] = "        \$stmt->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
                 }
             }
-            return implode("\n", $lines) . "\n";
+            return empty($lines) ? '' : implode("\n", $lines) . "\n";
         }
 
         // Has IN params — expand placeholders at runtime
@@ -484,8 +563,14 @@ PHP;
 
         $lines[] = '        $stmt = $this->pdo->prepare($__sql);';
 
-        // Bind regular named params
+        // Bind regular named params (excluding auto-injected limit/offset for paginated)
+        $isPaginated    = $query->returns->value === ':many-paginated';
+        $paginationKeys = ['limit', 'offset'];
+
         foreach ($regularParams as $param) {
+            if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
+                continue;
+            }
             $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
             if ($param->optional) {
                 $chk = $param->name . '_chk';

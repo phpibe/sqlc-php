@@ -358,6 +358,7 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 -- @dto      ClassName          optional — overrides the auto-generated DTO class name
 -- @column   originalName alias optional — renames a result column in the DTO without SQL AS
 -- @calls    method1,method2    optional — used with :transaction to list methods to call
+-- @counted                     optional — generate companion {name}Count(): int method (only with :many-paginated)
 ```
 
 ### Return type semantics
@@ -1520,6 +1521,16 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.5.0] — @counted pagination
+
+- **`@counted` annotation** — adds an automatic `{name}Count(): int` companion method to any `:many-paginated` query. The count method wraps the original SQL in `SELECT COUNT(*) FROM (...) AS _count_subquery`, correctly handling `WHERE`, `GROUP BY`, `HAVING`, `JOIN`, and `@optional` params.
+- **No `$limit`/`$offset` in count signature** — the companion method accepts all user-defined WHERE params but not the pagination params, since they don't affect the total count.
+- **`@optional` + `@counted` works correctly** — the `_chk` tokens are bound in the count method as expected.
+- **Interface includes count method** — when `generate_interfaces: true`, the `*Interface` file declares both the main paginated method and the count method.
+- **`prepared_statement_cache: true` + `@counted`** — the count method also uses `$this->stmts[__FUNCTION__] ??=` caching.
+- **`$limit`/`$offset` filtered from `buildParamList`** — for `:many-paginated` queries, the auto-injected pagination params no longer appear in user-facing method signatures or docblocks. They were always bound separately, but were incorrectly included in `$query->params` after `ParamResolver` processed the rewritten SQL.
+- 25 new tests in `tests/CountedTest.php`.
 
 ### [2.4.0] — Watch mode
 

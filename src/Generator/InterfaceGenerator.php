@@ -87,10 +87,27 @@ PHP;
 
         $docblock = $this->buildDocblock($query, $queryGen);
 
-        return <<<PHP
+        $main = <<<PHP
 {$docblock}
     public function {$query->name}({$paramList}): {$returnType};
 PHP;
+
+        // @counted: emit companion {name}Count() signature in the interface
+        if ($query->counted && $query->returns->value === ':many-paginated') {
+            $countParamList = $queryGen->buildParamListPublic($query); // no limit/offset
+            $countName      = $query->name . 'Count';
+            $main .= <<<PHP
+
+
+    /**
+     * Returns the total number of rows matching the filter conditions (without pagination).
+     * @return int
+     */
+    public function {$countName}({$countParamList}): int;
+PHP;
+        }
+
+        return $main;
     }
 
     private function buildDocblock(QueryDefinition $query, QueryGenerator $queryGen): string

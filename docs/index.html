@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.4.4</span>
+    <span class="badge-version">v2.5.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1019,7 +1019,8 @@ targets:
 -- @embed   ClassName prefix_   optional — groups prefixed columns into a nested object
 -- @dto     ClassName          optional — overrides the auto-generated DTO class name
 -- @column  originalName alias  optional — renames a result column without SQL AS
--- @calls   method1,method2    optional — used with :transaction to list methods to call</code></pre>
+-- @calls   method1,method2    optional — used with :transaction to list methods to call
+-- @counted                    optional — generate companion {name}Count(): int method (:many-paginated only)</code></pre>
 
         <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
           <span class="annotation ann-required">@name</span> <small style="color:var(--text-muted)">required</small>
@@ -1032,6 +1033,7 @@ targets:
           <span class="annotation ann-optional">@embed</span>
           <span class="annotation ann-optional">@dto</span>
           <span class="annotation ann-optional">@column</span>
+          <span class="annotation ann-optional">@counted</span>
         </div>
       </section>
 
@@ -1981,7 +1983,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (573 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (612 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -1992,6 +1994,18 @@ declare(strict_types=1);
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.5.0 — @counted pagination</div>
+          <ul>
+            <li><strong><code>@counted</code> annotation</strong> — adds an automatic <code>{name}Count(): int</code> companion method to any <code>:many-paginated</code> query. Wraps the original SQL in <code>SELECT COUNT(*) FROM (...) AS _count_subquery</code>.</li>
+            <li><strong>No <code>$limit</code>/<code>$offset</code> in count signature</strong> — only user-defined WHERE params are included. Pagination params don't affect the total count.</li>
+            <li><strong>Works with <code>@optional</code></strong> — <code>_chk</code> tokens are bound correctly in the count method.</li>
+            <li><strong>Interface includes count method</strong> — <code>*Interface</code> declares both the paginated and count signatures.</li>
+            <li><strong>Fix: <code>$limit</code>/<code>$offset</code> no longer appear in user-facing signatures</strong> — they were incorrectly included in <code>$query->params</code> after <code>ParamResolver</code> processed the rewritten SQL.</li>
+            <li>25 new tests in <code>tests/CountedTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.4.0 — Watch mode</div>

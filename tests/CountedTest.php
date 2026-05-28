@@ -196,6 +196,24 @@ class CountedTest extends TestCase
         $this->assertStringContainsString(') AS _count_subquery', $code);
     }
 
+    public function test_count_sql_does_not_contain_limit_offset_literals(): void
+    {
+        // Regression: the analyzer injects LIMIT :limit OFFSET :offset into the SQL
+        // for :many-paginated queries. The count method must strip those before
+        // wrapping in a COUNT subquery — otherwise PDO throws HY093.
+        $code = $this->queryCode(
+            "-- @name ListUsers\n-- @counted\n-- @returns :many-paginated\nSELECT * FROM users;"
+        );
+
+        // Find the count method's prepared SQL literal
+        $countPos = strpos($code, 'function listUsersCount');
+        $this->assertNotFalse($countPos);
+        $countCode = substr($code, $countPos);
+
+        $this->assertStringNotContainsString('LIMIT :limit',  $countCode);
+        $this->assertStringNotContainsString('OFFSET :offset', $countCode);
+    }
+
     public function test_count_sql_contains_original_from_clause(): void
     {
         $code = $this->queryCode(

@@ -242,11 +242,13 @@ PHP;
         $docblock = $this->buildDocblock($query, '@return int Total number of rows matching the filter conditions.');
 
         // The SQL for the count wraps the original (already @optional-rewritten) SQL.
-        // We must NOT include LIMIT/OFFSET — the :many-paginated renderer injects those
-        // into the prepared statement separately; they never appear in $query->sql.
-        // Wrapping in a subquery correctly handles GROUP BY, HAVING, and DISTINCT.
-        $innerSql   = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
-        $innerSql   = rtrim($innerSql, ';');
+        // For :many-paginated, the analyzer appends LIMIT :limit OFFSET :offset to the SQL.
+        // We MUST strip those before wrapping — they are not bound in the count method
+        // and would cause PDO HY093 (invalid parameter number).
+        $innerSql = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
+        $innerSql = rtrim($innerSql, ';');
+        $innerSql = preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $innerSql);
+        $innerSql = rtrim($innerSql);
         $countSql   = "SELECT COUNT(*) AS _total FROM ({$innerSql}) AS _count_subquery";
         $sqlLiteral = $this->renderSqlLiteral($countSql);
 

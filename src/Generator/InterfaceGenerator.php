@@ -79,10 +79,10 @@ PHP;
         $returnType = $queryGen->resolveReturnTypePublic($query);
         $paramList  = $queryGen->buildParamListPublic($query);
 
-        // :many-paginated adds limit/offset at the end
+        // :many-paginated adds limit/offset at the end — nullable $limit
         if ($query->returns->value === ':many-paginated') {
             $sep       = $paramList !== '' ? ', ' : '';
-            $paramList = $paramList . $sep . 'int $limit = 20, int $offset = 0';
+            $paramList = $paramList . $sep . '?int $limit = null, int $offset = 0';
         }
 
         $docblock = $this->buildDocblock($query, $queryGen);

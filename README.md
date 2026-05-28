@@ -1522,6 +1522,15 @@ sqlc-php/
 
 ## Changelog
 
+### [2.5.2] — Optional pagination limit
+
+- **`:many-paginated` signature changed** — `$limit` is now `?int $limit = null` instead of `int $limit = 20`. Calling `->listUsers()` without arguments now returns **all rows** instead of the first 20. Pass a non-null `$limit` to activate pagination.
+- **Two code paths generated** — when `$limit === null`, the method prepares the SQL without `LIMIT`/`OFFSET` and skips those bindings. When `$limit !== null`, it prepares the SQL with `LIMIT :limit OFFSET :offset` and binds all three values. Both paths bind the same user-defined WHERE params.
+- **`prepared_statement_cache: true`** — each path uses a distinct cache key (`__FUNCTION__ . '_all'` and `__FUNCTION__ . '_page'`) to avoid caching the wrong statement.
+- **`@counted` unaffected** — the companion `{name}Count()` method never had `$limit`/`$offset` and continues to work correctly.
+- **Interface updated** — the `*Interface` method signature reflects `?int $limit = null`.
+- 19 new tests in `tests/OptionalPaginationTest.php`.
+
 ### [2.5.0] — @counted pagination
 
 - **`@counted` annotation** — adds an automatic `{name}Count(): int` companion method to any `:many-paginated` query. The count method wraps the original SQL in `SELECT COUNT(*) FROM (...) AS _count_subquery`, correctly handling `WHERE`, `GROUP BY`, `HAVING`, `JOIN`, and `@optional` params.

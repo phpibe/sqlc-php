@@ -185,30 +185,55 @@ PHP;
     {
         $returnClass = $this->resolveReturnClass($query);
 
-        // Build param list: user-defined params first, then limit/offset at the end
+        // $limit is nullable: null → no LIMIT applied, all rows returned.
+        // $offset without $limit throws at runtime (meaningless without a limit).
         $userParams  = $this->buildParamList($query);
         $paginParams = $userParams !== ''
-            ? ", int \$limit = 20, int \$offset = 0"
-            : "int \$limit = 20, int \$offset = 0";
+            ? ", ?int \$limit = null, int \$offset = 0"
+            : "?int \$limit = null, int \$offset = 0";
 
-        $signature  = "{$query->name}({$userParams}{$paginParams}): array";
+        $signature = "{$query->name}({$userParams}{$paginParams}): array";
 
-        $docReturn  = "@return {$returnClass}[]";
-        $docblock   = $this->buildDocblockWithExtra($query, $docReturn, [
-            "@param int \$limit  Maximum number of rows to return.",
-            "@param int \$offset Number of rows to skip.",
+        $docReturn = "@return {$returnClass}[]";
+        $docblock  = $this->buildDocblockWithExtra($query, $docReturn, [
+            "@param ?int \$limit  Maximum rows to return. Pass null (default) to return all rows.",
+            "@param int  \$offset Number of rows to skip. Ignored when \$limit is null.",
         ]);
 
-        $sqlLiteral = $this->renderSqlLiteral($query->sql);
-        $bindings   = $this->renderBindings($query);
+        // SQL without LIMIT/OFFSET (used when $limit is null)
+        $sqlNoLimit  = preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*;?\s*$/i', '', trim($query->sql));
+        $sqlNoLimit  = rtrim($sqlNoLimit, ';');
+        $sqlWithLimit = rtrim(trim($query->sql), ';');
+
+        $sqlNoLimitLiteral  = $this->renderSqlLiteral($sqlNoLimit);
+        $sqlWithLimitLiteral = $this->renderSqlLiteral($sqlWithLimit);
+
+        $bindings = $this->renderBindings($query);
+
+        // Cache keys differ to avoid caching the wrong statement when both
+        // code paths are used in the same request.
+        if ($this->preparedStatementCache) {
+            $prepareAll  = "        \$stmt = \$this->stmts[__FUNCTION__ . '_all']  ??= \$this->pdo->prepare({$sqlNoLimitLiteral});\n";
+            $preparePage = "        \$stmt = \$this->stmts[__FUNCTION__ . '_page'] ??= \$this->pdo->prepare({$sqlWithLimitLiteral});\n";
+        } else {
+            $prepareAll  = "        \$stmt = \$this->pdo->prepare({$sqlNoLimitLiteral});\n";
+            $preparePage = "        \$stmt = \$this->pdo->prepare({$sqlWithLimitLiteral});\n";
+        }
+
+        // Build the paginated bindings block (user params + :limit + :offset)
+        $bindingsStr = rtrim($bindings);
+        $bindAllBlock = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindPageBlock = $bindAllBlock .
+            "        \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);\n" .
+            "        \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);\n";
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        \$stmt = \$this->pdo->prepare({$sqlLiteral});
-{$bindings}        \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
-        \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
+        if (\$limit === null) {
+{$prepareAll}{$bindAllBlock}        } else {
+{$preparePage}{$bindPageBlock}        }
         \$stmt->execute();
 
         return array_map(

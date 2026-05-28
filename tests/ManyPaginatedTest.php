@@ -98,15 +98,15 @@ class ManyPaginatedTest extends TestCase
     // Generator
     // -------------------------------------------------------------------------
 
-    public function test_generated_method_has_limit_and_offset_params(): void
+    public function test_generated_method_has_nullable_limit_and_offset_params(): void
     {
         $queries = $this->analyze(
             "-- @name ListUsers\n-- @returns :many-paginated\nSELECT users.* FROM users;"
         );
         $code = $this->queryGen->generate($queries)['UserQuery']['code'];
 
-        $this->assertStringContainsString('int $limit = 20',  $code);
-        $this->assertStringContainsString('int $offset = 0',  $code);
+        $this->assertStringContainsString('?int $limit = null', $code);
+        $this->assertStringContainsString('int $offset = 0',    $code);
     }
 
     public function test_generated_method_binds_limit_and_offset(): void
@@ -139,8 +139,8 @@ class ManyPaginatedTest extends TestCase
         );
         $code = $this->queryGen->generate($queries)['UserQuery']['code'];
 
-        $this->assertStringContainsString('@param int $limit',  $code);
-        $this->assertStringContainsString('@param int $offset', $code);
+        $this->assertStringContainsString('@param ?int $limit',  $code);
+        $this->assertStringContainsString('@param int  $offset', $code);
     }
 
     public function test_user_params_appear_before_limit_and_offset(): void

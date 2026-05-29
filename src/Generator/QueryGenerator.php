@@ -23,6 +23,7 @@ class QueryGenerator
         private readonly bool               $generateInterfaces     = false,
         private readonly ?InterfaceGenerator $interfaceGen          = null,
         private readonly bool               $preparedStatementCache = false,
+        private readonly string             $classSuffix            = 'Query',
     ) {}
 
     /**
@@ -38,7 +39,7 @@ class QueryGenerator
 
         $files = [];
         foreach ($groups as $group => $groupQueries) {
-            $className = $group . 'Query';
+            $className = $group . $this->classSuffix;
             $code = $this->renderClass($className, $groupQueries);
             $files[$className] = ['className' => $className, 'code' => $code];
         }
@@ -66,7 +67,7 @@ class QueryGenerator
 
         $files = [];
         foreach ($groups as $group => $groupQueries) {
-            $queryClassName = $group . 'Query';
+            $queryClassName = $group . $this->classSuffix;
             ['className' => $cls, 'code' => $code] =
                 $this->interfaceGen->generate($queryClassName, $groupQueries, $this);
             $files[$cls] = ['className' => $cls, 'code' => $code];

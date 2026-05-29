@@ -176,6 +176,7 @@ function runGeneration(
             $catalog, $typeMapper, $resultDtoGen, $target->namespace,
             $target->generateInterfaces, $interfaceGen,
             $target->preparedStatementCache,
+            $target->classSuffix,
         );
         $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $target->namespace);
 

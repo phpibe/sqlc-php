@@ -53,6 +53,14 @@ readonly class Target
          * Default: false.
          */
         public bool   $preparedStatementCache = false,
+        /**
+         * Suffix appended to the generated Query/Repository class name.
+         * Default: 'Query'  → UserQuery, OrderQuery, …
+         * Example: 'Repository' → UserRepository, OrderRepository, …
+         * Can also be set globally in sqlc.yaml under class_suffix:
+         * and overridden per target.
+         */
+        public string $classSuffix = 'Query',
     ) {}
 
     /**
@@ -63,9 +71,10 @@ readonly class Target
      */
     public static function fromArray(
         array  $data,
-        array  $globalOverrides = [],
-        string $globalEngine    = 'mysql',
-        string $globalLanguage  = 'english',
+        array  $globalOverrides  = [],
+        string $globalEngine     = 'mysql',
+        string $globalLanguage   = 'english',
+        string $globalClassSuffix = 'Query',
     ): self {
         $rawQueries = $data['queries'] ?? [];
         $queries    = is_array($rawQueries)
@@ -96,6 +105,7 @@ readonly class Target
             engine:                strtolower((string) ($data['engine']   ?? $globalEngine)),
             language:              strtolower((string) ($data['language'] ?? $globalLanguage)),
             preparedStatementCache: filter_var($data['prepared_statement_cache'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            classSuffix:           (string) ($data['class_suffix'] ?? $globalClassSuffix),
         );
     }
 }

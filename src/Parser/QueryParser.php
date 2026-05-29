@@ -158,8 +158,17 @@ class QueryParser
 
                 if (preg_match('/@name\s+(\w+)/i', $comment, $m)) {
                     $name = $m[1];
+                } elseif (preg_match('/@class\s+(\w+)/i', $comment, $m)) {
+                    // @class is the canonical annotation — @group is deprecated
+                    $group ??= $m[1];
                 } elseif (preg_match('/@group\s+(\w+)/i', $comment, $m)) {
-                    $group ??= $m[1];   // first @group wins; subsequent ones are ignored
+                    // @group is deprecated in favour of @class — emit a stderr warning
+                    // but continue normally so existing configs keep working.
+                    fwrite(STDERR,
+                        "sqlc-php: @group is deprecated, use @class instead " .
+                        "(query: '{$name}').\n"
+                    );
+                    $group ??= $m[1];
                 } elseif (preg_match('/@returns\s+(:[a-z-]+)/i', $comment, $m)) {
                     $returns = ReturnType::from($m[1]);
                 } elseif (preg_match('/@param\s+(\w+)\s+([\w.]+)/i', $comment, $m)) {

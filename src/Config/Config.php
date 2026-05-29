@@ -70,6 +70,12 @@ class Config
          * @var \SqlcPhp\Parser\TableDefinition[]
          */
         public readonly array  $virtualTables = [],
+        /**
+         * Global class suffix for generated Query classes.
+         * Default: 'Query'  → UserQuery, OrderQuery
+         * Can be overridden per target via class_suffix: in the target block.
+         */
+        public readonly string $classSuffix   = 'Query',
     ) {}
 
     public static function fromFile(string $path): self
@@ -94,8 +100,9 @@ class Config
             : [(string) $rawSchema];
 
         // Scalar globals — includes cannot override these
-        $globalEngine   = strtolower((string) ($data['engine']   ?? 'mysql'));
-        $globalLanguage = strtolower((string) ($data['language'] ?? 'english'));
+        $globalEngine       = strtolower((string) ($data['engine']       ?? 'mysql'));
+        $globalLanguage     = strtolower((string) ($data['language']     ?? 'english'));
+        $globalClassSuffix  = (string)            ($data['class_suffix'] ?? 'Query');
 
         // Load includes first — main file values are merged on top
         $includeData = self::loadIncludes(
@@ -137,6 +144,7 @@ class Config
                 $globalOverrides,
                 $globalEngine,
                 $globalLanguage,
+                $globalClassSuffix,
             );
         }
 
@@ -154,6 +162,7 @@ class Config
             language:      $globalLanguage,
             targets:       $targets,
             virtualTables: $virtualTables,
+            classSuffix:   $globalClassSuffix,
         );
     }
 

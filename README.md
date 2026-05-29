@@ -359,6 +359,8 @@ Every query must have at minimum a `@name` and a `@returns` annotation, written 
 -- @column   originalName alias optional — renames a result column in the DTO without SQL AS
 -- @calls    method1,method2    optional — used with :transaction to list methods to call
 -- @counted                     optional — generate companion {name}Count(): int method (only with :many-paginated)
+-- @class    ClassName          sets the PHP class name (canonical, replaces @group)
+-- @group    ClassName          deprecated — use @class instead (still works, emits a warning)
 ```
 
 ### Return type semantics
@@ -1521,6 +1523,35 @@ sqlc-php/
 ---
 
 ## Changelog
+
+### [2.5.3] — @class annotation and class_suffix
+
+- **`@class ClassName`** — new canonical annotation, replaces `@group`. Functionally identical: sets the PHP class name for the generated Query/Repository/… class. Using `@class` emits no warnings.
+- **`@group` is deprecated** — still works for backward compatibility, but emits a warning to stderr: `@group is deprecated, use @class instead`. No behavior change.
+- **`class_suffix` config option** — global or per-target option that controls the suffix appended to generated class names. Default: `Query`. Examples: `Repository` → `UserRepository`, `Service` → `UserService`.
+
+```yaml
+# Global — all targets use this suffix
+class_suffix: Repository
+
+targets:
+  - namespace: "App\\Database"
+    out: generated
+    queries: queries.sql
+    # class_suffix: Service   ← override per-target
+```
+
+```sql
+-- @name GetUser
+-- @class User          ← new canonical annotation (replaces @group)
+-- @returns :one
+SELECT * FROM users WHERE id = :id;
+```
+
+Generated: `UserRepository.php` with `class UserRepository` (and `UserRepositoryInterface` if `generate_interfaces: true`).
+
+- **`@class` and `@group` both work together** — if both are declared, the first one wins (standard behavior).
+- 22 new tests in `tests/ClassAnnotationTest.php`.
 
 ### [2.5.2] — Optional pagination limit
 

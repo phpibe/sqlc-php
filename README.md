@@ -1,4 +1,4 @@
-# sqlc-php
+# sqlc-php | https://phpibe.github.io/sqlc-php
 
 A PHP code generator inspired by [sqlc](https://sqlc.dev) for Go. It reads your SQL schema and annotated query files, and generates fully-typed PHP 8.4 classes that use PDO under the hood — no ORM, no magic, just plain objects derived directly from your database.
 

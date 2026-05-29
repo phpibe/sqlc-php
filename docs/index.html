@@ -1,6 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-2DH4FKSCD7"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+
+    gtag('config', 'G-2DH4FKSCD7');
+  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>sqlc-php — Documentation</title>
@@ -573,6 +582,7 @@
       <a class="sidebar-link" href="#virtual-tables"><i class="bi bi-table"></i> virtual_tables</a>
       <a class="sidebar-link" href="#includes"><i class="bi bi-file-earmark-plus"></i> includes</a>
       <a class="sidebar-link" href="#language"><i class="bi bi-translate"></i> Inflection language</a>
+      <a class="sidebar-link" href="#class-suffix"><i class="bi bi-type"></i> class_suffix</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
       <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
     </div>
@@ -708,8 +718,10 @@ schema:
   - database/schema/orders.sql
 
 # Global defaults — inherited by all targets unless overridden locally
-engine:   mysql    # database engine (mysql supported; postgres planned for v1.7.0)
-language: english  # english | spanish | french | portuguese | norwegian-bokmal | turkish
+engine:      mysql    # database engine (mysql supported; postgres planned for v1.7.0)
+language:    english  # english | spanish | french | portuguese | norwegian-bokmal | turkish
+class_suffix: Query   # suffix for generated class names (default: Query → UserQuery)
+                      # example: Repository → UserRepository, Service → UserService
 
 # Global type overrides — applied to all targets
 type_overrides:
@@ -729,6 +741,7 @@ targets:
     # generate_interfaces: true   ← default, omit unless you want false
     # engine:   mysql             ← override global engine for this target
     # language: spanish           ← override global language for this target
+    # class_suffix: Repository    ← override suffix for this target only
     # prepared_statement_cache: false  ← set true to cache PDOStatements across calls</code></pre>
 
         <h3>Minimal single-target config</h3>
@@ -928,6 +941,58 @@ targets:
         <div class="callout callout-tip">
           <i class="bi bi-lightbulb callout-icon"></i>
           If <code>doctrine/inflector</code> is not installed, <code>InflectorService</code> falls back to a built-in English rule set silently — no exceptions are thrown. Install via <code>composer require doctrine/inflector</code> or <code>apt install php-doctrine-inflector</code>.
+        </div>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          The <code>@class</code> annotation sets the group name for a query and takes precedence over the inferred name. <code>@group</code> is the deprecated predecessor — it still works but emits a warning.
+        </div>
+      </section>
+
+      <!-- CLASS SUFFIX -->
+      <section class="doc-section" id="class-suffix">
+        <h3>class_suffix — custom class name suffix</h3>
+        <p style="color:var(--text-muted)">By default, sqlc-php appends <code>Query</code> to the group name when generating class files: <code>UserQuery</code>, <code>OrderQuery</code>, etc. The <code>class_suffix</code> option lets you change this to any string — globally or per target.</p>
+
+        <pre><code class="language-yaml">version: "2"
+schema: schema.sql
+
+class_suffix: Repository   # global — all targets use this suffix
+
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:   queries.sql
+
+  - namespace: "App\\Admin"
+    out:       generated/admin
+    queries:   admin.sql
+    class_suffix: Service   # override for this target only</code></pre>
+
+        <p style="color:var(--text-muted)">Results:</p>
+
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead><tr><th>Group / @class</th><th>class_suffix</th><th>Generated class</th><th>Interface</th></tr></thead>
+            <tbody>
+              <tr><td><code>User</code></td><td><code>Query</code> (default)</td><td><code>UserQuery</code></td><td><code>UserQueryInterface</code></td></tr>
+              <tr><td><code>User</code></td><td><code>Repository</code></td><td><code>UserRepository</code></td><td><code>UserRepositoryInterface</code></td></tr>
+              <tr><td><code>User</code></td><td><code>Service</code></td><td><code>UserService</code></td><td><code>UserServiceInterface</code></td></tr>
+              <tr><td><code>BillingConfig</code></td><td><code>Repository</code></td><td><code>BillingConfigRepository</code></td><td><code>BillingConfigRepositoryInterface</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p style="color:var(--text-muted)">The suffix propagates consistently to the class declaration, the <code>implements</code> clause, and the interface file name. To use <code>class_suffix: Repository</code> with explicit group naming:</p>
+
+        <pre><code class="language-sql">-- @name GetUser
+-- @class User          &lt;-- sets the group (use @class, not @group)
+-- @returns :one
+SELECT * FROM users WHERE id = :id;</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          <strong><code>@class</code> vs <code>@group</code></strong> — <code>@class</code> is the current canonical annotation. <code>@group</code> still works but emits a deprecation warning to stderr. Both set the same value: the prefix used before <code>class_suffix</code>.
         </div>
       </section>
 

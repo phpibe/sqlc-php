@@ -190,9 +190,11 @@ class QueryParser
                 } elseif (preg_match('/@column\s+(\w+)\s+(\w+)/i', $comment, $m)) {
                     // @column originalName alias  — rename a result column in the DTO
                     $columnAliases[$m[1]] = $m[2];
-                } elseif (preg_match('/@embed\s+(\w+)\s+(\w+)/i', $comment, $m)) {
-                    // @embed ClassName prefix_  (trailing underscore optional)
-                    $prefix   = rtrim($m[2], '_') . '_';
+                } elseif (preg_match('/@embed\s+(\w+)\s+(\S+)/i', $comment, $m)) {
+                    // @embed ClassName prefix_  (trailing underscore optional, multiple allowed)
+                    // Normalise: if user wrote "country" add one underscore → "country_"
+                    //            if user wrote "country_" or "country__" → keep as-is
+                    $prefix   = str_ends_with($m[2], '_') ? $m[2] : $m[2] . '_';
                     $embeds[] = new EmbedDefinition(className: $m[1], prefix: $prefix);
                 } elseif (preg_match('/@embed\s+(\w+)\s*$/i', $comment, $m)) {
                     // @embed ClassName  — missing prefix → fatal error

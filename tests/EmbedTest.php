@@ -413,4 +413,78 @@ class EmbedTest extends TestCase
 
         $this->assertStringContainsString('GetUserWithRoleRow', $code);
     }
+
+    // =========================================================================
+    // Regression: prefix normalization
+    // =========================================================================
+
+    public function test_embed_double_underscore_prefix_preserved(): void
+    {
+        // Regression: @embed Country country__ was normalised to country_
+        // because rtrim($prefix, '_') . '_' stripped all trailing underscores.
+        $queries = $this->parser->parse(<<<SQL
+            -- @name List
+            -- @embed Country country__
+            -- @returns :many
+            SELECT c.name AS country__name, c.iso2 AS country__iso2
+            FROM users LEFT JOIN countries c ON c.id = users.country_id;
+        SQL);
+
+        $embed = $queries[0]->embeds[0];
+
+        $this->assertSame('country__', $embed->prefix);
+        $this->assertSame('country',   $embed->propertyName());
+        $this->assertSame('name',      $embed->stripPrefix('country__name'));
+        $this->assertSame('iso2',      $embed->stripPrefix('country__iso2'));
+    }
+
+    public function test_embed_single_underscore_prefix_preserved(): void
+    {
+        $queries = $this->parser->parse(<<<SQL
+            -- @name Get
+            -- @embed Role role_
+            -- @returns :one
+            SELECT r.name AS role_name FROM users JOIN roles r ON r.id = users.role_id WHERE users.id = :id;
+        SQL);
+
+        $embed = $queries[0]->embeds[0];
+        $this->assertSame('role_', $embed->prefix);
+        $this->assertSame('name',  $embed->stripPrefix('role_name'));
+    }
+
+    public function test_embed_no_trailing_underscore_gets_one_added(): void
+    {
+        $queries = $this->parser->parse(<<<SQL
+            -- @name Get
+            -- @embed Role role
+            -- @returns :one
+            SELECT r.name AS role_name FROM users JOIN roles r ON r.id = users.role_id WHERE users.id = :id;
+        SQL);
+
+        $embed = $queries[0]->embeds[0];
+        $this->assertSame('role_', $embed->prefix,
+            'Prefix without trailing _ must have one added for backward compat');
+    }
+
+    public function test_embed_double_underscore_generates_correct_property_names(): void
+    {
+        // End-to-end: the generated DTO must have $name and $description,
+        // not $_name and $_description
+        $queries = $this->analyze(<<<SQL
+            -- @name List
+            -- @embed Role role__
+            -- @returns :many
+            SELECT r.name AS role__name FROM users LEFT JOIN roles r ON r.id = users.role_id;
+        SQL);
+
+        $result = $this->dtoGen->generate($queries[0]);
+
+        // The embed object should have $name, not $_name
+        $embedCode = $result['embeds']['Role']['code'] ?? '';
+        $this->assertNotEmpty($embedCode, 'Embed code must be generated');
+        $this->assertStringContainsString('public string $name', $embedCode,
+            'Property should be $name not $_name');
+        $this->assertStringNotContainsString('$_name', $embedCode,
+            'No property should start with underscore');
+    }
 }

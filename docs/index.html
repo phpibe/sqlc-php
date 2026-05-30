@@ -2053,51 +2053,127 @@ declare(strict_types=1);
       <!-- GENERATE SCHEMA -->
       <section class="doc-section" id="generate-schema">
         <h2><i class="bi bi-database-add me-2" style="color:var(--accent)"></i>--generate-schema</h2>
-        <p style="color:var(--text-muted)">Connects to a live database and generates the <code>schema.sql</code> file automatically — no need to write or maintain <code>CREATE TABLE</code> statements by hand.</p>
+        <p style="color:var(--text-muted)">Connects to a live database and generates the <code>schema.sql</code> file automatically — eliminating the need to write or maintain <code>CREATE TABLE</code> statements by hand.</p>
 
-        <pre><code class="language-bash"># Write to the schema: path declared in sqlc.yaml
+        <pre><code class="language-bash"># Connect to the database and write to the schema: path in sqlc.yaml
 php vendor/bin/sqlc-php --generate-schema sqlc.yaml
 
-# Override output path
-php vendor/bin/sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml</code></pre>
+# Override the output file path
+php vendor/bin/sqlc-php --generate-schema --schema-output=database/schema.sql sqlc.yaml</code></pre>
 
-        <h3>database: configuration block</h3>
-        <p style="color:var(--text-muted)">Add a <code>database:</code> block to <code>sqlc.yaml</code> (globally or per target):</p>
+        <h3>Typical workflow</h3>
+        <p style="color:var(--text-muted)">The recommended workflow keeps the schema in sync with the database and re-generates PHP code in one step:</p>
 
-        <pre><code class="language-yaml">version: "2"
-schema: schema.sql           # ← schema will be written here
+        <pre><code class="language-bash"># 1. Extract schema from live DB
+php vendor/bin/sqlc-php --generate-schema sqlc.yaml
 
-database:                    # global — used by all targets
-  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
-  username: "${DB_USER}"     # ${ENV_VAR} expanded at runtime
-  password: "${DB_PASS}"
-  exclude_tables:            # optional — skip these tables
-    - migrations
-    - failed_jobs
-    - sessions
-  # include_tables:          # optional — only extract these tables
-  #   - users
-  #   - orders
+# 2. Generate PHP classes from the extracted schema
+php vendor/bin/sqlc-php sqlc.yaml
 
-targets:
-  - namespace: "App\Database"
-    out:       generated
-    queries:   queries.sql
-    # database:              # per-target override (optional)
-    #   dsn: "mysql:host=db2;dbname=other"</code></pre>
+# Or combine as a single script in composer.json or a Makefile:
+#   sqlc-php --generate-schema sqlc.yaml && sqlc-php sqlc.yaml</code></pre>
 
         <div class="callout callout-info">
           <i class="bi bi-info-circle callout-icon"></i>
-          Credentials stored as <code>${ENV_VAR}</code> placeholders are expanded from the environment at runtime — the YAML file remains safe to commit to git.
+          <strong>Idempotent:</strong> re-running <code>--generate-schema</code> always overwrites the output file with a fresh extraction. The generated file contains a header comment reminding you it was auto-generated.
+        </div>
+
+        <h3>database: configuration block</h3>
+        <p style="color:var(--text-muted)">Add a <code>database:</code> block to <code>sqlc.yaml</code>. It can be declared globally (shared by all targets) or per-target (overrides the global connection for that specific target):</p>
+
+        <pre><code class="language-yaml">version: "2"
+schema: schema.sql           # ← schema will be written here by --generate-schema
+
+database:                    # global — applies to all targets
+  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
+  username: "${DB_USER}"     # ${ENV_VAR} placeholders expanded from the environment
+  password: "${DB_PASS}"
+  exclude_tables:            # optional — skip these tables when extracting
+    - migrations
+    - failed_jobs
+    - sessions
+    - password_resets
+  # include_tables:          # optional — only extract these tables (whitelist)
+  #   - users
+  #   - orders
+  #   - products
+
+targets:
+  - namespace: "App\\Database"
+    out:       generated
+    queries:   queries.sql
+    # database:                    # per-target override (optional)
+    #   dsn: "mysql:host=db2;dbname=analytics"
+    #   username: "${ANALYTICS_DB_USER}"
+    #   password: "${ANALYTICS_DB_PASS}"</code></pre>
+
+        <h3>database: field reference</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr><th>Field</th><th>Required</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>dsn</code></td>
+                <td>Yes</td>
+                <td>PDO DSN string. Example: <code>mysql:host=localhost;dbname=myapp;charset=utf8mb4</code>. Supports <code>${ENV_VAR}</code> expansion.</td>
+              </tr>
+              <tr>
+                <td><code>username</code></td>
+                <td>No</td>
+                <td>Database username. Supports <code>${ENV_VAR}</code>. Defaults to empty string.</td>
+              </tr>
+              <tr>
+                <td><code>password</code></td>
+                <td>No</td>
+                <td>Database password. Supports <code>${ENV_VAR}</code>. Defaults to empty string.</td>
+              </tr>
+              <tr>
+                <td><code>exclude_tables</code></td>
+                <td>No</td>
+                <td>List of table names to skip. Useful for framework tables (migrations, sessions, etc.) that don't need PHP models.</td>
+              </tr>
+              <tr>
+                <td><code>include_tables</code></td>
+                <td>No</td>
+                <td>Whitelist — only extract these tables. When set, <code>exclude_tables</code> is ignored. Useful for large databases where only a subset is relevant.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Environment variables and security</h3>
+        <p style="color:var(--text-muted)">Credentials should never be stored in plain text in <code>sqlc.yaml</code> if the file is committed to git. Use <code>${ENV_VAR}</code> placeholders — they are expanded at runtime from the process environment:</p>
+
+        <pre><code class="language-yaml"># sqlc.yaml (safe to commit)
+database:
+  dsn:      "mysql:host=${DB_HOST};dbname=${DB_NAME};charset=utf8mb4"
+  username: "${DB_USER}"
+  password: "${DB_PASS}"</code></pre>
+
+        <pre><code class="language-bash"># .env.local (add to .gitignore)
+DB_HOST=localhost
+DB_NAME=myapp
+DB_USER=root
+DB_PASS=supersecret</code></pre>
+
+        <pre><code class="language-bash"># Load .env and run
+source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code></pre>
+
+        <div class="callout callout-tip">
+          <i class="bi bi-lightbulb callout-icon"></i>
+          If a <code>${VAR}</code> placeholder is not found in the environment, it is left unexpanded — the PDO connection will fail with a clear error message rather than silently using an empty value.
         </div>
 
         <h3>Generated schema format</h3>
-        <p style="color:var(--text-muted)">The output is a standard SQL file using <code>SHOW CREATE TABLE</code> — the same format that <code>SchemaParser</code> already understands. <code>AUTO_INCREMENT=N</code> is stripped to avoid spurious git diffs.</p>
+        <p style="color:var(--text-muted)">The output uses <code>SHOW CREATE TABLE</code> — the exact DDL syntax that <code>SchemaParser</code> already understands. The file can be used directly as the <code>schema:</code> source for code generation.</p>
+        <p style="color:var(--text-muted)"><code>AUTO_INCREMENT=N</code> is stripped from table options to prevent spurious git diffs on every re-generation (the counter resets between dumps but doesn't affect PHP type generation).</p>
 
         <pre><code class="language-sql">-- -------------------------------------------------------------------------
 -- Schema generated by sqlc-php v2.6.0 --generate-schema
 -- Database : myapp
--- Tables   : 5 (of 8 total)
+-- Tables   : 5 (of 8 total, 3 excluded)
 -- Generated: 2025-01-15 14:23:01
 --
 -- Do not edit manually — regenerate with: sqlc-php --generate-schema
@@ -2107,14 +2183,43 @@ CREATE TABLE `users` (
   `id` int NOT NULL AUTO_INCREMENT,
   `email` varchar(100) NOT NULL,
   `active` tinyint(1) NOT NULL DEFAULT '1',
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `users_email_unique` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ...</code></pre>
+CREATE TABLE `orders` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` int NOT NULL,
+  `amount` decimal(10,2) NOT NULL,
+  `status` enum('pending','paid','cancelled') NOT NULL DEFAULT 'pending',
+  PRIMARY KEY (`id`),
+  KEY `orders_user_id_foreign` (`user_id`),
+  CONSTRAINT `orders_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;</code></pre>
+
+        <h3>CLI flags reference</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead>
+              <tr><th>Flag</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>--generate-schema</code></td>
+                <td>Extract schema from the configured database and write to the output file. Overwrites any existing file.</td>
+              </tr>
+              <tr>
+                <td><code>--schema-output=PATH</code></td>
+                <td>Override the output file path. Default: the first path listed in <code>schema:</code> in <code>sqlc.yaml</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div class="callout callout-tip">
           <i class="bi bi-lightbulb callout-icon"></i>
-          <strong>MySQL only in v2.6.0</strong> — PostgreSQL schema extraction is planned alongside the PostgreSQL engine support.
+          <strong>MySQL / MariaDB only in v2.6.0.</strong> PostgreSQL schema extraction is planned alongside the full PostgreSQL engine support.
         </div>
       </section>
 

@@ -22,6 +22,14 @@ if (isset($GLOBALS['_composer_autoload_path'])) {
 
 require PHPIBE_COMPOSER_INSTALL;
 
+// Load symfony/yaml shim if the real package is not installed
+if (!class_exists('Symfony\\Component\\Yaml\\Yaml', false)) {
+    $shimPath = __DIR__ . '/../vendor/symfony/yaml/Yaml.php';
+    if (file_exists($shimPath)) {
+        require_once $shimPath;
+    }
+}
+
 use SqlcPhp\Analyzer\QueryAnalyzer;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;

@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.6.0</span>
+    <span class="badge-version">v2.6.2</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -2226,6 +2226,15 @@ CREATE TABLE `orders` (
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.6.2 — symfony/yaml migration</div>
+          <ul>
+            <li><strong>YAML parsing now uses <code>symfony/yaml</code></strong> — the hand-written subset-YAML parser has been replaced with the industry-standard library. This eliminates a persistent source of bugs (at least 4 parsing edge cases in recent versions).</li>
+            <li><strong><code>symfony/yaml</code> added to <code>composer.json</code></strong> as a <code>require</code> dependency.</li>
+            <li><strong>No behavior changes</strong> — all existing <code>sqlc.yaml</code> configs continue to work identically.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.6.0 — --generate-schema</div>

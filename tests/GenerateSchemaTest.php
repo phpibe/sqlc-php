@@ -262,6 +262,59 @@ class GenerateSchemaTest extends TestCase
     // The key logic we test: table filtering, DDL cleaning, header generation.
     // =========================================================================
 
+    public function test_config_parses_global_database_include_tables(): void
+    {
+        // Regression: include_tables inside database: was silently ignored
+        // because parseNestedMap only handled key: value (inline value) lines,
+        // not key: (empty) followed by a sub-list.
+        file_put_contents($this->tmpDir . '/schema.sql', '');
+        $path = $this->writeConfig(
+            "version: \"2\"\nschema: schema.sql\n" .
+            "database:\n" .
+            "  dsn: \"mysql:host=localhost;dbname=myapp\"\n" .
+            "  username: root\n" .
+            "  include_tables:\n" .
+            "    - migrations\n" .
+            "    - failed_jobs\n" .
+            "targets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n"
+        );
+
+        $cfg = Config::fromFile($path);
+        $this->assertNotNull($cfg->database);
+        $this->assertSame(['migrations', 'failed_jobs'], $cfg->database->includeTables);
+        $this->assertSame([], $cfg->database->excludeTables);
+
+        // shouldInclude: only listed tables pass
+        $this->assertTrue($cfg->database->shouldInclude('migrations'));
+        $this->assertTrue($cfg->database->shouldInclude('failed_jobs'));
+        $this->assertFalse($cfg->database->shouldInclude('users'));
+        $this->assertFalse($cfg->database->shouldInclude('orders'));
+    }
+
+    public function test_config_parses_global_database_exclude_tables(): void
+    {
+        file_put_contents($this->tmpDir . '/schema.sql', '');
+        $path = $this->writeConfig(
+            "version: \"2\"\nschema: schema.sql\n" .
+            "database:\n" .
+            "  dsn: \"mysql:host=localhost;dbname=myapp\"\n" .
+            "  exclude_tables:\n" .
+            "    - migrations\n" .
+            "    - sessions\n" .
+            "    - failed_jobs\n" .
+            "targets:\n  - namespace: \"App\"\n    out: gen\n    queries: q.sql\n"
+        );
+
+        $cfg = Config::fromFile($path);
+        $this->assertSame(['migrations', 'sessions', 'failed_jobs'], $cfg->database->excludeTables);
+
+        // shouldInclude: excluded tables blocked, others allowed
+        $this->assertFalse($cfg->database->shouldInclude('migrations'));
+        $this->assertFalse($cfg->database->shouldInclude('sessions'));
+        $this->assertTrue($cfg->database->shouldInclude('users'));
+        $this->assertTrue($cfg->database->shouldInclude('orders'));
+    }
+
     public function test_extractor_cleans_auto_increment_from_ddl(): void
     {
         $extractor = new MySQLSchemaExtractor();
@@ -293,6 +346,6 @@ class GenerateSchemaTest extends TestCase
 
     public function test_version_is_2_6_0(): void
     {
-        $this->assertSame('2.6.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.6.2', \SqlcPhp\Version::VERSION);
     }
 }

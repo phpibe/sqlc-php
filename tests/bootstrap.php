@@ -13,6 +13,14 @@ foreach ([
     }
 }
 
+// Register the Symfony\Yaml shim (delegates to YamlParser) if symfony/yaml is not installed
+if (!class_exists('Symfony\\Component\\Yaml\\Yaml', false)) {
+    $shimPath = __DIR__ . '/../vendor/symfony/yaml/Yaml.php';
+    if (file_exists($shimPath)) {
+        require_once $shimPath;
+    }
+}
+
 spl_autoload_register(function (string $class): void {
     $maps = [
         'SqlcPhp\\'     => __DIR__ . '/../src/',

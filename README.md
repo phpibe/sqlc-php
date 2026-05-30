@@ -1524,6 +1524,13 @@ sqlc-php/
 
 ## Changelog
 
+### [2.6.2] — symfony/yaml migration
+
+- **YAML parsing migrated to `symfony/yaml`** — the hand-written subset-YAML parser (`parseYaml`, `parseList`, `parseNestedMap`, etc.) has been replaced with `symfony/yaml`, the standard PHP YAML library. This eliminates a persistent source of subtle parsing bugs — at least 4 bugs in recent versions were caused by edge cases in the custom parser.
+- **`symfony/yaml` added as a `require` dependency** in `composer.json` — users installing via Composer get the real implementation automatically.
+- **`src/Config/YamlParser.php`** — the old parsing logic is preserved as a standalone fallback class, used via a thin shim (`vendor/symfony/yaml/Yaml.php`) in environments where `symfony/yaml` is not yet installed. This ensures zero breaking changes for existing installs during the transition.
+- No behavior changes — the same `sqlc.yaml` configs that worked before continue to work.
+
 ### [2.6.0] — --generate-schema
 
 - **`--generate-schema` CLI flag** — connects to a live database and generates the `schema.sql` file automatically. Eliminates the need to write or maintain `CREATE TABLE` statements by hand.

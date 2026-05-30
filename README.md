@@ -1524,6 +1524,40 @@ sqlc-php/
 
 ## Changelog
 
+### [2.6.0] — --generate-schema
+
+- **`--generate-schema` CLI flag** — connects to a live database and generates the `schema.sql` file automatically. Eliminates the need to write or maintain `CREATE TABLE` statements by hand.
+
+```bash
+# Generate schema from live DB and write to schema.sql (as declared in sqlc.yaml)
+php vendor/bin/sqlc-php --generate-schema sqlc.yaml
+
+# Write to a custom path
+php vendor/bin/sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml
+```
+
+- **`database:` config block** — new global and per-target option with `dsn`, `username`, `password`, `exclude_tables`, and `include_tables`.
+
+```yaml
+database:
+  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
+  username: "${DB_USER}"     # ${ENV_VAR} expanded at runtime
+  password: "${DB_PASS}"
+  exclude_tables:
+    - migrations
+    - failed_jobs
+    - sessions
+```
+
+- **`${ENV_VAR}` expansion** — credentials can be stored as environment variable references so the YAML file is safe to commit. Unknown variables are left unexpanded so the error is visible.
+- **Engine detection from DSN** — the engine is inferred from the DSN prefix (`mysql:` → mysql, `pgsql:` → postgres).
+- **MySQL support only** (v2.6.0) — uses `SHOW TABLES` + `SHOW CREATE TABLE`. PostgreSQL support comes with the Postgres engine in a future version.
+- **`AUTO_INCREMENT=N` stripped** from generated DDL — prevents spurious git diffs on each re-generation.
+- **Generated schema header** includes database name, timestamp, table count, and a `Do not edit manually` note.
+- **`SchemaExtractorInterface`** + `MySQLSchemaExtractor` + `SchemaExtractorFactory` — new `src/SchemaExtractor/` layer.
+- **YAML parser extended** — `parseList` now handles nested maps within list items (e.g. `database:` inside a `targets:` entry), enabling per-target database config.
+- 26 new tests in `tests/GenerateSchemaTest.php`.
+
 ### [2.5.3] — @class annotation and class_suffix
 
 - **`@class ClassName`** — new canonical annotation, replaces `@group`. Functionally identical: sets the PHP class name for the generated Query/Repository/… class. Using `@class` emits no warnings.

@@ -40,34 +40,176 @@ use SqlcPhp\Rewriter\SqlRewriter;
 use SqlcPhp\TypeMapper\TypeMapperFactory;
 use SqlcPhp\Version;
 use SqlcPhp\Watcher;
+use SqlcPhp\SchemaExtractor\SchemaExtractorFactory;
 
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
-$args        = array_slice($argv, 1);
-$verifyMode  = in_array('--verify',   $args, true);
-$dryRun      = in_array('--dry-run',  $args, true);
-$diffMode    = in_array('--diff',     $args, true);
-$watchMode   = in_array('--watch',    $args, true);
-$showVersion = in_array('--version',  $args, true) || in_array('-v', $args, true);
+$args           = array_slice($argv, 1);
+$verifyMode     = in_array('--verify',          $args, true);
+$dryRun         = in_array('--dry-run',         $args, true);
+$diffMode       = in_array('--diff',            $args, true);
+$watchMode      = in_array('--watch',           $args, true);
+$generateSchema = in_array('--generate-schema', $args, true);
+$showVersion    = in_array('--version',         $args, true) || in_array('-v', $args, true);
+$showHelp       = in_array('--help',            $args, true) || in_array('-h', $args, true);
 
 // --interval=N  (milliseconds, default 500)
 $pollInterval = 500;
+// --schema-output=path (override schema output destination)
+$schemaOutput = null;
 foreach ($args as $arg) {
     if (preg_match('/^--interval=(\d+)$/', $arg, $m)) {
         $pollInterval = max(100, (int) $m[1]);
+    }
+    if (preg_match('/^--schema-output=(.+)$/', $arg, $m)) {
+        $schemaOutput = $m[1];
     }
 }
 
 $args = array_values(array_filter($args, fn($a) => !in_array($a, [
     '--verify', '--dry-run', '--diff', '--watch', '--version', '-v',
-]) && !str_starts_with($a, '--interval=')));
+    '--generate-schema', '--help', '-h',
+]) && !str_starts_with($a, '--interval=') && !str_starts_with($a, '--schema-output=')));
 
 $configPath = $args[0] ?? 'sqlc.yaml';
+
+// --help / -h: print usage and exit
+if ($showHelp) {
+    echo Version::BANNER . "\n\n";
+    echo <<<HELP
+Usage:
+  sqlc-php [options] [config]
+
+Arguments:
+  config                Path to sqlc.yaml (default: sqlc.yaml)
+
+Options:
+  -h, --help            Show this help message and exit
+  -v, --version         Print version and exit
+
+Code generation:
+  (no flag)             Generate PHP files from schema and queries
+  --dry-run             Print generated code to stdout, write nothing
+  --diff                Show a unified diff of what would change, write nothing
+  --verify              Exit 1 if generated files are out of date (CI mode)
+
+Watch mode:
+  --watch               Watch schema and query files for changes and regenerate
+                        automatically. Press Ctrl+C to stop.
+  --interval=N          Polling interval in milliseconds (default: 500, min: 100)
+                        Example: --watch --interval=250
+
+Schema extraction:
+  --generate-schema     Connect to the configured database and write schema.sql
+                        Requires a 'database:' block in sqlc.yaml
+  --schema-output=PATH  Override the output path for --generate-schema
+                        Default: the first schema: file in sqlc.yaml
+
+Examples:
+  sqlc-php sqlc.yaml
+  sqlc-php --verify sqlc.yaml
+  sqlc-php --dry-run sqlc.yaml
+  sqlc-php --diff sqlc.yaml
+  sqlc-php --watch sqlc.yaml
+  sqlc-php --watch --interval=250 sqlc.yaml
+  sqlc-php --generate-schema sqlc.yaml
+  sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml
+  sqlc-php --version
+
+HELP;
+    exit(0);
+}
 
 // --version: print and exit
 if ($showVersion) {
     echo Version::BANNER . "\n";
+    exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// --generate-schema: connect to DB and write schema.sql
+// ---------------------------------------------------------------------------
+if ($generateSchema) {
+    echo "sqlc-php v" . Version::VERSION . " — schema extractor\n";
+    echo "Config : {$configPath}\n\n";
+
+    try {
+        $config = Config::fromFile($configPath);
+    } catch (\RuntimeException $e) {
+        fwrite(STDERR, "Error: " . $e->getMessage() . "\n");
+        exit(1);
+    }
+
+    // Determine which DatabaseConfig to use — per-target first, then global
+    $dbCfg = $config->database;
+    foreach ($config->targets as $target) {
+        if ($target->database !== null) {
+            $dbCfg = $target->database;
+            break;
+        }
+    }
+
+    if ($dbCfg === null) {
+        fwrite(STDERR, "Error: No 'database:' block found in {$configPath}.\n");
+        fwrite(STDERR, "Add a database connection to your config:\n\n");
+        fwrite(STDERR, "  database:\n");
+        fwrite(STDERR, "    dsn:      \"mysql:host=localhost;dbname=myapp;charset=utf8mb4\"\n");
+        fwrite(STDERR, "    username: \"\${DB_USER}\"\n");
+        fwrite(STDERR, "    password: \"\${DB_PASS}\"\n\n");
+        exit(1);
+    }
+
+    $dsn  = $dbCfg->resolvedDsn();
+    $user = $dbCfg->resolvedUsername();
+    $pass = $dbCfg->resolvedPassword();
+
+    echo "Connecting: {$dsn}\n";
+
+    try {
+        $pdo = new PDO($dsn, $user ?: null, $pass ?: null, [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+    } catch (\PDOException $e) {
+        fwrite(STDERR, "Connection failed: " . $e->getMessage() . "\n");
+        fwrite(STDERR, "Check your DSN, username, and password (remember \${ENV_VAR} expansion).\n");
+        exit(1);
+    }
+
+    // Detect engine from DSN prefix
+    $engine = SchemaExtractorFactory::engineFromDsn($dsn);
+    echo "Engine  : {$engine}\n";
+
+    try {
+        $extractor = SchemaExtractorFactory::create($engine);
+        $schemaSql = $extractor->extract($pdo, $dbCfg);
+    } catch (\RuntimeException $e) {
+        fwrite(STDERR, "Extraction failed: " . $e->getMessage() . "\n");
+        exit(1);
+    }
+
+    // Determine output path
+    if ($schemaOutput !== null) {
+        $outputPath = $schemaOutput;
+    } elseif (is_string($config->schemas[0] ?? null)) {
+        // Write to the first schema file declared in config
+        $outputPath = $config->schemas[0];
+    } else {
+        $outputPath = 'schema.sql';
+    }
+
+    // Ensure parent directory exists
+    $dir = dirname($outputPath);
+    if ($dir !== '.' && !is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+
+    file_put_contents($outputPath, $schemaSql);
+
+    $tableCount = substr_count($schemaSql, 'CREATE TABLE');
+    echo "\n✓ Schema written to: {$outputPath}\n";
+    echo "  " . $tableCount . " table(s) extracted.\n";
     exit(0);
 }
 

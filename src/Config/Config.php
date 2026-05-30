@@ -75,7 +75,12 @@ class Config
          * Default: 'Query'  → UserQuery, OrderQuery
          * Can be overridden per target via class_suffix: in the target block.
          */
-        public readonly string $classSuffix   = 'Query',
+        public readonly string          $classSuffix   = 'Query',
+        /**
+         * Optional database connection for --generate-schema.
+         * Can be overridden per target.
+         */
+        public readonly ?DatabaseConfig $database      = null,
     ) {}
 
     public static function fromFile(string $path): self
@@ -163,6 +168,9 @@ class Config
             targets:       $targets,
             virtualTables: $virtualTables,
             classSuffix:   $globalClassSuffix,
+            database:      isset($data['database']) && is_array($data['database'])
+                               ? DatabaseConfig::fromArray($data['database'])
+                               : null,
         );
     }
 
@@ -442,6 +450,10 @@ class Config
                             // Nested list — pass current indent as the stop level
                             [$nestedItems, $i] = self::parseList($lines, $i, $total, $indent);
                             $currentItem[$key] = $nestedItems;
+                        } elseif ($nextIndent > $indent) {
+                            // Nested map (e.g. database: {dsn: ..., username: ...})
+                            [$nestedMap, $i] = self::parseNestedMap($lines, $i, $total);
+                            $currentItem[$key] = $nestedMap;
                         } else {
                             $currentItem[$key] = '';
                         }

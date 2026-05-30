@@ -61,6 +61,11 @@ readonly class Target
          * and overridden per target.
          */
         public string $classSuffix = 'Query',
+        /**
+         * Optional database connection for --generate-schema.
+         * If null, the global database config from Config is used.
+         */
+        public ?DatabaseConfig $database = null,
     ) {}
 
     /**
@@ -106,6 +111,9 @@ readonly class Target
             language:              strtolower((string) ($data['language'] ?? $globalLanguage)),
             preparedStatementCache: filter_var($data['prepared_statement_cache'] ?? false, FILTER_VALIDATE_BOOLEAN),
             classSuffix:           (string) ($data['class_suffix'] ?? $globalClassSuffix),
+            database:              isset($data['database']) && is_array($data['database'])
+                                       ? DatabaseConfig::fromArray($data['database'])
+                                       : null,
         );
     }
 }

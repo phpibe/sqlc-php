@@ -1,15 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-2DH4FKSCD7"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-
-    gtag('config', 'G-2DH4FKSCD7');
-  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>sqlc-php — Documentation</title>
@@ -553,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.5.3</span>
+    <span class="badge-version">v2.6.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -583,6 +574,7 @@
       <a class="sidebar-link" href="#includes"><i class="bi bi-file-earmark-plus"></i> includes</a>
       <a class="sidebar-link" href="#language"><i class="bi bi-translate"></i> Inflection language</a>
       <a class="sidebar-link" href="#class-suffix"><i class="bi bi-type"></i> class_suffix</a>
+      <a class="sidebar-link" href="#generate-schema"><i class="bi bi-database-add"></i> --generate-schema</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
       <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
     </div>
@@ -2050,7 +2042,7 @@ declare(strict_types=1);
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperInterface.php</span> <span class="comment">    # Contract all engine mappers must implement</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; ├── <span class="file">TypeMapperFactory.php</span> <span class="comment">      # Resolves mapper by engine (mysql → MySQLTypeMapper)</span></div>
           <div>&nbsp;&nbsp;│&nbsp;&nbsp; &nbsp;&nbsp;&nbsp; └── <span class="file">MySQLTypeMapper.php</span> <span class="comment">        # MySQL type mapping + PDO constants</span></div>
-          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (654 tests)</span></div>
+          <div>&nbsp;&nbsp;├── <span class="dir">tests/</span> <span class="comment">                             # PHPUnit test suite (680 tests)</span></div>
           <div>&nbsp;&nbsp;├── <span class="file">sqlc.yaml</span> <span class="comment">                          # Example configuration</span></div>
           <div>&nbsp;&nbsp;└── <span class="file">phpunit.xml</span> <span class="comment">                        # Test configuration</span></div>
         </div>
@@ -2058,9 +2050,89 @@ declare(strict_types=1);
 
       <hr class="section-divider">
 
+      <!-- GENERATE SCHEMA -->
+      <section class="doc-section" id="generate-schema">
+        <h2><i class="bi bi-database-add me-2" style="color:var(--accent)"></i>--generate-schema</h2>
+        <p style="color:var(--text-muted)">Connects to a live database and generates the <code>schema.sql</code> file automatically — no need to write or maintain <code>CREATE TABLE</code> statements by hand.</p>
+
+        <pre><code class="language-bash"># Write to the schema: path declared in sqlc.yaml
+php vendor/bin/sqlc-php --generate-schema sqlc.yaml
+
+# Override output path
+php vendor/bin/sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml</code></pre>
+
+        <h3>database: configuration block</h3>
+        <p style="color:var(--text-muted)">Add a <code>database:</code> block to <code>sqlc.yaml</code> (globally or per target):</p>
+
+        <pre><code class="language-yaml">version: "2"
+schema: schema.sql           # ← schema will be written here
+
+database:                    # global — used by all targets
+  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
+  username: "${DB_USER}"     # ${ENV_VAR} expanded at runtime
+  password: "${DB_PASS}"
+  exclude_tables:            # optional — skip these tables
+    - migrations
+    - failed_jobs
+    - sessions
+  # include_tables:          # optional — only extract these tables
+  #   - users
+  #   - orders
+
+targets:
+  - namespace: "App\Database"
+    out:       generated
+    queries:   queries.sql
+    # database:              # per-target override (optional)
+    #   dsn: "mysql:host=db2;dbname=other"</code></pre>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          Credentials stored as <code>${ENV_VAR}</code> placeholders are expanded from the environment at runtime — the YAML file remains safe to commit to git.
+        </div>
+
+        <h3>Generated schema format</h3>
+        <p style="color:var(--text-muted)">The output is a standard SQL file using <code>SHOW CREATE TABLE</code> — the same format that <code>SchemaParser</code> already understands. <code>AUTO_INCREMENT=N</code> is stripped to avoid spurious git diffs.</p>
+
+        <pre><code class="language-sql">-- -------------------------------------------------------------------------
+-- Schema generated by sqlc-php v2.6.0 --generate-schema
+-- Database : myapp
+-- Tables   : 5 (of 8 total)
+-- Generated: 2025-01-15 14:23:01
+--
+-- Do not edit manually — regenerate with: sqlc-php --generate-schema
+-- -------------------------------------------------------------------------
+
+CREATE TABLE `users` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `email` varchar(100) NOT NULL,
+  `active` tinyint(1) NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ...</code></pre>
+
+        <div class="callout callout-tip">
+          <i class="bi bi-lightbulb callout-icon"></i>
+          <strong>MySQL only in v2.6.0</strong> — PostgreSQL schema extraction is planned alongside the PostgreSQL engine support.
+        </div>
+      </section>
+
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.6.0 — --generate-schema</div>
+          <ul>
+            <li><strong><code>--generate-schema</code></strong> — connects to a live database and writes the <code>schema.sql</code> automatically. Add <code>--schema-output=path</code> to override the destination.</li>
+            <li><strong><code>database:</code> config block</strong> — new global and per-target option with <code>dsn</code>, <code>username</code>, <code>password</code>, <code>exclude_tables</code>, and <code>include_tables</code>.</li>
+            <li><strong><code>${ENV_VAR}</code> expansion</strong> — credentials can be stored as env var references safe for committing.</li>
+            <li><strong>MySQL/MariaDB support</strong> (v2.6.0) — uses <code>SHOW TABLES</code> + <code>SHOW CREATE TABLE</code>. <code>AUTO_INCREMENT=N</code> stripped from output.</li>
+            <li><strong>YAML parser extended</strong> — nested maps within list items now supported, enabling per-target <code>database:</code>.</li>
+            <li>26 new tests in <code>tests/GenerateSchemaTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.5.3 — @class annotation and class_suffix</div>

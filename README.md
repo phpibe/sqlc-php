@@ -1524,6 +1524,42 @@ sqlc-php/
 
 ## Changelog
 
+### [2.7.0] — @searchable dynamic filters
+
+- **`@searchable` annotation** — adds a typed `Criteria` parameter to `:many` and `:many-paginated` methods. Enables dynamic `WHERE` conditions and `ORDER BY` at runtime, without writing separate queries.
+- **Generated `{Group}Criteria` class** — extends `SqlcPhp\Criteria\Criteria`. Contains typed per-column methods inferred from the result schema: `whereActiveEq(int)`, `whereEmailLike(string)`, `whereIdIn(int ...$values)`, `whereCreatedAtBetween(DateTimeImmutable, DateTimeImmutable)`, `orderByCreatedAt('DESC')`, etc.
+- **`@searchable` + `@counted`** — the companion count method also accepts the same Criteria, ensuring counts match the filtered result set.
+- **`@searchable` + `:many-paginated`** — two-branch generation preserved (`$limit === null` → all rows).
+- **SQL injection safe** — column names in ORDER BY are validated against an `ALLOWED_COLUMNS` whitelist generated at compile time. IN/NOT_IN values use per-element placeholders.
+- **Static WHERE compatibility** — if the base SQL already has a `WHERE` clause, the Criteria appends `AND` conditions. Without a WHERE, it adds `WHERE`.
+- **Static ORDER BY compatibility** — if the base SQL has an ORDER BY, the Criteria replaces it when the caller provides one; falls back to the static order otherwise.
+- **Immutable Criteria** — `add()` and `orderBy()` return new instances; the original is never mutated.
+- **`SqlcPhp\Criteria\` namespace** — three new runtime classes: `Criteria`, `Filter`, `FilterOperator`.
+- 71 new tests in `tests/SearchableTest.php`.
+
+```sql
+-- @name ListBillingConfig
+-- @class BillingConfig
+-- @searchable
+-- @counted
+-- @returns :many-paginated
+SELECT id, active, country_id, end_num FROM billing_config;
+```
+
+```php
+$results = $query->listBillingConfig(
+    criteria: (new BillingConfigCriteria())
+        ->whereActiveEq(1)
+        ->whereCountryIdIn(164, 165)
+        ->orderByEndNum('DESC'),
+    limit: 20,
+    offset: 0,
+);
+$total = $query->listBillingConfigCount(
+    criteria: (new BillingConfigCriteria())->whereActiveEq(1)
+);
+```
+
 ### [2.6.2] — symfony/yaml migration
 
 - **YAML parsing migrated to `symfony/yaml`** — the hand-written subset-YAML parser (`parseYaml`, `parseList`, `parseNestedMap`, etc.) has been replaced with `symfony/yaml`, the standard PHP YAML library. This eliminates a persistent source of subtle parsing bugs — at least 4 bugs in recent versions were caused by edge cases in the custom parser.

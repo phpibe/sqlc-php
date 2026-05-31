@@ -87,6 +87,12 @@ class QueryDefinition
          * Only valid on :many-paginated queries.
          */
         public readonly bool       $counted = false,
+        /**
+         * When true, the method accepts a typed {Group}Criteria object
+         * for dynamic WHERE conditions and ORDER BY. Valid on :many and
+         * :many-paginated queries. A companion {Group}Criteria class is generated.
+         */
+        public readonly bool       $searchable = false,
     ) {}
 }
 
@@ -147,6 +153,7 @@ class QueryParser
         $embeds           = [];
         $dtoClassName     = null;
         $counted          = false;
+        $searchable       = false;
         $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
@@ -183,6 +190,8 @@ class QueryParser
                     $dtoClassName = $m[1];
                 } elseif (preg_match('/^@counted\b/i', $comment)) {
                     $counted = true;
+                } elseif (preg_match('/^@searchable\b/i', $comment)) {
+                    $searchable = true;
                 } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
                     // @calls query1,query2,query3 — used by :transaction
                     // Store as the SQL body so the generator can retrieve it
@@ -263,6 +272,7 @@ class QueryParser
             dtoClassName:     $dtoClassName,
             columnAliases:    $columnAliases,
             counted:          $counted,
+            searchable:       $searchable,
         );
     }
     private function extractFromTable(string $sql): ?string

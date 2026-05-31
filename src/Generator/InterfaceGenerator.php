@@ -79,6 +79,38 @@ PHP;
         $returnType = $queryGen->resolveReturnTypePublic($query);
         $paramList  = $queryGen->buildParamListPublic($query);
 
+        if ($query->searchable) {
+            $criteriaClass = $query->group . 'Criteria';
+            $critParam     = "?{$criteriaClass} \$criteria = null";
+
+            if ($query->returns->value === ':many-paginated') {
+                $sep       = $paramList !== '' ? ', ' : '';
+                $paramList = $paramList . $sep . $critParam . ', ?int $limit = null, int $offset = 0';
+            } else {
+                $sep       = $paramList !== '' ? ', ' : '';
+                $paramList = $paramList . $sep . $critParam;
+            }
+
+            $main = <<<PHP
+
+    public function {$query->name}({$paramList}): {$returnType};
+PHP;
+
+            if ($query->counted && $query->returns->value === ':many-paginated') {
+                $countParams = ($queryGen->buildParamListPublic($query) !== ''
+                    ? $queryGen->buildParamListPublic($query) . ', '
+                    : '') . "?{$criteriaClass} \$criteria = null";
+                $countName   = $query->name . 'Count';
+                $main .= <<<PHP
+
+
+    public function {$countName}({$countParams}): int;
+PHP;
+            }
+
+            return '    /**' . "\n" . '     * @searchable' . "\n" . '     */' . $main;
+        }
+
         // :many-paginated adds limit/offset at the end — nullable $limit
         if ($query->returns->value === ':many-paginated') {
             $sep       = $paramList !== '' ? ', ' : '';

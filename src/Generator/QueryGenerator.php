@@ -15,16 +15,20 @@ use SqlcPhp\TypeMapper\TypeMapperInterface;
  */
 class QueryGenerator
 {
+    private CriteriaGenerator $criteriaGen;
+
     public function __construct(
-        private readonly SchemaCatalog      $catalog,
+        private readonly SchemaCatalog          $catalog,
         private readonly TypeMapperInterface    $typeMapper,
-        private readonly ResultDtoGenerator $resultDtoGen,
-        private readonly string             $namespace,
-        private readonly bool               $generateInterfaces     = false,
-        private readonly ?InterfaceGenerator $interfaceGen          = null,
-        private readonly bool               $preparedStatementCache = false,
-        private readonly string             $classSuffix            = 'Query',
-    ) {}
+        private readonly ResultDtoGenerator     $resultDtoGen,
+        private readonly string                 $namespace,
+        private readonly bool                   $generateInterfaces     = false,
+        private readonly ?InterfaceGenerator    $interfaceGen           = null,
+        private readonly bool                   $preparedStatementCache = false,
+        private readonly string                 $classSuffix            = 'Query',
+    ) {
+        $this->criteriaGen = new CriteriaGenerator($namespace);
+    }
 
     /**
      * @param  QueryDefinition[] $queries
@@ -42,6 +46,14 @@ class QueryGenerator
             $className = $group . $this->classSuffix;
             $code = $this->renderClass($className, $groupQueries);
             $files[$className] = ['className' => $className, 'code' => $code];
+
+            // Generate Criteria classes for @searchable queries
+            foreach ($groupQueries as $query) {
+                if ($query->searchable && !empty($query->resultColumns)) {
+                    $criteriaResult = $this->criteriaGen->generate($query, $query->resultColumns);
+                    $files[$criteriaResult['className']] = $criteriaResult;
+                }
+            }
         }
 
         return $files;
@@ -117,6 +129,19 @@ PHP;
 
     private function renderMethod(QueryDefinition $query): string
     {
+        // @searchable queries get their own render path
+        if ($query->searchable) {
+            $main = $query->returns === ReturnType::ManyPaginated
+                ? $this->renderSearchablePaginatedMethod($query)
+                : $this->renderSearchableManyMethod($query);
+
+            if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
+                $main .= "\n\n" . $this->renderSearchableCountMethod($query);
+            }
+
+            return $main;
+        }
+
         $main = match ($query->returns->value) {
             ':many'           => $this->renderManyMethod($query),
             ':many-paginated' => $this->renderManyPaginatedMethod($query),
@@ -134,6 +159,198 @@ PHP;
         }
 
         return $main;
+    }
+
+    // =========================================================================
+    // @searchable methods
+    // =========================================================================
+
+    private function criteriaClass(QueryDefinition $query): string
+    {
+        return $query->group . 'Criteria';
+    }
+
+    /**
+     * Helper: build the SQL assembly block for @searchable methods.
+     * Handles:
+     *   - static WHERE already in SQL (uses AND, not WHERE)
+     *   - GROUP BY / ORDER BY present in SQL (insert criteria before them)
+     *   - static ORDER BY replaced by criteria ORDER BY when criteria has one
+     */
+    private function buildSearchableSqlBlock(
+        string $baseSql,
+        string $criteriaVar,
+        bool   $withLimit = false,
+    ): string {
+        // Normalise: remove trailing semicolon, collapse whitespace
+        $normalized = rtrim(preg_replace('/\s+/', ' ', trim($baseSql)) ?? $baseSql, ';');
+
+        // Also strip LIMIT :limit OFFSET :offset that the analyzer may have injected
+        $normalized = rtrim(preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $normalized));
+
+        // Detect structural keywords (case-insensitive)
+        $hasWhere    = (bool) preg_match('/\bWHERE\b/i',    $normalized);
+        $hasGroupBy  = (bool) preg_match('/\bGROUP\s+BY\b/i', $normalized);
+        $hasOrderBy  = (bool) preg_match('/\bORDER\s+BY\b/i', $normalized);
+
+        // Split SQL into: beforeOrder, staticOrderBy
+        // If there's an ORDER BY, we need to either keep it (no criteria order) or replace it
+        if ($hasOrderBy) {
+            $splitPos    = (int) preg_match('/^(.*?)(\s+ORDER\s+BY\s+.*)$/is', $normalized, $sm);
+            $beforeOrder = $splitPos ? trim($sm[1]) : $normalized;
+            $staticOrder = $splitPos ? trim($sm[2]) : '';
+        } else {
+            $beforeOrder = $normalized;
+            $staticOrder = '';
+        }
+
+        // The base SQL for no-criteria or WITH-criteria cases:
+        // We embed the SQL as a PHP string and append the WHERE/AND and ORDER dynamically
+        $escaped = str_replace("'", "\\'", $beforeOrder);
+
+        $lines = [];
+        $lines[] = "        \$__sql = '{$escaped}';";
+        $lines[] = "        if ({$criteriaVar} !== null && {$criteriaVar}->hasFilters()) {";
+        $lines[] = "            \$__hasWhere = " . ($hasWhere ? 'true' : 'false') . ";";
+        $lines[] = "            \$__sql .= {$criteriaVar}->toFilterClause(\$__hasWhere);";
+        $lines[] = "        }";
+
+        // ORDER BY logic
+        if ($staticOrder !== '') {
+            $escapedOrder = str_replace("'", "\\'", $staticOrder);
+            $lines[] = "        if ({$criteriaVar} !== null && {$criteriaVar}->hasOrderBy()) {";
+            $lines[] = "            \$__sql .= {$criteriaVar}->toOrderClause();";
+            $lines[] = "        } else {";
+            $lines[] = "            \$__sql .= ' {$escapedOrder}';";
+            $lines[] = "        }";
+        } else {
+            $lines[] = "        if ({$criteriaVar} !== null && {$criteriaVar}->hasOrderBy()) {";
+            $lines[] = "            \$__sql .= {$criteriaVar}->toOrderClause();";
+            $lines[] = "        }";
+        }
+
+        if ($withLimit) {
+            $lines[] = "        \$__sql .= ' LIMIT :limit OFFSET :offset';";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function renderSearchableManyMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams   = $this->buildParamList($query);
+        $critParam    = "?{$criteriaClass} \$criteria = null";
+        $allParams    = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
+
+        $docblock = $this->buildDocblock($query, "@return {$returnClass}[]");
+        $bindings = $this->renderBindings($query);
+        $bindingsStr = rtrim($bindings);
+        $bindBlock = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria');
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$allParams}): array
+    {
+{$sqlBlock}
+        \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$stmt->execute();
+
+        return array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+    }
+PHP;
+    }
+
+    private function renderSearchablePaginatedMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams   = $this->buildParamList($query);
+        $critParam    = "?{$criteriaClass} \$criteria = null";
+        $paginParams  = '?int $limit = null, int $offset = 0';
+        $allParams    = $userParams !== ''
+            ? "{$userParams}, {$critParam}, {$paginParams}"
+            : "{$critParam}, {$paginParams}";
+
+        $docReturn = "@return {$returnClass}[]";
+        $docblock  = $this->buildDocblockWithExtra($query, $docReturn, [
+            "@param ?{$criteriaClass} \$criteria   Dynamic filters and ordering. Pass null to skip.",
+            "@param ?int \$limit                   Max rows. Null returns all.",
+            "@param int  \$offset                  Rows to skip.",
+        ]);
+
+        $bindings    = $this->renderBindings($query);
+        $bindingsStr = rtrim($bindings);
+        $bindBlock   = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+
+        $sqlBlockAll  = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+        $sqlBlockPage = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: true);
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$allParams}): array
+    {
+        if (\$limit === null) {
+{$sqlBlockAll}
+            \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindBlock}            \$criteria?->bindAll(\$stmt);
+        } else {
+{$sqlBlockPage}
+            \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindBlock}            \$criteria?->bindAll(\$stmt);
+            \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
+            \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
+        }
+        \$stmt->execute();
+
+        return array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+    }
+PHP;
+    }
+
+    private function renderSearchableCountMethod(QueryDefinition $query): string
+    {
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams   = $this->buildParamList($query);
+        $critParam    = "?{$criteriaClass} \$criteria = null";
+        $allParams    = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
+        $countName    = $query->name . 'Count';
+
+        $bindings    = $this->renderBindings($query);
+        $bindingsStr = rtrim($bindings);
+        $bindBlock   = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+
+        // Wrap the dynamic SQL in a COUNT subquery at runtime
+        return <<<PHP
+    /**
+     * Returns the total number of rows matching the current criteria (without pagination).
+     * @param ?{$criteriaClass} \$criteria Same criteria as the main method — pass the same instance.
+     * @return int
+     */
+    public function {$countName}({$allParams}): int
+    {
+{$sqlBlock}
+        \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _count_subquery';
+        \$stmt = \$this->pdo->prepare(\$__countSql);
+{$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$stmt->execute();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
+    }
+PHP;
     }
 
     /**

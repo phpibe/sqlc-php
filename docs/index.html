@@ -544,7 +544,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.6.2</span>
+    <span class="badge-version">v2.7.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -575,6 +575,7 @@
       <a class="sidebar-link" href="#language"><i class="bi bi-translate"></i> Inflection language</a>
       <a class="sidebar-link" href="#class-suffix"><i class="bi bi-type"></i> class_suffix</a>
       <a class="sidebar-link" href="#generate-schema"><i class="bi bi-database-add"></i> --generate-schema</a>
+      <a class="sidebar-link" href="#searchable"><i class="bi bi-funnel"></i> @searchable</a>
       <a class="sidebar-link" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> Type overrides</a>
       <a class="sidebar-link" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP type mapping</a>
     </div>
@@ -1079,7 +1080,8 @@ SELECT * FROM users WHERE id = :id;</code></pre>
 -- @calls   method1,method2    optional — used with :transaction to list methods to call
 -- @counted                    optional — generate companion {name}Count(): int method (:many-paginated only)
 -- @class   ClassName          sets the PHP class name (canonical, replaces @group)
--- @group   ClassName          deprecated — use @class instead (still works, emits warning)</code></pre>
+-- @group   ClassName          deprecated — use @class instead (still works, emits warning)
+-- @searchable                 enables dynamic WHERE/ORDER BY via generated Criteria class</code></pre>
 
         <div style="margin-top:1rem; display:flex; flex-wrap:wrap; gap:.5rem; align-items:center;">
           <span class="annotation ann-required">@name</span> <small style="color:var(--text-muted)">required</small>
@@ -2223,9 +2225,122 @@ CREATE TABLE `orders` (
         </div>
       </section>
 
+      <!-- SEARCHABLE -->
+      <section class="doc-section" id="searchable">
+        <h2><i class="bi bi-funnel me-2" style="color:var(--accent)"></i>@searchable — dynamic filters</h2>
+        <p style="color:var(--text-muted)">The <code>@searchable</code> annotation enables dynamic WHERE conditions and ORDER BY at runtime. Instead of writing separate queries for every filter combination, declare one query and let users compose filters via a generated, typed Criteria object.</p>
+
+        <h3>Basic usage</h3>
+        <pre><code class="language-sql">-- @name ListBillingConfig
+-- @class BillingConfig
+-- @searchable
+-- @counted
+-- @returns :many-paginated
+SELECT id, active, country_id, end_num, expiration_date
+FROM billing_config;</code></pre>
+
+        <p style="color:var(--text-muted)">sqlc-php generates two files: <code>BillingConfigQuery.php</code> (with updated method signatures) and <code>BillingConfigCriteria.php</code> (the typed filter builder).</p>
+
+        <pre><code class="language-php">// BillingConfigCriteria — generated, do not edit
+class BillingConfigCriteria extends \SqlcPhp\Criteria\Criteria
+{
+    public function whereActiveEq(int $value): static { ... }
+    public function whereActiveIn(int ...$values): static { ... }
+    public function whereActiveNotIn(int ...$values): static { ... }
+    public function whereCountryIdEq(int $value): static { ... }
+    public function whereCountryIdIn(int ...$values): static { ... }
+    public function whereEndNumGte(int $value): static { ... }
+    public function whereExpirationDateBetween(\DateTimeImmutable $from, \DateTimeImmutable $to): static { ... }
+    public function orderByExpirationDate(string $direction = 'ASC'): static { ... }
+    // ... one method per operator per column
+}</code></pre>
+
+        <pre><code class="language-php">// Usage
+$results = $query->listBillingConfig(
+    criteria: (new BillingConfigCriteria())
+        ->whereActiveEq(1)
+        ->whereCountryIdIn(164, 165)
+        ->orderByExpirationDate('DESC'),
+    limit: 20,
+    offset: 0,
+);
+
+$total = $query->listBillingConfigCount(
+    criteria: (new BillingConfigCriteria())->whereActiveEq(1),
+);
+
+// No criteria — returns all rows
+$all = $query->listBillingConfig();</code></pre>
+
+        <h3>Generated method signature</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead><tr><th>Return type</th><th>Signature</th></tr></thead>
+            <tbody>
+              <tr><td><code>:many</code></td><td><code>listX(?XCriteria $criteria = null): array</code></td></tr>
+              <tr><td><code>:many-paginated</code></td><td><code>listX(?XCriteria $criteria = null, ?int $limit = null, int $offset = 0): array</code></td></tr>
+              <tr><td><code>:many-paginated + @counted</code></td><td>Above + <code>listXCount(?XCriteria $criteria = null): int</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Generated filter methods by column type</h3>
+        <div class="doc-table-wrap">
+          <table class="doc-table">
+            <thead><tr><th>SQL type</th><th>Generated methods</th></tr></thead>
+            <tbody>
+              <tr><td><code>INT / TINYINT</code></td><td>Eq, Neq, Gt, Lt, Gte, Lte, In, NotIn — and IsNull/IsNotNull when nullable</td></tr>
+              <tr><td><code>VARCHAR / TEXT</code></td><td>Eq, Neq, Like, StartsWith, EndsWith, In, NotIn — and IsNull/IsNotNull when nullable</td></tr>
+              <tr><td><code>DECIMAL / FLOAT</code></td><td>Eq, Neq, Gt, Lt, Gte, Lte — and IsNull/IsNotNull when nullable</td></tr>
+              <tr><td><code>DATE / DATETIME</code></td><td>Eq, Neq, Gt, Lt, Gte, Lte, Between — and IsNull/IsNotNull when nullable</td></tr>
+              <tr><td><code>TINYINT (bool)</code></td><td>Eq only</td></tr>
+              <tr><td>All types</td><td>orderBy{Column}(direction)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Static WHERE + @searchable</h3>
+        <p style="color:var(--text-muted)">If the base SQL already contains a WHERE clause, Criteria conditions are appended with AND:</p>
+        <pre><code class="language-sql">-- @name ListActive
+-- @searchable
+-- @returns :many
+SELECT * FROM users WHERE tenant_id = :tenant_id;
+-- Dynamic conditions append as: AND country_id IN (...)</code></pre>
+
+        <h3>ORDER BY precedence</h3>
+        <p style="color:var(--text-muted)">If the base SQL has an ORDER BY and the Criteria specifies one, the Criteria order takes precedence. If the Criteria has no order, the SQL's static ORDER BY is used as fallback.</p>
+
+        <h3>SQL injection safety</h3>
+        <p style="color:var(--text-muted)">Column names in ORDER BY are validated against a generated <code>ALLOWED_COLUMNS</code> whitelist. IN/NOT_IN values expand to individual PDO placeholders (<code>:col_f0_0</code>, <code>:col_f0_1</code>, ...). No raw string interpolation is ever used for values.</p>
+
+        <div class="callout callout-info">
+          <i class="bi bi-info-circle callout-icon"></i>
+          <strong>prepared_statement_cache</strong> is automatically bypassed for <code>@searchable</code> methods — the SQL changes on every call depending on the active filters.
+        </div>
+
+        <h3>Restrictions</h3>
+        <ul style="color:var(--text-muted)">
+          <li><code>@searchable</code> is only valid on <code>:many</code> and <code>:many-paginated</code> return types.</li>
+          <li>Filters are always combined with AND. OR logic is not supported in v2.7.0.</li>
+          <li>All filters from the same Criteria are always applied together — pass a new Criteria instance to apply a different set.</li>
+        </ul>
+      </section>
+
       <!-- CHANGELOG -->
       <section class="doc-section" id="changelog">
         <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.7.0 — @searchable dynamic filters</div>
+          <ul>
+            <li><strong><code>@searchable</code></strong> — adds a typed Criteria parameter to <code>:many</code> and <code>:many-paginated</code> methods for dynamic WHERE and ORDER BY.</li>
+            <li><strong>Generated <code>{Group}Criteria</code> class</strong> — typed per-column methods inferred from the result schema: <code>whereIdIn(int ...$values)</code>, <code>whereEmailLike(string)</code>, <code>whereCreatedAtBetween(DateTimeImmutable, DateTimeImmutable)</code>, etc.</li>
+            <li><strong>Works with <code>@counted</code></strong> — count method accepts same Criteria for consistent totals.</li>
+            <li><strong>SQL injection safe</strong> — ORDER BY validated against allowedColumns whitelist; IN/NOT_IN use per-element placeholders.</li>
+            <li><strong>Immutable Criteria</strong> — <code>add()</code> and <code>orderBy()</code> return new instances.</li>
+            <li>71 new tests in <code>tests/SearchableTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.6.2 — symfony/yaml migration</div>

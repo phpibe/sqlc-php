@@ -123,6 +123,17 @@ class QueryAnalyzer
             );
         }
 
+        // Validate @searchable: only valid on :many and :many-paginated
+        if ($query->searchable
+            && $query->returns !== ReturnType::Many
+            && $query->returns !== ReturnType::ManyPaginated
+        ) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @searchable is only valid on :many and :many-paginated queries. " .
+                "Got: {$query->returns->value}"
+            );
+        }
+
         return new QueryDefinition(
             name:                 $query->name,
             group:                $query->group,
@@ -141,6 +152,7 @@ class QueryAnalyzer
             dtoClassName:         $query->dtoClassName,
             columnAliases:        $query->columnAliases,
             counted:              $query->counted,
+            searchable:           $query->searchable,
         );
     }
 

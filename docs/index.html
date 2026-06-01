@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.7.0</span>
+    <span class="badge-version">v2.7.1</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -153,6 +153,7 @@
       <a class="sidebar-link" href="#ann-searchable"><i class="bi bi-funnel"></i> @searchable</a>
       <a class="sidebar-link" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
+      <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
     </div>
 
     <div class="sidebar-group">
@@ -462,6 +463,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
             <tr><td><span class="annotation ann-optional">@calls</span></td><td>No</td><td>Methods to call in sequence (used with <code>:transaction</code>)</td></tr>
+            <tr><td><span class="annotation ann-optional">@partial</span></td><td>No</td><td>Mark SET params in an UPDATE as optional — passing <code>null</code> leaves the column unchanged. Only valid on <code>:exec</code> UPDATE queries.</td></tr>
           </tbody>
         </table>
       </div>
@@ -758,6 +760,79 @@ public function getUserLegacy(string $legacy_id): ?User</code></pre>
 -- @calls debitAccount,creditAccount
 -- @returns :transaction
 -- (no SQL body — the transaction orchestrates other methods)</code></pre>
+    </section>
+
+    <!-- ── @partial -->
+    <section class="doc-section" id="ann-partial">
+      <h3><i class="bi bi-pencil-square me-2"></i>@partial — optional UPDATE fields (PATCH pattern)</h3>
+      <p style="color:var(--text-muted)">Marks an UPDATE query as a partial update. Any parameter that appears inside a <code>COALESCE(:param, column)</code> expression in the <code>SET</code> clause becomes optional (<code>?type $param = null</code>) in the generated method. When <code>null</code> is passed, the column is left unchanged — no PHP-side conditionals required.</p>
+      <p style="color:var(--text-muted)">Parameters in the <code>WHERE</code> clause remain required. Only valid on <code>:exec</code> UPDATE queries.</p>
+
+      <pre><code class="language-sql">-- @name PatchUser
+-- @partial
+-- @returns :exec
+UPDATE users SET
+  email  = COALESCE(:email,  email),
+  name   = COALESCE(:name,   name),
+  active = COALESCE(:active, active)
+WHERE id = :id;</code></pre>
+
+      <pre><code class="language-php">// Generated method — required params first, optional params last
+public function patchUser(
+    int     $id,                   // WHERE param — required
+    ?string $email  = null,        // SET param   — optional
+    ?string $name   = null,        // SET param   — optional
+    ?int    $active = null,        // SET param   — optional
+): void</code></pre>
+
+      <pre><code class="language-php">// Update only the email — name and active are left unchanged
+$query->patchUser(id: 1, email: 'new@example.com');
+
+// Update only active status
+$query->patchUser(id: 1, active: 0);
+
+// Update multiple fields at once
+$query->patchUser(id: 1, email: 'new@example.com', name: 'Alice', active: 1);
+
+// WHERE params can also be composite
+// UPDATE users SET name = COALESCE(:name, name) WHERE id = :id AND tenant_id = :tenant_id
+$query->patchUser(id: 1, tenant_id: 42, name: 'Bob');</code></pre>
+
+      <h4>How it works</h4>
+      <p style="color:var(--text-muted)"><code>@partial</code> does not rewrite the SQL. The <code>COALESCE</code> is written by you and is the source of truth: when PDO binds <code>null</code> to <code>:email</code>, <code>COALESCE(NULL, email)</code> evaluates to the existing column value — effectively a no-op for that field. The generator detects which params appear inside <code>COALESCE(:param, ...)</code> in the SET region and marks them optional.</p>
+
+      <h4>Comparison with @optional</h4>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead><tr><th>Feature</th><th>@optional</th><th>@partial</th></tr></thead>
+          <tbody>
+            <tr><td>Works in</td><td><code>WHERE</code> clause</td><td><code>SET</code> clause</td></tr>
+            <tr><td>SQL rewriting</td><td>Yes — rewrites <code>col = :p</code> to <code>(:p_chk IS NULL OR col = :p)</code></td><td>No — you write the COALESCE yourself</td></tr>
+            <tr><td>Use case</td><td>Skip a filter when null (SELECT/UPDATE WHERE)</td><td>Skip a SET field when null (UPDATE PATCH)</td></tr>
+            <tr><td>Valid on</td><td><code>:many</code>, <code>:many-paginated</code>, <code>:exec</code></td><td><code>:exec</code> UPDATE only</td></tr>
+            <tr><td>Can combine</td><td>Yes — <code>@partial</code> + <code>@optional</code> on same query</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-tip">
+        <i class="bi bi-lightbulb callout-icon"></i>
+        <code>@partial</code> and <code>@optional</code> can be combined. Use <code>@partial</code> for optional SET fields and <code>@optional</code> for an optional WHERE filter on the same UPDATE query.
+      </div>
+
+      <pre><code class="language-sql">-- @name PatchActiveUsers
+-- @partial
+-- @optional country_id      ← optional WHERE filter (rewritten by SqlRewriter)
+-- @returns :exec
+UPDATE users SET
+  name = COALESCE(:name, name)
+WHERE active = 1 AND country_id = :country_id;</code></pre>
+
+      <pre><code class="language-php">// Filter by country (optional) and update name (optional)
+public function patchActiveUsers(
+    ?int    $country_id = null,   // WHERE — optional
+    ?string $name       = null,   // SET   — optional
+): void</code></pre>
     </section>
 
     <hr class="section-divider">
@@ -1289,6 +1364,17 @@ public function register(): void
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.7.1 — @partial (PATCH/UPDATE)</div>
+          <ul>
+            <li><strong><code>@partial</code></strong> — marks an UPDATE query as a partial update. Parameters inside <code>COALESCE(:param, column)</code> in the SET clause become optional (<code>?type $param = null</code>). Passing <code>null</code> leaves the column unchanged at the database level — no PHP conditionals needed.</li>
+            <li><strong>Param ordering is automatic</strong> — required WHERE params always come first in the signature; optional SET params go last, regardless of their order in the SQL.</li>
+            <li>Works alongside <code>@optional</code> — use <code>@partial</code> for optional SET fields and <code>@optional</code> for optional WHERE filters on the same query.</li>
+            <li>Only valid on <code>:exec</code> UPDATE queries.</li>
+            <li>23 new tests in <code>tests/PartialTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.7.0 — @searchable dynamic filters</div>

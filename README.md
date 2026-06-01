@@ -1524,6 +1524,37 @@ sqlc-php/
 
 ## Changelog
 
+### [2.7.1] — @partial (PATCH/UPDATE)
+
+- **`@partial` annotation** — marks an UPDATE query as a partial update. Parameters inside `COALESCE(:param, column)` in the SET clause become optional (`?type $param = null`). Passing `null` leaves the column unchanged at the database level via `COALESCE(NULL, column)` — no PHP conditionals needed.
+
+```sql
+-- @name PatchUser
+-- @partial
+-- @returns :exec
+UPDATE users SET
+  email  = COALESCE(:email,  email),
+  name   = COALESCE(:name,   name),
+  active = COALESCE(:active, active)
+WHERE id = :id;
+```
+
+```php
+// Generated: required WHERE params first, optional SET params last
+public function patchUser(int $id, ?string $email = null, ?string $name = null, ?int $active = null): void
+
+// Update only email
+$query->patchUser(id: 1, email: 'new@example.com');
+
+// Update only active
+$query->patchUser(id: 1, active: 0);
+```
+
+- **Param ordering is automatic** — WHERE params (required) always come first; SET params (optional) go last, regardless of order in the SQL.
+- Can be combined with `@optional` on the same query for optional WHERE filters.
+- Only valid on `:exec` UPDATE queries. Detects COALESCE params at compile time — no runtime overhead.
+- 23 new tests in `tests/PartialTest.php`.
+
 ### [2.7.0] — @searchable dynamic filters
 
 - **`@searchable` annotation** — adds a typed `Criteria` parameter to `:many` and `:many-paginated` methods. Enables dynamic `WHERE` conditions and `ORDER BY` at runtime, without writing separate queries.

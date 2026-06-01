@@ -57,21 +57,8 @@ class QueryAnalyzer
         // 3. Resolve parameters against the rewritten SQL
         $rawParams = $this->paramResolver->resolve($rewrittenSql, $query->paramAnnotations);
 
-        // Mark params that were declared @optional
-        $params = array_map(
-            fn(QueryParam $p) => in_array($p->name, $query->optionalParams, true)
-                ? new QueryParam(
-                    name:     $p->name,
-                    sqlType:  $p->sqlType,
-                    nullable: $p->nullable,
-                    pdoParam: $p->pdoParam,
-                    phpType:  $p->phpType,
-                    optional: true,
-                    inList:   $p->inList,
-                )
-                : $p,
-            $rawParams
-        );
+        // @optional marking will happen in markPartialAndOptional() below
+        $params = $rawParams;
 
         // 4. Resolve result columns, applying @nillable overrides
         // Treat :many-paginated like :many for column resolution
@@ -134,13 +121,26 @@ class QueryAnalyzer
             );
         }
 
+        // Validate @partial: only valid on :exec
+        if ($query->partial && $query->returns !== ReturnType::Exec) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @partial is only valid on :exec queries (UPDATE statements). " .
+                "Got: {$query->returns->value}"
+            );
+        }
+
+        // Detect which params are "partial" — appear in COALESCE(:param, col) in the SET clause
+        $partialParams = $query->partial
+            ? $this->detectPartialParams($query->sql, $query->name)
+            : [];
+
         return new QueryDefinition(
             name:                 $query->name,
             group:                $query->group,
             returns:              $query->returns,
             sql:                  $rewrittenSql,
             fromTable:            $query->fromTable,
-            params:               $params,
+            params:               $this->markPartialAndOptional($params, $partialParams, $query->optionalParams),
             resultColumns:        $resultColumns,
             paramAnnotations:     $query->paramAnnotations,
             optionalParams:       $query->optionalParams,
@@ -153,6 +153,7 @@ class QueryAnalyzer
             columnAliases:        $query->columnAliases,
             counted:              $query->counted,
             searchable:           $query->searchable,
+            partial:              $query->partial,
         );
     }
 
@@ -285,5 +286,94 @@ class QueryAnalyzer
         );
 
         return [true, $modelClass];
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // @partial helpers
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Detect which parameter names appear inside COALESCE(:param, ...) in the
+     * SET clause of an UPDATE. Those are the "partial" params — optional at
+     * runtime because passing null leaves the column unchanged.
+     *
+     * Strategy: split SQL on the first WHERE keyword (case-insensitive).
+     * Everything before WHERE is the SET region. Scan for COALESCE(:name, ...).
+     *
+     * @return string[]  param names (without leading colon)
+     */
+    private function detectPartialParams(string $sql, string $queryName): array
+    {
+        // Normalise whitespace for easier matching
+        $upper = strtoupper($sql);
+
+        // Must be an UPDATE
+        if (!str_starts_with(trim($upper), 'UPDATE')) {
+            throw new \RuntimeException(
+                "Query '{$queryName}': @partial is only valid on UPDATE queries."
+            );
+        }
+
+        // Split into SET region (before WHERE) and WHERE region (after WHERE)
+        $wherePos = strripos($sql, ' WHERE ');
+        $setRegion = $wherePos !== false ? substr($sql, 0, $wherePos) : $sql;
+
+        // Find all COALESCE(:paramName, ...) occurrences in the SET region
+        $partial = [];
+        if (preg_match_all('/\bCOALESCE\s*\(\s*:([a-zA-Z_][a-zA-Z0-9_]*)\s*,/i', $setRegion, $m)) {
+            foreach ($m[1] as $name) {
+                $partial[] = $name;
+            }
+        }
+
+        if (empty($partial)) {
+            fwrite(STDERR,
+                "sqlc-php: @partial on '{$queryName}' found no COALESCE(:param, col) patterns " .
+                "in the SET clause. Use COALESCE(:field, field) to mark updatable fields.\n"
+            );
+        }
+
+        return array_unique($partial);
+    }
+
+    /**
+     * Apply @optional and @partial flags to the resolved param list.
+     * - @optional params: optional = true
+     * - @partial params:  optional = true, phpType forced to nullable
+     * Required params keep their types unchanged.
+     *
+     * @param QueryParam[]  $params
+     * @param string[]      $partialNames
+     * @param string[]      $optionalNames
+     * @return QueryParam[]
+     */
+    private function markPartialAndOptional(
+        array $params,
+        array $partialNames,
+        array $optionalNames,
+    ): array {
+        return array_map(function (QueryParam $p) use ($partialNames, $optionalNames): QueryParam {
+            $isPartial  = in_array($p->name, $partialNames, true);
+            $isOptional = in_array($p->name, $optionalNames, true);
+
+            if (!$isPartial && !$isOptional) {
+                return $p;
+            }
+
+            // Force phpType to be nullable (strip existing ? then re-add)
+            $base = ltrim($p->phpType, '?');
+            // DateTimeImmutable already has backslash prefix — keep it
+            $nullableType = '?' . $base;
+
+            return new QueryParam(
+                name:     $p->name,
+                sqlType:  $p->sqlType,
+                nullable: true,
+                pdoParam: $p->pdoParam,
+                phpType:  $nullableType,
+                optional: true,
+                inList:   $p->inList,
+            );
+        }, $params);
     }
 }

@@ -93,6 +93,12 @@ class QueryDefinition
          * :many-paginated queries. A companion {Group}Criteria class is generated.
          */
         public readonly bool       $searchable = false,
+        /**
+         * When true, params that appear inside COALESCE(:param, col) in the SET
+         * clause are marked optional (nullable, default null). Params in the WHERE
+         * clause remain required. Only valid on :exec UPDATE queries.
+         */
+        public readonly bool       $partial = false,
     ) {}
 }
 
@@ -154,6 +160,7 @@ class QueryParser
         $dtoClassName     = null;
         $counted          = false;
         $searchable       = false;
+        $partial          = false;
         $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
@@ -192,6 +199,8 @@ class QueryParser
                     $counted = true;
                 } elseif (preg_match('/^@searchable\b/i', $comment)) {
                     $searchable = true;
+                } elseif (preg_match('/^@partial\b/i', $comment)) {
+                    $partial = true;
                 } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
                     // @calls query1,query2,query3 — used by :transaction
                     // Store as the SQL body so the generator can retrieve it
@@ -273,6 +282,7 @@ class QueryParser
             columnAliases:    $columnAliases,
             counted:          $counted,
             searchable:       $searchable,
+            partial:          $partial,
         );
     }
     private function extractFromTable(string $sql): ?string

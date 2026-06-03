@@ -204,7 +204,7 @@ class ConfigTest extends TestCase
     public function test_target_out_is_parsed(): void
     {
         $config = Config::fromFile($this->write($this->minimal()));
-        $this->assertSame('gen', $config->targets[0]->out);
+        $this->assertSame('gen', $config->targets[0]->out());
     }
 
     public function test_target_queries_as_scalar_wrapped_in_array(): void

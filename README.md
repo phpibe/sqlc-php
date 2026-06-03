@@ -1524,6 +1524,66 @@ sqlc-php/
 
 ## Changelog
 
+### [2.7.5] — PSR-3 logger & afterQuery hook
+
+- **Constructor updated** — every generated Query class now accepts `?LoggerInterface $logger = null` and `?Closure $afterQuery = null`. Fully backward compatible.
+
+```php
+$repo = new UserRepository(
+    pdo:        $pdo,
+    logger:     app(LoggerInterface::class),        // PSR-3 → Telescope / files
+    afterQuery: fn(QueryObject $q) =>
+        \Debugbar::addMessage($q->toString(), 'queries'),  // Debugbar
+);
+```
+
+- **PSR-3 logger** — every executed method calls `$logger->debug(queryName + SQL, values)`. Works with Monolog, Laravel Log, Symfony Logger. Appears in Telescope Logs tab.
+- **afterQuery hook** — `Closure` called after every query with `QueryObject`. Use for Debugbar, OpenTelemetry, metrics, per-request query collection.
+- `psr/log: ^1.0 || ^2.0 || ^3.0` added as a dependency.
+- 22 new tests in `tests/LoggerHookTest.php`.
+
+### [2.7.4] — lastQuery() inspection
+
+- **`lastQuery(): ?QueryObject`** — every generated Query class records the SQL and bound parameters of the most recently executed method.
+
+```php
+$users = $repo->listActiveUsers(active: 1);
+$q     = $repo->lastQuery();
+
+echo $q->toString();    // SQL with placeholders — safe to log
+echo $q->toDebugSql();  // SQL with values — debug only
+$key   = $q->cacheKey();   // stable md5 for caching
+$q->values();              // bound values as array
+```
+
+- **`QueryObject`** — readonly value object with `toString()`, `toDebugSql()`, `bindings()`, `values()`, `cacheKey()`, `paramCount()`. Lives in `SqlcPhp\Query\QueryObject`.
+- **`Criteria::getBindings()`** — new method exposing filter bindings as array; enables `@searchable` queries to correctly populate `lastQuery`.
+- **Not in interface** — `lastQuery()` is excluded from `*Interface.php` — it's infrastructure, not domain contract.
+- 43 new tests in `tests/LastQueryTest.php`.
+
+### [2.7.3] — out: map form (per-type directories)
+
+- **`out:` now accepts a YAML map** — each file type gets its own output directory and namespace, enabling DDD layouts like `Database/Repositories`, `Database/Models`, `Database/DTOs`.
+
+```yaml
+targets:
+  - namespace: "App\\Database"
+    queries:   queries.sql
+    out:
+      queries:    database/Repositories   # → App\Database\Repositories\UserRepository.php
+      models:     database/Models         # → App\Database\Models\User.php
+      dtos:       database/DTOs           # → App\Database\DTOs\GetUserWithRoleRow.php
+      enums:      database/Enums
+      interfaces: database/Contracts
+      criterias:  database/Criterias
+```
+
+- **Namespace derivation** — `namespace + '\' + last path segment`. No extra config.
+- **Automatic `use` statements** — injected where needed when namespaces differ.
+- **Backward compatible** — `out: generated` (string form) still works exactly as before.
+- **Error on missing type** — generation fails with a clear message if a needed type has no declared dir.
+- 23 new tests in `tests/OutputConfigTest.php`.
+
 ### [2.7.1] — @partial (PATCH/UPDATE)
 
 - **`@partial` annotation** — marks an UPDATE query as a partial update. Parameters inside `COALESCE(:param, column)` in the SET clause become optional (`?type $param = null`). Passing `null` leaves the column unchanged at the database level via `COALESCE(NULL, column)` — no PHP conditionals needed.

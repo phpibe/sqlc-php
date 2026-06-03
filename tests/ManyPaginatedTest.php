@@ -277,7 +277,7 @@ class MultipleTargetsTest extends TestCase
     {
         $t = Target::fromArray(['namespace' => 'App\\Read', 'out' => 'gen/read', 'queries' => 'q.sql']);
         $this->assertSame('App\\Read', $t->namespace);
-        $this->assertSame('gen/read',  $t->out);
+        $this->assertSame('gen/read',  $t->out());
     }
 
     public function test_target_queries_as_scalar(): void
@@ -479,14 +479,9 @@ if (\$diffMode)   echo "Mode   : DIFF\n";
 foreach (\$config->schemas as \$f) \$allSql .= "\n" . file_get_contents(\$f);
 \$catalog = new SchemaCatalog((new SchemaParser())->parse(\$allSql));
 
-if (!empty(\$config->targets)) {
-    \$passes = \$config->targets;
-} else {
-    \$passes = [new Target(\$config->namespace, \$config->out, \$config->queries, \$config->generateInterfaces, \$config->typeOverrides)];
-}
-
 \$allToWrite = [];
-foreach (\$passes as \$target) {
+foreach (\$config->targets as \$target) {
+    \$outDir = \$target->output->defaultDir();
     \$qp = new QueryParser();
     \$rq = [];
     foreach (\$target->queries as \$f) \$rq = array_merge(\$rq, \$qp->parse(file_get_contents(\$f)));
@@ -502,15 +497,15 @@ foreach (\$passes as \$target) {
     \$qg  = new QueryGenerator(\$catalog, \$tm, \$dg, \$target->namespace, \$target->generateInterfaces, \$ig);
     \$mg  = new ModelGenerator(\$catalog, \$tm, \$qp, \$target->namespace);
     \$toW = [];
-    foreach (\$catalog->all() as \$t) foreach (\$t->columns as \$c) { if (!\$c->isEnum()) continue; ['className'=>\$cl,'code'=>\$co] = \$eg->generate(\$t->name,\$c); \$toW["\$cl.php"]=['label'=>'[enum]','code'=>\$co]; }
-    foreach (array_unique(array_filter(array_column(\$qs,'fromTable'))) as \$tn) { ['className'=>\$cl,'code'=>\$co] = \$mg->generate(\$tn); \$toW["\$cl.php"]=['label'=>'[model]','code'=>\$co]; }
-    foreach (\$qs as \$q) { if (\$q->returnsModelDirectly||empty(\$q->resultColumns)||\$q->returns->value===':exec') continue; ['className'=>\$cl,'code'=>\$co]=\$dg->generate(\$q); \$toW["\$cl.php"]=['label'=>'[dto]','code'=>\$co]; }
-    foreach (\$qg->generate(\$qs) as ['className'=>\$cl,'code'=>\$co]) \$toW["\$cl.php"]=['label'=>'[query]','code'=>\$co];
-    foreach (\$qg->generateInterfaces(\$qs) as ['className'=>\$cl,'code'=>\$co]) \$toW["\$cl.php"]=['label'=>'[iface]','code'=>\$co];
-    foreach (\$toW as \$fn => \$e) \$allToWrite["\$target->out/\$fn"] = \$e['code'];
+    foreach (\$catalog->all() as \$t) foreach (\$t->columns as \$c) { if (!\$c->isEnum()) continue; ['className'=>\$cl,'code'=>\$co] = \$eg->generate(\$t->name,\$c); \$toW["\$cl.php"]=['code'=>\$co]; }
+    foreach (array_unique(array_filter(array_column(\$qs,'fromTable'))) as \$tn) { ['className'=>\$cl,'code'=>\$co] = \$mg->generate(\$tn); \$toW["\$cl.php"]=['code'=>\$co]; }
+    foreach (\$qs as \$q) { if (\$q->returnsModelDirectly||empty(\$q->resultColumns)||\$q->returns->value===':exec') continue; ['className'=>\$cl,'code'=>\$co]=\$dg->generate(\$q); \$toW["\$cl.php"]=['code'=>\$co]; }
+    foreach (\$qg->generate(\$qs) as ['className'=>\$cl,'code'=>\$co]) \$toW["\$cl.php"]=['code'=>\$co];
+    foreach (\$qg->generateInterfaces(\$qs) as ['className'=>\$cl,'code'=>\$co]) \$toW["\$cl.php"]=['code'=>\$co];
+    foreach (\$toW as \$fn => \$e) \$allToWrite["\$outDir/\$fn"] = \$e['code'];
     if (!\$verifyMode && !\$dryRun && !\$diffMode) {
-        if (!is_dir(\$target->out)) mkdir(\$target->out, 0755, true);
-        foreach (\$toW as \$fn => ['code'=>\$co]) file_put_contents("\$target->out/\$fn", \$co);
+        if (!is_dir(\$outDir)) mkdir(\$outDir, 0755, true);
+        foreach (\$toW as \$fn => ['code'=>\$co]) file_put_contents("\$outDir/\$fn", \$co);
     }
 }
 

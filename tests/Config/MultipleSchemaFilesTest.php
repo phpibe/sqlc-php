@@ -368,9 +368,15 @@ class DeprecatedAnnotationTest extends TestCase
         ));
         $code = $qg->generate($queries)['UserQuery']['code'];
 
-        $deprecatedPos = strpos($code, '@deprecated');
-        $paramPos      = strpos($code, '@param');
+        // Scope check to the getUser method only — the constructor docblock also has @param
+        $methodStart    = strpos($code, 'public function getUser');
+        $this->assertNotFalse($methodStart, 'getUser method not found');
+        $methodSnippet  = substr($code, 0, (int) $methodStart);
 
+        $deprecatedPos = strrpos($methodSnippet, '@deprecated');
+        $paramPos      = strrpos($methodSnippet, '@param');
+
+        $this->assertNotFalse($deprecatedPos, '@deprecated tag not found before method');
         $this->assertLessThan($paramPos, $deprecatedPos);
     }
 }

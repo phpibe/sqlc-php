@@ -179,7 +179,7 @@ foreach (\$target->queries as \$queryFile) {
 \$queryGen      = new QueryGenerator(\$catalog, \$typeMapper, \$resultDtoGen, \$target->namespace, \$target->generateInterfaces, \$interfaceGen);
 \$modelGen      = new ModelGenerator(\$catalog, \$typeMapper, \$queryParser, \$target->namespace);
 
-\$outDir  = rtrim(\$target->out, '/');
+\$outDir  = rtrim(\$target->out(), '/');
 \$toWrite = [];
 
 foreach (\$catalog->all() as \$table) {

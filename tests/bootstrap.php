@@ -25,6 +25,7 @@ spl_autoload_register(function (string $class): void {
     $maps = [
         'SqlcPhp\\'     => __DIR__ . '/../src/',
         'SqlcPhp\\Tests\\' => __DIR__ . '/',
+        'Psr\\Log\\'    => __DIR__ . '/../vendor/psr/log/src/',
     ];
 
     foreach ($maps as $prefix => $base) {

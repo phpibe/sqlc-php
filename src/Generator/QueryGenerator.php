@@ -7,8 +7,10 @@ namespace SqlcPhp\Generator;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Parser\ReturnType;
+use SqlcPhp\Query\QueryObject;
 use SqlcPhp\Resolver\QueryParam;
 use SqlcPhp\TypeMapper\TypeMapperInterface;
+use Psr\Log\LoggerInterface;
 
 /**
  * Generates one PHP Query class per @group, containing one method per query.
@@ -109,8 +111,11 @@ declare(strict_types=1);
 
 namespace {$this->namespace};
 
+use Closure;
 use PDO;
+use Psr\Log\LoggerInterface;
 use RuntimeException;
+use SqlcPhp\Query\QueryObject;
 
 /**
  * Query class for the `{$className}` group.
@@ -118,9 +123,53 @@ use RuntimeException;
  */
 class {$className}{$implements}
 {
+    /**
+     * @param PDO                 \$pdo         PDO connection.
+     * @param LoggerInterface|null \$logger     Optional PSR-3 logger. When provided, every
+     *                                          executed query is logged at DEBUG level with the
+     *                                          SQL as message and bound values as context.
+     * @param Closure|null        \$afterQuery  Optional hook called after every query with the
+     *                                          QueryObject as its sole argument. Use this to
+     *                                          integrate with Debugbar, metrics, custom events, etc.
+     *                                          Signature: function(QueryObject \$q): void
+     */
     public function __construct(
-        private readonly PDO \$pdo,
+        private readonly PDO               \$pdo,
+        private readonly ?LoggerInterface  \$logger     = null,
+        private readonly ?Closure          \$afterQuery = null,
     ) {}{$stmtsProperty}
+
+    /** Stores the SQL and bindings of the most recently executed method. */
+    private ?QueryObject \$lastQuery = null;
+
+    /**
+     * Returns a QueryObject with the SQL and bindings of the last executed method.
+     * Useful for logging, debugging, testing, and building cache keys.
+     * Returns null if no method has been called yet.
+     */
+    public function lastQuery(): ?QueryObject
+    {
+        return \$this->lastQuery;
+    }
+
+    /**
+     * Logs the last executed query and fires the afterQuery hook.
+     * Called automatically at the end of every generated method.
+     * No-op when both logger and afterQuery hook are null.
+     */
+    private function logLastQuery(): void
+    {
+        if (\$this->lastQuery === null) return;
+
+        \$this->logger?->debug(
+            \$this->lastQuery->queryName . ': ' . \$this->lastQuery->toString(),
+            \$this->lastQuery->values(),
+        );
+
+        if (\$this->afterQuery !== null) {
+            (\$this->afterQuery)(\$this->lastQuery);
+        }
+    }
 
 {$methodsStr}
 }
@@ -245,9 +294,10 @@ PHP;
         $allParams    = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
 
         $docblock = $this->buildDocblock($query, "@return {$returnClass}[]");
-        $bindings = $this->renderBindings($query);
-        $bindingsStr = rtrim($bindings);
-        $bindBlock = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindings     = $this->renderBindings($query);
+        $bindingsStr  = rtrim($bindings);
+        $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr = $this->buildBindingsExpr($query);
 
         $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria');
 
@@ -258,6 +308,8 @@ PHP;
 {$sqlBlock}
         \$stmt = \$this->pdo->prepare(\$__sql);
 {$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
+        \$this->logLastQuery();
         \$stmt->execute();
 
         return array_map(
@@ -286,9 +338,10 @@ PHP;
             "@param int  \$offset                  Rows to skip.",
         ]);
 
-        $bindings    = $this->renderBindings($query);
-        $bindingsStr = rtrim($bindings);
-        $bindBlock   = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindings     = $this->renderBindings($query);
+        $bindingsStr  = rtrim($bindings);
+        $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr = $this->buildBindingsExpr($query);
 
         $sqlBlockAll  = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
         $sqlBlockPage = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: true);
@@ -308,6 +361,8 @@ PHP;
             \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
             \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
         }
+        \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
+        \$this->logLastQuery();
         \$stmt->execute();
 
         return array_map(
@@ -326,9 +381,10 @@ PHP;
         $allParams    = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
         $countName    = $query->name . 'Count';
 
-        $bindings    = $this->renderBindings($query);
-        $bindingsStr = rtrim($bindings);
-        $bindBlock   = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindings     = $this->renderBindings($query);
+        $bindingsStr  = rtrim($bindings);
+        $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr = $this->buildBindingsExpr($query);
 
         $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
 
@@ -345,6 +401,8 @@ PHP;
         \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _count_subquery';
         \$stmt = \$this->pdo->prepare(\$__countSql);
 {$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$this->lastQuery = new QueryObject(\$__countSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$countName}');
+        \$this->logLastQuery();
         \$stmt->execute();
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -367,26 +425,84 @@ PHP;
         return "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
     }
 
-    // -------------------------------------------------------------------------
+    // =========================================================================
+    // lastQuery() — QueryObject recording
+    // =========================================================================
+
+    /**
+     * Render the statement that saves the current SQL + bindings to $this->lastQuery.
+     * Injected at the end of each query method, just before execute/return.
+     *
+     * @param string $sqlExpr   PHP expression for the SQL (literal or variable)
+     * @param string $bindings  PHP expression for the bindings array
+     * @param string $name      Method name
+     * @param bool   $isBatch
+     * @param string $batchCountExpr  PHP expression for batch count
+     */
+    private function renderSaveLastQuery(
+        string $sqlExpr,
+        string $bindingsExpr = '[]',
+        string $name = '__FUNCTION__',
+        bool   $isBatch = false,
+        string $batchCountExpr = '0',
+    ): string {
+        $isBatchStr = $isBatch ? 'true' : 'false';
+        return "        \$this->lastQuery = new QueryObject({$sqlExpr}, {$bindingsExpr}, {$name}, {$isBatchStr}, {$batchCountExpr});
+        \$this->logLastQuery();";
+    }
+
+    /**
+     * Build a PHP bindings array expression from a QueryDefinition's params.
+     * Returns a PHP literal like:
+     *   [':id' => [$id, PDO::PARAM_INT], ':email' => [$email, PDO::PARAM_STR]]
+     */
+    private function buildBindingsExpr(QueryDefinition $query): string
+    {
+        $isPaginated    = $query->returns->value === ':many-paginated';
+        $paginationKeys = ['limit', 'offset'];
+
+        $parts = [];
+        foreach ($query->params as $param) {
+            if ($param->inList) continue; // IN() bindings are positional, skip
+            if ($isPaginated && in_array($param->name, $paginationKeys, true)) continue;
+
+            $parts[] = "    ':{$param->name}' => [\${$param->name}, {$param->pdoParam}]";
+            if ($param->optional) {
+                $chk     = $param->name . '_chk';
+                $parts[] = "    ':{$chk}' => [\${$param->name}, {$param->pdoParam}]";
+            }
+        }
+
+        if (empty($parts)) return '[]';
+
+        $inner = implode(",\n", $parts);
+        return "[\n{$inner},\n        ]";
+    }
+
+    // =========================================================================
     // :many
-    // -------------------------------------------------------------------------
+    // =========================================================================
 
     private function renderManyMethod(QueryDefinition $query): string
     {
-        $returnClass = $this->resolveReturnClass($query);
-        $signature   = $this->buildSignature($query, "array");
-        $docblock    = $this->buildDocblock($query, "@return {$returnClass}[]");
-        $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query)
+        $returnClass  = $this->resolveReturnClass($query);
+        $signature    = $this->buildSignature($query, "array");
+        $docblock     = $this->buildDocblock($query, "@return {$returnClass}[]");
+        $bindings     = $this->renderBindings($query);
+        $prepare      = $this->hasInListParams($query)
             ? ''
             : $this->renderPrepare($query);
-        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $sqlExpr      = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-{$prepare}{$bindings}{$executeCall}
+{$prepare}{$bindings}{$saveLastQuery}
+{$executeCall}
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
             \$stmt->fetchAll(PDO::FETCH_ASSOC),
@@ -445,13 +561,22 @@ PHP;
             "        \$stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);\n" .
             "        \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);\n";
 
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        // Paginated: lastQuery includes limit/offset when applicable
+        $saveAll  = "        \$this->lastQuery = new QueryObject(\$__sqlAll,  {$bindingsExpr}, '{$query->name}');
+        \$this->logLastQuery();\n";
+        $savePage = "        \$this->lastQuery = new QueryObject(\$__sqlPage, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');
+        \$this->logLastQuery();\n";
+
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
         if (\$limit === null) {
-{$prepareAll}{$bindAllBlock}        } else {
-{$preparePage}{$bindPageBlock}        }
+            \$__sqlAll = {$sqlNoLimitLiteral};
+{$prepareAll}{$bindAllBlock}{$saveAll}        } else {
+            \$__sqlPage = {$sqlWithLimitLiteral};
+{$preparePage}{$bindPageBlock}{$savePage}        }
         \$stmt->execute();
 
         return array_map(
@@ -504,11 +629,15 @@ PHP;
             ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
             : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
 
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$countName}'");
+
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-{$prepare}{$bindings}        \$stmt->execute();
+{$prepare}{$bindings}{$saveLastQuery}
+        \$stmt->execute();
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
 
         return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
@@ -522,19 +651,23 @@ PHP;
 
     private function renderOneMethod(QueryDefinition $query): string
     {
-        $returnClass = $this->resolveReturnClass($query);
-        $signature   = $this->buildSignature($query, $returnClass);
-        $docblock    = $this->buildDocblock($query, "@return {$returnClass}");
-        $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
-        $exception   = 'No record found for query "' . $query->name . '"';
+        $returnClass  = $this->resolveReturnClass($query);
+        $signature    = $this->buildSignature($query, $returnClass);
+        $docblock     = $this->buildDocblock($query, "@return {$returnClass}");
+        $bindings     = $this->renderBindings($query);
+        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $exception    = 'No record found for query "' . $query->name . '"';
+        $sqlExpr      = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-{$prepare}{$bindings}{$executeCall}
+{$prepare}{$bindings}{$saveLastQuery}
+{$executeCall}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         if (\$row === false) {
             throw new RuntimeException('{$exception}');
@@ -551,18 +684,22 @@ PHP;
 
     private function renderOptMethod(QueryDefinition $query): string
     {
-        $returnClass = $this->resolveReturnClass($query);
-        $signature   = $this->buildSignature($query, "?{$returnClass}");
-        $docblock    = $this->buildDocblock($query, "@return {$returnClass}|null");
-        $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $returnClass  = $this->resolveReturnClass($query);
+        $signature    = $this->buildSignature($query, "?{$returnClass}");
+        $docblock     = $this->buildDocblock($query, "@return {$returnClass}|null");
+        $bindings     = $this->renderBindings($query);
+        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $sqlExpr      = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-{$prepare}{$bindings}{$executeCall}
+{$prepare}{$bindings}{$saveLastQuery}
+{$executeCall}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         return \$row !== false ? {$returnClass}::fromRow(\$row) : null;
     }
@@ -575,17 +712,21 @@ PHP;
 
     private function renderExecMethod(QueryDefinition $query): string
     {
-        $signature   = $this->buildSignature($query, 'void');
-        $docblock    = $this->buildDocblock($query, 'Executes the statement.');
-        $bindings    = $this->renderBindings($query);
-        $prepare     = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $signature    = $this->buildSignature($query, 'void');
+        $docblock     = $this->buildDocblock($query, 'Executes the statement.');
+        $bindings     = $this->renderBindings($query);
+        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
+        $sqlExpr      = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
-{$prepare}{$bindings}{$executeCall}    }
+{$prepare}{$bindings}{$saveLastQuery}
+{$executeCall}    }
 PHP;
     }
 
@@ -901,6 +1042,9 @@ PHP;
             \$this->pdo->rollBack();
             throw \$e;
         }
+
+        \$this->lastQuery = new QueryObject({$sqlLiteral}, [], '{$methodName}', true, count(\$rows));
+        \$this->logLastQuery();
 
         return count(\$rows);
     }

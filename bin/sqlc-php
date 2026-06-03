@@ -30,6 +30,15 @@ if (!class_exists('Symfony\\Component\\Yaml\\Yaml', false)) {
     }
 }
 
+// Load psr/log shim if not already available via composer autoload
+if (!interface_exists('Psr\\Log\\LoggerInterface', false)) {
+    $psrBase = __DIR__ . '/../vendor/psr/log/src/';
+    foreach (['LoggerInterface', 'LogLevel', 'AbstractLogger', 'NullLogger'] as $cls) {
+        $f = $psrBase . $cls . '.php';
+        if (file_exists($f)) require_once $f;
+    }
+}
+
 use SqlcPhp\Analyzer\QueryAnalyzer;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;
@@ -296,7 +305,7 @@ function runGeneration(
             ? " [target " . ($i + 1) . "/" . count($config->targets) . "]"
             : '';
 
-        if (!$silent) echo "Target{$passLabel}: {$target->namespace} → {$target->out}/\n";
+        if (!$silent) echo "Target{$passLabel}: {$target->namespace} → {$target->out()}/\n";
 
         $queryParser = new QueryParser($target->language);
         $rawQueries  = [];
@@ -312,7 +321,18 @@ function runGeneration(
         }
         if (!$silent) echo "  Queries: " . count($rawQueries) . " total\n";
 
-        $enumGen       = new EnumGenerator($target->namespace, $target->language);
+        $output  = $target->output;
+
+        // Derive per-type namespaces — in string form all are the same;
+        // in map form each type gets baseNamespace\LastPathSegment
+        $nsQueries    = $output->namespaceFor('queries');
+        $nsModels     = $output->namespaceFor('models');
+        $nsDtos       = $output->namespaceFor('dtos');
+        $nsEnums      = $output->namespaceFor('enums');
+        $nsInterfaces = $output->namespaceFor('interfaces');
+        $nsCriterias  = $output->namespaceFor('criterias');
+
+        $enumGen       = new EnumGenerator($nsEnums, $target->language);
         $typeMapper    = TypeMapperFactory::create($target->engine, $target->typeOverrides, $enumGen);
         $paramResolver = new ParamResolver($catalog, $typeMapper);
         $exprResolver  = new ExpressionTypeResolver($catalog, $typeMapper);
@@ -320,17 +340,16 @@ function runGeneration(
         $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
         $queries       = $analyzer->analyze($rawQueries);
 
-        $resultDtoGen = new ResultDtoGenerator($target->namespace, $typeMapper);
-        $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($target->namespace) : null;
+        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper);
+        $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($nsInterfaces) : null;
         $queryGen     = new QueryGenerator(
-            $catalog, $typeMapper, $resultDtoGen, $target->namespace,
+            $catalog, $typeMapper, $resultDtoGen, $nsQueries,
             $target->generateInterfaces, $interfaceGen,
             $target->preparedStatementCache,
             $target->classSuffix,
         );
-        $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $target->namespace);
+        $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels);
 
-        $outDir  = $target->out;
         $toWrite = [];
 
         foreach ($catalog->all() as $table) {
@@ -338,7 +357,7 @@ function runGeneration(
             foreach ($table->columns as $col) {
                 if (!$col->isEnum()) continue;
                 ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
-                $toWrite["{$cls}.php"] = ['label' => '[enum]   ', 'code' => $code];
+                $toWrite["{$cls}.php"] = ['type' => 'enums', 'label' => '[enum]   ', 'code' => $code];
             }
         }
 
@@ -347,7 +366,7 @@ function runGeneration(
             $tableDef = $catalog->getTable($tableName);
             if ($tableDef?->virtual) continue;
             ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
-            $toWrite["{$cls}.php"] = ['label' => '[model]  ', 'code' => $code];
+            $toWrite["{$cls}.php"] = ['type' => 'models', 'label' => '[model]  ', 'code' => $code];
         }
 
         // @dto collision detection
@@ -368,32 +387,62 @@ function runGeneration(
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
             if ($query->returns->value === ':exec') continue;
             $r = $resultDtoGen->generate($query);
-            $toWrite["{$r['className']}.php"] = ['label' => '[dto]    ', 'code' => $r['code']];
+            $toWrite["{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
             foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
-                $toWrite["{$ecls}.php"] = ['label' => '[embed]  ', 'code' => $ec];
+                $toWrite["{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
             }
         }
 
         foreach ($queryGen->generate($queries) as ['className' => $cls, 'code' => $code]) {
-            $toWrite["{$cls}.php"] = ['label' => '[query]  ', 'code' => $code];
+            // Criteria classes (generated by @searchable) go to 'criterias' bucket
+            $type = str_ends_with($cls, 'Criteria') ? 'criterias' : 'queries';
+            $label = $type === 'criterias' ? '[criteria]' : '[query]  ';
+            $toWrite["{$cls}.php"] = ['type' => $type, 'label' => $label, 'code' => $code];
         }
 
         foreach ($queryGen->generateInterfaces($queries) as ['className' => $cls, 'code' => $code]) {
-            $toWrite["{$cls}.php"] = ['label' => '[iface]  ', 'code' => $code];
+            $toWrite["{$cls}.php"] = ['type' => 'interfaces', 'label' => '[iface]  ', 'code' => $code];
         }
 
+        // ── Determine which types are actually needed ──────────────────────
+        $neededTypes = array_unique(array_column(array_values($toWrite), 'type'));
+
+        // Validate that all needed types have a declared dir (map form only)
+        try {
+            $output->assertAllDeclared($neededTypes);
+        } catch (\RuntimeException $e) {
+            $result['error'] = "Target '{$target->namespace}': " . $e->getMessage();
+            return $result;
+        }
+
+        // ── Route each file to its correct directory ───────────────────────
         foreach ($toWrite as $file => $entry) {
-            $allToWrite["{$outDir}/{$file}"] = $entry['code'];
+            $type    = $entry['type'];
+            $dir     = $output->dirFor($type);
+            $nsFrom  = $output->namespaceFor($type);
+
+            // When namespaces differ, we may need to inject `use` statements
+            $code = $entry['code'];
+            if ($output->isMap()) {
+                $code = injectUseStatements($code, $entry, $toWrite, $output);
+            }
+
+            $allToWrite["{$dir}/{$file}"] = $code;
         }
 
         if (!$verifyMode && !$dryRun && !$diffMode) {
-            if (!is_dir($outDir) && !mkdir($outDir, 0755, true)) {
-                $result['error'] = "Cannot create output directory: {$outDir}";
-                return $result;
-            }
-            foreach ($toWrite as $file => ['label' => $label, 'code' => $code]) {
-                file_put_contents("{$outDir}/{$file}", $code);
-                if (!$silent) echo "  {$label}{$outDir}/{$file}\n";
+            foreach ($toWrite as $file => $entry) {
+                $type  = $entry['type'];
+                $dir   = $output->dirFor($type);
+                $code  = $allToWrite["{$dir}/{$file}"];
+                $label = $entry['label'];
+
+                if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
+                    $result['error'] = "Cannot create output directory: {$dir}";
+                    return $result;
+                }
+                file_put_contents("{$dir}/{$file}", $code);
+                if (!$silent) echo "  {$label}{$dir}/{$file}\n";
                 $totalWritten++;
             }
         }
@@ -406,6 +455,73 @@ function runGeneration(
 
     return $result;
 }
+
+// ---------------------------------------------------------------------------
+// Use statement injector — called only in map form when namespaces differ
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a generated PHP file, inject missing `use` statements for any
+ * class references that now live in a different namespace (because map-form
+ * out: was used).
+ *
+ * Strategy: scan for unqualified class names that appear as return types,
+ * parameter types, `new ClassName`, `ClassName::`, or `implements ClassName`
+ * in the generated code. If that class name belongs to a different namespace,
+ * inject the appropriate `use` statement after the existing namespace declaration.
+ *
+ * @param string                             $code
+ * @param array{type:string,label:string,code:string} $entry
+ * @param array<string,array{type:string,...}>  $allFiles  All files being generated
+ * @param \SqlcPhp\Config\OutputConfig       $output
+ */
+function injectUseStatements(
+    string $code,
+    array  $entry,
+    array  $allFiles,
+    \SqlcPhp\Config\OutputConfig $output,
+): string {
+    $myType  = $entry['type'];
+    $myNs    = $output->namespaceFor($myType);
+
+    // Build a map: className → FQCN for all generated classes in OTHER namespaces
+    $classToFqcn = [];
+    foreach ($allFiles as $fileName => $other) {
+        $otherType = $other['type'];
+        $otherNs   = $output->namespaceFor($otherType);
+        if ($otherNs === $myNs) continue;
+
+        $cls = basename($fileName, '.php');
+        $classToFqcn[$cls] = $otherNs . '\\' . $cls;
+    }
+
+    if (empty($classToFqcn)) return $code;
+
+    // Find which of those classes are actually referenced in this file
+    $needed = [];
+    foreach ($classToFqcn as $cls => $fqcn) {
+        // Match class usage: return type, param type, new X, implements X, X::, X $
+        if (preg_match('/\b' . preg_quote($cls, '/') . '\b/', $code)) {
+            $needed[$fqcn] = true;
+        }
+    }
+
+    if (empty($needed)) return $code;
+
+    // Build use statements block
+    $uses = implode("\n", array_map(fn($fqcn) => "use {$fqcn};", array_keys($needed)));
+
+    // Inject after the `namespace ...;` line
+    $code = preg_replace(
+        '/^(namespace [^;]+;)/m',
+        "$1\n\n{$uses}",
+        $code,
+        1
+    ) ?? $code;
+
+    return $code;
+}
+
 
 // ---------------------------------------------------------------------------
 // --watch mode

@@ -187,7 +187,11 @@ class OptionalParamTest extends TestCase
             "-- @name Get\n-- @returns :one\nSELECT * FROM users WHERE id = :id;"
         );
 
-        $this->assertStringNotContainsString('= null', $code);
+        // Extract only the method signature line — class-level properties (e.g. ?QueryObject = null)
+        // should not affect this assertion.
+        preg_match('/public function get\([^)]*\)/', $code, $m);
+        $this->assertNotEmpty($m, 'method signature not found');
+        $this->assertStringNotContainsString('= null', $m[0]);
     }
 
     public function test_required_params_appear_before_optional_in_signature(): void
@@ -325,8 +329,11 @@ class OptionalParamTest extends TestCase
 
         $this->assertStringContainsString("bindValue(':active_chk'", $code);
         $this->assertStringContainsString("bindValue(':active'",     $code);
-        // Both bound to the same $active variable
-        $this->assertSame(2, substr_count($code, '$active,'));
+
+        // Count bindValue calls specifically (not QueryObject bindings array entries)
+        $bindValueOccurrences = substr_count($code, "bindValue(':active");
+        $this->assertSame(2, $bindValueOccurrences,
+            'Expected exactly 2 bindValue calls for :active and :active_chk');
     }
 
     public function test_chk_param_is_not_added_for_non_optional_params(): void

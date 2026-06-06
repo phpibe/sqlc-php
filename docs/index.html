@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.7.5</span>
+    <span class="badge-version">v2.7.6</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1358,75 +1358,95 @@ $found = $userQuery->findByEmail('hello@example.com');</code></pre>
     ?Closure          $afterQuery = null,  // custom hook — Debugbar, metrics, etc.
 )</code></pre>
 
-      <p style="color:var(--text-muted)">All three parameters after <code>$pdo</code> are optional and default to <code>null</code>. Existing code that constructs <code>new UserRepository($pdo)</code> continues to work without any changes.</p>
+      <p style="color:var(--text-muted)">All parameters after <code>$pdo</code> are optional and default to <code>null</code>. Existing code that constructs <code>new UserRepository($pdo)</code> continues to work without any changes.</p>
 
       <h3>lastQuery() — post-execution inspection</h3>
       <pre><code class="language-php">$users = $repo->listActiveUsers(active: 1);
 $q     = $repo->lastQuery();
 
-echo $q->toString();    // SQL with placeholders — safe to log
-echo $q->toDebugSql();  // SQL with values interpolated — debug only
-$q->bindings();         // [':active' => [1, PDO::PARAM_INT], ...]
-$q->values();           // [':active' => 1]
-$q->queryName;          // 'listActiveUsers'
-$q->cacheKey();         // stable md5 for caching</code></pre>
+echo $q->toString();       // SQL with placeholders — safe to log
+echo $q->toDebugSql();     // SQL with values — debug only
+$q->bindings();            // [':active' => [1, PDO::PARAM_INT], ...]
+$q->values();              // [':active' => 1]
+$q->queryName;             // 'listActiveUsers'
+$q->durationMs;            // 4.217 — execution time in milliseconds (float)
+$q->cacheKey();            // stable md5 for caching</code></pre>
 
-      <h3>PSR-3 logger — automatic query logging</h3>
-      <p style="color:var(--text-muted)">When a PSR-3 logger is provided, every executed method calls <code>$logger->debug()</code> with the SQL as the message and the bound values as the context array. Works with any PSR-3 implementation: Monolog, Laravel Log, Symfony Logger, etc.</p>
+      <h3>Execution timing</h3>
+      <p style="color:var(--text-muted)">Every generated method wraps <code>$stmt->execute()</code> with <code>hrtime(true)</code> to measure the real round-trip time to the database. The result is stored as <code>durationMs</code> (milliseconds, float precision) in the <code>QueryObject</code>.</p>
 
-      <pre><code class="language-php">// Any PSR-3 logger
+      <pre><code class="language-php">// hrtime(true) → nanoseconds. Dividing by 1_000_000 → milliseconds.
+// $__t0 = hrtime(true);
+// $stmt->execute();
+// $this->lastQuery = $this->lastQuery->withDuration((hrtime(true) - $__t0) / 1_000_000);
+
+$q = $repo->lastQuery();
+echo $q->durationMs;       // e.g. 4.217 ms
+echo round($q->durationMs, 1) . 'ms';  // "4.2ms"
+
+// Detect slow queries in the afterQuery hook
 $repo = new UserRepository(
-    pdo:    $pdo,
-    logger: $logger,  // Monolog, Laravel's Log facade, etc.
-);
+    pdo:        $pdo,
+    afterQuery: function (QueryObject $q): void {
+        if ($q->durationMs > 100) {
+            $this->logger->warning(
+                "Slow query [{$q->queryName}]: {$q->durationMs}ms",
+                ['sql' => $q->toString(), 'bindings' => $q->values()],
+            );
+        }
+    },
+);</code></pre>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>What is measured:</strong> only <code>$stmt->execute()</code> — the actual database round-trip. <code>prepare()</code> and <code>bindValue()</code> are excluded. For <code>:batch</code>, the entire transaction (all rows + commit) is measured as a single duration. Uses <code>hrtime(true)</code> which is monotonic — immune to NTP and clock adjustments.
+      </div>
+
+      <h3>PSR-3 logger — automatic query logging with duration</h3>
+      <p style="color:var(--text-muted)">When a PSR-3 logger is provided, every executed method logs at <code>DEBUG</code> level with the format <code>queryName [Xms]: SQL</code>.</p>
+
+      <pre><code class="language-php">$repo = new UserRepository(pdo: $pdo, logger: $logger);
 
 // After $repo->listActiveUsers(active: 1), the logger receives:
-// message: "listActiveUsers: SELECT * FROM users WHERE active = :active"
+// message: "listActiveUsers [4.217ms]: SELECT * FROM users WHERE active = :active"
 // context: [':active' => 1]</code></pre>
 
       <div class="callout callout-tip">
         <i class="bi bi-lightbulb callout-icon"></i>
-        In Laravel, <code>app(Psr\Log\LoggerInterface::class)</code> resolves to the application logger automatically. Queries logged at <code>debug</code> level will appear in Laravel Telescope under the <strong>Logs</strong> tab.
+        In Laravel, <code>app(Psr\Log\LoggerInterface::class)</code> resolves to the application logger automatically. Queries logged at <code>debug</code> level appear in Laravel Telescope under the <strong>Logs</strong> tab — with timing included in the message.
       </div>
 
-      <h3>afterQuery hook — custom integrations</h3>
-      <p style="color:var(--text-muted)">The <code>$afterQuery</code> callable receives the <code>QueryObject</code> after every execution. Use it to integrate with tools that don't support PSR-3 — like Laravel Debugbar, OpenTelemetry spans, custom metrics, or application-level query tracing.</p>
-
-      <pre><code class="language-php">// Laravel Debugbar integration
+      <h3>afterQuery hook — custom integrations with timing</h3>
+      <pre><code class="language-php">// Laravel Debugbar — shows query name, SQL, and duration
 $repo = new UserRepository(
     pdo:        $pdo,
     afterQuery: function (QueryObject $q): void {
         \Debugbar::addMessage(
-            $q->queryName . ': ' . $q->toString(),
+            sprintf('[%.3fms] %s: %s', $q->durationMs, $q->queryName, $q->toString()),
             'queries',
         );
     },
 );</code></pre>
 
-      <pre><code class="language-php">// Both logger and hook together
-$repo = new UserRepository(
-    pdo:        $pdo,
-    logger:     app(LoggerInterface::class),     // PSR-3 → Telescope
-    afterQuery: fn(QueryObject $q) =>
-        \Debugbar::addMessage($q->toString(), 'queries'),  // Debugbar
-);</code></pre>
-
-      <pre><code class="language-php">// OpenTelemetry / custom metrics
+      <pre><code class="language-php">// Slow query alerting
 $repo = new UserRepository(
     pdo:        $pdo,
     afterQuery: function (QueryObject $q): void {
-        $this->metrics->increment('db.queries.count', tags: ['query' => $q->queryName]);
-        $this->tracer->addEvent('db.query', ['sql' => $q->toString()]);
+        if ($q->durationMs > 100) {
+            Log::warning("Slow query: {$q->queryName} took {$q->durationMs}ms");
+        }
     },
 );</code></pre>
 
-      <pre><code class="language-php">// Collect all queries executed during a request (for profiling)
-$queries = [];
+      <pre><code class="language-php">// Both logger + hook
 $repo = new UserRepository(
     pdo:        $pdo,
-    afterQuery: function (QueryObject $q) use (&$queries): void {
-        $queries[] = ['name' => $q->queryName, 'sql' => $q->toString()];
-    },
+    logger:     app(LoggerInterface::class),        // PSR-3 → Telescope
+    afterQuery: fn(QueryObject $q) =>
+        \Debugbar::addMessage(
+            sprintf('[%.1fms] %s', $q->durationMs, $q->toString()),
+            'queries'
+        ),
 );</code></pre>
 
       <h3>Testing SQL without a database</h3>
@@ -1439,7 +1459,8 @@ $repo  = new UserRepository($pdo);
 $users = $repo->listActiveUsers(active: 1);
 
 $this->assertStringContainsString('WHERE', $repo->lastQuery()->toString());
-$this->assertSame(1, $repo->lastQuery()->values()[':active']);</code></pre>
+$this->assertSame(1, $repo->lastQuery()->values()[':active']);
+// durationMs will be near 0 (mock execute is instant)</code></pre>
 
       <h3>QueryObject API reference</h3>
       <div class="doc-table-wrap">
@@ -1447,13 +1468,14 @@ $this->assertSame(1, $repo->lastQuery()->values()[':active']);</code></pre>
           <thead><tr><th>Method / Property</th><th>Returns</th><th>Description</th></tr></thead>
           <tbody>
             <tr><td><code>toString()</code></td><td><code>string</code></td><td>SQL with named PDO placeholders — safe to log</td></tr>
-            <tr><td><code>(string) $q</code></td><td><code>string</code></td><td>Same as <code>toString()</code> via <code>__toString</code></td></tr>
-            <tr><td><code>toDebugSql()</code></td><td><code>string</code></td><td>SQL with values interpolated — debugging only, never execute</td></tr>
+            <tr><td><code>(string) $q</code></td><td><code>string</code></td><td>Same as <code>toString()</code></td></tr>
+            <tr><td><code>toDebugSql()</code></td><td><code>string</code></td><td>SQL with values interpolated — debug only</td></tr>
             <tr><td><code>bindings()</code></td><td><code>array</code></td><td>All bound parameters with PDO type constants</td></tr>
-            <tr><td><code>values()</code></td><td><code>array</code></td><td>Bound values without PDO type constants — use as log context</td></tr>
-            <tr><td><code>cacheKey()</code></td><td><code>string</code></td><td>Stable <code>md5</code> key — unique per SQL + values combination</td></tr>
+            <tr><td><code>values()</code></td><td><code>array</code></td><td>Bound values — use as log context</td></tr>
+            <tr><td><code>cacheKey()</code></td><td><code>string</code></td><td>Stable <code>md5</code> key — unique per SQL + values</td></tr>
             <tr><td><code>paramCount()</code></td><td><code>int</code></td><td>Number of bound parameters</td></tr>
             <tr><td><code>$q->queryName</code></td><td><code>string</code></td><td>Name of the method that produced this query</td></tr>
+            <tr><td><code>$q->durationMs</code></td><td><code>float</code></td><td>Execute time in milliseconds. <code>0.0</code> if not yet measured.</td></tr>
             <tr><td><code>$q->isBatch</code></td><td><code>bool</code></td><td><code>true</code> for <code>:batch</code> queries</td></tr>
             <tr><td><code>$q->batchCount</code></td><td><code>int</code></td><td>Rows processed (batch only)</td></tr>
           </tbody>
@@ -1462,12 +1484,12 @@ $this->assertSame(1, $repo->lastQuery()->values()[':active']);</code></pre>
 
       <div class="callout callout-warning">
         <i class="bi bi-exclamation-triangle callout-icon"></i>
-        <strong>Never pass <code>toDebugSql()</code> to PDO.</strong> Values are interpolated without proper escaping — it is for logging and debugging only.
+        <strong>Never pass <code>toDebugSql()</code> to PDO.</strong> Values are interpolated without proper escaping — for logging and debugging only.
       </div>
 
       <div class="callout callout-info">
         <i class="bi bi-info-circle callout-icon"></i>
-        <code>lastQuery()</code>, <code>$logger</code>, and <code>$afterQuery</code> are <strong>not</strong> in the generated <code>*Interface.php</code> — they are infrastructure details, not domain contracts. Mocks implementing the interface do not need to implement them.
+        <code>lastQuery()</code>, <code>$logger</code>, and <code>$afterQuery</code> are <strong>not</strong> in the generated <code>*Interface.php</code> — they are infrastructure details, not domain contracts.
       </div>
     </section>
 
@@ -1509,7 +1531,7 @@ public function register(): void
 
     <section class="doc-section" id="testing">
       <h2><i class="bi bi-clipboard2-check me-2" style="color:var(--accent-3)"></i>Running the test suite</h2>
-      <pre><code class="language-bash"># PHPUnit test suite (868 tests)
+      <pre><code class="language-bash"># PHPUnit test suite (890 tests)
 ./vendor/bin/phpunit</code></pre>
     </section>
 
@@ -1530,7 +1552,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.7.5'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.7.6'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1542,6 +1564,18 @@ public function register(): void
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.7.6 — query execution timing (durationMs)</div>
+          <ul>
+            <li><strong><code>QueryObject::$durationMs</code></strong> — every generated method now wraps <code>$stmt->execute()</code> with <code>hrtime(true)</code> and stores the elapsed time in milliseconds as a <code>float</code>.</li>
+            <li><strong><code>QueryObject::withDuration(float $ms): self</code></strong> — immutable named constructor that returns a copy of the object with the measured duration set.</li>
+            <li><strong>PSR-3 log format updated</strong> — log messages now include the duration: <code>"listActiveUsers [4.217ms]: SELECT * FROM users WHERE ..."</code></li>
+            <li><strong><code>:batch</code> timing</strong> — measures the entire transaction (all rows + commit) as a single duration, not per-iteration.</li>
+            <li>Uses <code>hrtime(true)</code> (monotonic, nanosecond precision) divided by <code>1_000_000</code> for milliseconds. Immune to NTP and clock adjustments.</li>
+            <li>21 new tests in <code>tests/DurationTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.7.5 — PSR-3 logger &amp; afterQuery hook</div>

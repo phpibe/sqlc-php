@@ -198,21 +198,35 @@ class LoggerHookTest extends TestCase
             'logLastQuery() must be called AFTER $this->lastQuery is assigned');
     }
 
-    public function test_log_called_before_execute(): void
+    public function test_log_called_after_execute(): void
     {
-        // Log should fire after lastQuery is set, but execute() can come after
-        // (execute might throw, but the QueryObject is already recorded for inspection)
+        // logLastQuery fires AFTER execute() — the duration is measured around execute
+        // so we need execute to complete before we can record the duration.
         $code = $this->code("-- @name GetUser\n-- @returns :one\nSELECT * FROM users WHERE id = :id;");
         $methodStart = (int) strpos($code, 'function getUser');
         $methodCode  = substr($code, $methodStart);
 
-        $logPos     = strpos($methodCode, '$this->logLastQuery()');
         $executePos = strpos($methodCode, '$stmt->execute()');
+        $logPos     = strpos($methodCode, '$this->logLastQuery()');
 
-        $this->assertNotFalse($logPos);
         $this->assertNotFalse($executePos);
-        $this->assertLessThan($executePos, $logPos,
-            'logLastQuery() must come before $stmt->execute()');
+        $this->assertNotFalse($logPos);
+        $this->assertGreaterThan($executePos, $logPos,
+            'logLastQuery() must be called AFTER $stmt->execute() so duration is captured');
+    }
+
+    public function test_with_duration_called_after_execute(): void
+    {
+        $code = $this->code("-- @name GetUser\n-- @returns :one\nSELECT * FROM users WHERE id = :id;");
+        $methodStart  = (int) strpos($code, 'function getUser');
+        $methodCode   = substr($code, $methodStart);
+
+        $executePos  = strpos($methodCode, '$stmt->execute()');
+        $durationPos = strpos($methodCode, 'withDuration(');
+
+        $this->assertNotFalse($durationPos, 'withDuration() call not found');
+        $this->assertGreaterThan($executePos, $durationPos,
+            'withDuration() must come after $stmt->execute()');
     }
 
     // =========================================================================
@@ -260,6 +274,6 @@ class LoggerHookTest extends TestCase
 
     public function test_version_is_2_7_5(): void
     {
-        $this->assertSame('2.7.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.7.6', \SqlcPhp\Version::VERSION);
     }
 }

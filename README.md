@@ -1524,6 +1524,31 @@ sqlc-php/
 
 ## Changelog
 
+### [2.7.6] — query execution timing (durationMs)
+
+- **`QueryObject::$durationMs`** — every method wraps `$stmt->execute()` with `hrtime(true)` and stores the elapsed milliseconds.
+- **`QueryObject::withDuration(float $ms): self`** — immutable named constructor for setting duration.
+- **Log format updated** — `"listActiveUsers [4.217ms]: SELECT * FROM users WHERE ..."`.
+- **`:batch` timing** — measures full transaction (all rows + commit).
+- 21 new tests in `tests/DurationTest.php`.
+
+```php
+$repo->listActiveUsers(active: 1);
+$q = $repo->lastQuery();
+
+echo $q->durationMs;   // 4.217 — float milliseconds
+
+// Slow query detection
+new UserRepository(
+    pdo:        $pdo,
+    afterQuery: function (QueryObject $q): void {
+        if ($q->durationMs > 100) {
+            Log::warning("Slow: {$q->queryName} took {$q->durationMs}ms");
+        }
+    },
+);
+```
+
 ### [2.7.5] — PSR-3 logger & afterQuery hook
 
 - **Constructor updated** — every generated Query class now accepts `?LoggerInterface $logger = null` and `?Closure $afterQuery = null`. Fully backward compatible.

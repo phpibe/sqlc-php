@@ -459,6 +459,6 @@ class LastQueryTest extends TestCase
 
     public function test_version_is_2_7_4(): void
     {
-        $this->assertSame('2.7.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.7.6', \SqlcPhp\Version::VERSION);
     }
 }

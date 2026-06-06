@@ -162,7 +162,11 @@ class {$className}{$implements}
         if (\$this->lastQuery === null) return;
 
         \$this->logger?->debug(
-            \$this->lastQuery->queryName . ': ' . \$this->lastQuery->toString(),
+            sprintf('%s [%.3fms]: %s',
+                \$this->lastQuery->queryName,
+                \$this->lastQuery->durationMs,
+                \$this->lastQuery->toString(),
+            ),
             \$this->lastQuery->values(),
         );
 
@@ -309,8 +313,10 @@ PHP;
         \$stmt = \$this->pdo->prepare(\$__sql);
 {$bindBlock}        \$criteria?->bindAll(\$stmt);
         \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
-        \$this->logLastQuery();
+        \$__t0 = hrtime(true);
         \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
 
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
@@ -362,8 +368,10 @@ PHP;
             \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
         }
         \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
-        \$this->logLastQuery();
+        \$__t0 = hrtime(true);
         \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
 
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
@@ -402,8 +410,10 @@ PHP;
         \$stmt = \$this->pdo->prepare(\$__countSql);
 {$bindBlock}        \$criteria?->bindAll(\$stmt);
         \$this->lastQuery = new QueryObject(\$__countSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$countName}');
-        \$this->logLastQuery();
+        \$__t0 = hrtime(true);
         \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
 
         return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
@@ -447,8 +457,41 @@ PHP;
         string $batchCountExpr = '0',
     ): string {
         $isBatchStr = $isBatch ? 'true' : 'false';
-        return "        \$this->lastQuery = new QueryObject({$sqlExpr}, {$bindingsExpr}, {$name}, {$isBatchStr}, {$batchCountExpr});
-        \$this->logLastQuery();";
+        return "        \$this->lastQuery = new QueryObject({$sqlExpr}, {$bindingsExpr}, {$name}, {$isBatchStr}, {$batchCountExpr});";
+    }
+
+    /**
+     * Render the timer + withDuration + logLastQuery block.
+     * Wraps $stmt->execute() to measure execution time.
+     *
+     * Output:
+     *   $__t0 = hrtime(true);
+     *   $stmt->execute();
+     *   $this->lastQuery = $this->lastQuery->withDuration((hrtime(true) - $__t0) / 1_000_000);
+     *   $this->logLastQuery();
+     */
+    private function renderTimerAndExecute(): string
+    {
+        return <<<'PHP'
+        $__t0 = hrtime(true);
+        $stmt->execute();
+        $this->lastQuery = $this->lastQuery->withDuration((hrtime(true) - $__t0) / 1_000_000);
+        $this->logLastQuery();
+PHP;
+    }
+
+    /**
+     * Render the timer + withDuration + logLastQuery block for a named SQL variable.
+     * Used in @searchable methods where SQL is in $__sql.
+     */
+    private function renderTimerAndExecuteSearchable(): string
+    {
+        return <<<'PHP'
+        $__t0 = hrtime(true);
+        $stmt->execute();
+        $this->lastQuery = $this->lastQuery->withDuration((hrtime(true) - $__t0) / 1_000_000);
+        $this->logLastQuery();
+PHP;
     }
 
     /**
@@ -492,17 +535,17 @@ PHP;
         $prepare      = $this->hasInListParams($query)
             ? ''
             : $this->renderPrepare($query);
-        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
         $sqlExpr      = $this->renderSqlLiteral($query->sql);
         $bindingsExpr = $this->buildBindingsExpr($query);
         $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
+        $executeBlock = $this->hasInListParams($query) ? '' : $this->renderTimerAndExecute();
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
-{$executeCall}
+{$executeBlock}
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
             \$stmt->fetchAll(PDO::FETCH_ASSOC),
@@ -562,22 +605,23 @@ PHP;
             "        \$stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);\n";
 
         $bindingsExpr = $this->buildBindingsExpr($query);
-        // Paginated: lastQuery includes limit/offset when applicable
-        $saveAll  = "        \$this->lastQuery = new QueryObject(\$__sqlAll,  {$bindingsExpr}, '{$query->name}');
-        \$this->logLastQuery();\n";
-        $savePage = "        \$this->lastQuery = new QueryObject(\$__sqlPage, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');
-        \$this->logLastQuery();\n";
+        // Paginated: lastQuery set inside each branch (SQL differs), timer wraps execute after
+        $saveAll  = "        \$this->lastQuery = new QueryObject(\$__sql, {$bindingsExpr}, '{$query->name}');\n";
+        $savePage = "        \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');\n";
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
         if (\$limit === null) {
-            \$__sqlAll = {$sqlNoLimitLiteral};
+            \$__sql = {$sqlNoLimitLiteral};
 {$prepareAll}{$bindAllBlock}{$saveAll}        } else {
-            \$__sqlPage = {$sqlWithLimitLiteral};
+            \$__sql = {$sqlWithLimitLiteral};
 {$preparePage}{$bindPageBlock}{$savePage}        }
+        \$__t0 = hrtime(true);
         \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
 
         return array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
@@ -637,7 +681,10 @@ PHP;
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
         \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
 
         return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
@@ -651,23 +698,23 @@ PHP;
 
     private function renderOneMethod(QueryDefinition $query): string
     {
-        $returnClass  = $this->resolveReturnClass($query);
-        $signature    = $this->buildSignature($query, $returnClass);
-        $docblock     = $this->buildDocblock($query, "@return {$returnClass}");
-        $bindings     = $this->renderBindings($query);
-        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
-        $exception    = 'No record found for query "' . $query->name . '"';
-        $sqlExpr      = $this->renderSqlLiteral($query->sql);
-        $bindingsExpr = $this->buildBindingsExpr($query);
+        $returnClass   = $this->resolveReturnClass($query);
+        $signature     = $this->buildSignature($query, $returnClass);
+        $docblock      = $this->buildDocblock($query, "@return {$returnClass}");
+        $bindings      = $this->renderBindings($query);
+        $prepare       = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $exception     = 'No record found for query "' . $query->name . '"';
+        $sqlExpr       = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
         $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
+        $executeBlock  = $this->hasInListParams($query) ? '' : $this->renderTimerAndExecute();
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
-{$executeCall}
+{$executeBlock}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         if (\$row === false) {
             throw new RuntimeException('{$exception}');
@@ -684,22 +731,22 @@ PHP;
 
     private function renderOptMethod(QueryDefinition $query): string
     {
-        $returnClass  = $this->resolveReturnClass($query);
-        $signature    = $this->buildSignature($query, "?{$returnClass}");
-        $docblock     = $this->buildDocblock($query, "@return {$returnClass}|null");
-        $bindings     = $this->renderBindings($query);
-        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
-        $sqlExpr      = $this->renderSqlLiteral($query->sql);
-        $bindingsExpr = $this->buildBindingsExpr($query);
+        $returnClass   = $this->resolveReturnClass($query);
+        $signature     = $this->buildSignature($query, "?{$returnClass}");
+        $docblock      = $this->buildDocblock($query, "@return {$returnClass}|null");
+        $bindings      = $this->renderBindings($query);
+        $prepare       = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $sqlExpr       = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
         $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
+        $executeBlock  = $this->hasInListParams($query) ? '' : $this->renderTimerAndExecute();
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
-{$executeCall}
+{$executeBlock}
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
         return \$row !== false ? {$returnClass}::fromRow(\$row) : null;
     }
@@ -712,21 +759,21 @@ PHP;
 
     private function renderExecMethod(QueryDefinition $query): string
     {
-        $signature    = $this->buildSignature($query, 'void');
-        $docblock     = $this->buildDocblock($query, 'Executes the statement.');
-        $bindings     = $this->renderBindings($query);
-        $prepare      = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
-        $executeCall  = $this->hasInListParams($query) ? '' : "        \$stmt->execute();\n";
-        $sqlExpr      = $this->renderSqlLiteral($query->sql);
-        $bindingsExpr = $this->buildBindingsExpr($query);
+        $signature     = $this->buildSignature($query, 'void');
+        $docblock      = $this->buildDocblock($query, 'Executes the statement.');
+        $bindings      = $this->renderBindings($query);
+        $prepare       = $this->hasInListParams($query) ? '' : $this->renderPrepare($query);
+        $sqlExpr       = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
         $saveLastQuery = $this->renderSaveLastQuery($sqlExpr, $bindingsExpr, "'{$query->name}'");
+        $executeBlock  = $this->hasInListParams($query) ? '' : $this->renderTimerAndExecute();
 
         return <<<PHP
 {$docblock}
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
-{$executeCall}    }
+{$executeBlock}    }
 PHP;
     }
 
@@ -1031,7 +1078,9 @@ PHP;
         if (empty(\$rows)) return 0;
 
         \$stmt = \$this->pdo->prepare({$sqlLiteral});
+        \$this->lastQuery = new QueryObject({$sqlLiteral}, [], '{$methodName}', true, count(\$rows));
         \$this->pdo->beginTransaction();
+        \$__t0 = hrtime(true);
         try {
             foreach (\$rows as \$row) {
 {$bindStr}
@@ -1042,8 +1091,7 @@ PHP;
             \$this->pdo->rollBack();
             throw \$e;
         }
-
-        \$this->lastQuery = new QueryObject({$sqlLiteral}, [], '{$methodName}', true, count(\$rows));
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
         \$this->logLastQuery();
 
         return count(\$rows);

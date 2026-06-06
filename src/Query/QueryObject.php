@@ -42,6 +42,9 @@ readonly class QueryObject
      * @param string  $queryName  The generated method name that produced this query
      * @param bool    $isBatch    True when the query was executed via :batch
      * @param int     $batchCount Number of rows processed (batch only)
+     * @param float   $durationMs Execution time in milliseconds (hrtime precision).
+     *                            0.0 means the query has not been executed yet or
+     *                            timing was not captured (pre-execute snapshot).
      */
     public function __construct(
         public string $sql,
@@ -49,8 +52,32 @@ readonly class QueryObject
         public string $queryName   = '',
         public bool   $isBatch     = false,
         public int    $batchCount  = 0,
+        public float  $durationMs  = 0.0,
     ) {}
 
+    // -------------------------------------------------------------------------
+    // Immutable update
+    // -------------------------------------------------------------------------
+
+    /**
+     * Return a new QueryObject with the measured duration set.
+     *
+     * Called automatically by every generated method after $stmt->execute()
+     * completes. The original instance (without duration) is discarded.
+     *
+     * @param float $ms  Milliseconds, typically from hrtime(true) / 1_000_000
+     */
+    public function withDuration(float $ms): self
+    {
+        return new self(
+            sql:        $this->sql,
+            bindings:   $this->bindings,
+            queryName:  $this->queryName,
+            isBatch:    $this->isBatch,
+            batchCount: $this->batchCount,
+            durationMs: $ms,
+        );
+    }
     // -------------------------------------------------------------------------
     // Inspection
     // -------------------------------------------------------------------------

@@ -159,6 +159,43 @@ readonly class QueryObject
         return count($this->bindings);
     }
 
+    /**
+     * Bindings as a flat array of values compatible with Laravel's QueryExecuted
+     * constructor and Debugbar's QueryCollector.
+     *
+     * Differences from bindings() and values():
+     *   - Returns a flat indexed array (no placeholder keys)
+     *   - Filters out internal _chk params generated for @optional queries
+     *     (they are implementation details, not real query parameters)
+     *   - Filters out :limit and :offset params used for :many-paginated
+     *
+     * Usage with Debugbar:
+     *   $qe = new QueryExecuted(
+     *       $q->toString(),           // SQL with named placeholders
+     *       $q->toDebugBindings(),    // flat values array, _chk filtered out
+     *       $q->durationMs,
+     *       $connection,
+     *   );
+     *
+     * Or with toDebugSql() for even simpler integration (no interpolation needed):
+     *   $qe = new QueryExecuted($q->toDebugSql(), [], $q->durationMs, $connection);
+     *
+     * @return list<mixed>  flat indexed array of values
+     */
+    public function toDebugBindings(): array
+    {
+        return array_values(
+            array_filter(
+                $this->values(),
+                static fn(string $key): bool =>
+                    !str_ends_with($key, '_chk')
+                    && $key !== ':limit'
+                    && $key !== ':offset',
+                ARRAY_FILTER_USE_KEY,
+            )
+        );
+    }
+
     public function __toString(): string
     {
         return $this->toString();

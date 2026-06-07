@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.7.6</span>
+    <span class="badge-version">v2.7.7</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1420,11 +1420,30 @@ $repo = new UserRepository(
       <pre><code class="language-php">// Laravel Debugbar — shows query name, SQL, and duration
 $repo = new UserRepository(
     pdo:        $pdo,
-    afterQuery: function (QueryObject $q): void {
-        \Debugbar::addMessage(
-            sprintf('[%.3fms] %s: %s', $q->durationMs, $q->queryName, $q->toString()),
-            'queries',
+    afterQuery: function (QueryObject $q) use ($app): void {
+        $collector = \Debugbar::getCollector('queries');
+
+        // Option A — toDebugSql() + empty bindings (recommended)
+        // SQL has values already interpolated; no further processing by Debugbar.
+        // Works correctly with @optional queries (avoids '[,1]' display bug).
+        $qe = new QueryExecuted(
+            $q->toDebugSql(),      // "SELECT ... WHERE (NULL IS NULL OR active = 1)"
+            [],
+            $q->durationMs,
+            $app->make('db')->connection(),
         );
+
+        // Option B — toString() + toDebugBindings()
+        // toDebugBindings() returns a flat array of values, filtering out internal
+        // _chk params (@optional) and :limit/:offset (:many-paginated).
+        // $qe = new QueryExecuted(
+        //     $q->toString(),           // SQL with :placeholders
+        //     $q->toDebugBindings(),    // [1, 164, ...] — flat, _chk filtered
+        //     $q->durationMs,
+        //     $app->make('db')->connection(),
+        // );
+
+        $collector->addQuery($qe);
     },
 );</code></pre>
 
@@ -1469,9 +1488,10 @@ $this->assertSame(1, $repo->lastQuery()->values()[':active']);
           <tbody>
             <tr><td><code>toString()</code></td><td><code>string</code></td><td>SQL with named PDO placeholders — safe to log</td></tr>
             <tr><td><code>(string) $q</code></td><td><code>string</code></td><td>Same as <code>toString()</code></td></tr>
-            <tr><td><code>toDebugSql()</code></td><td><code>string</code></td><td>SQL with values interpolated — debug only</td></tr>
-            <tr><td><code>bindings()</code></td><td><code>array</code></td><td>All bound parameters with PDO type constants</td></tr>
-            <tr><td><code>values()</code></td><td><code>array</code></td><td>Bound values — use as log context</td></tr>
+            <tr><td><code>toDebugSql()</code></td><td><code>string</code></td><td>SQL with values interpolated inline — debug only, never execute</td></tr>
+            <tr><td><code>toDebugBindings()</code></td><td><code>list&lt;mixed&gt;</code></td><td>Flat array of values for Debugbar/Laravel <code>QueryExecuted</code>. Filters out internal <code>_chk</code> params (<code>@optional</code>) and <code>:limit</code>/<code>:offset</code> (<code>:many-paginated</code>).</td></tr>
+            <tr><td><code>bindings()</code></td><td><code>array</code></td><td>All bound parameters with PDO type constants — internal format</td></tr>
+            <tr><td><code>values()</code></td><td><code>array</code></td><td>Named bound values (keyed by placeholder) — use as PSR-3 log context</td></tr>
             <tr><td><code>cacheKey()</code></td><td><code>string</code></td><td>Stable <code>md5</code> key — unique per SQL + values</td></tr>
             <tr><td><code>paramCount()</code></td><td><code>int</code></td><td>Number of bound parameters</td></tr>
             <tr><td><code>$q->queryName</code></td><td><code>string</code></td><td>Name of the method that produced this query</td></tr>
@@ -1531,7 +1551,7 @@ public function register(): void
 
     <section class="doc-section" id="testing">
       <h2><i class="bi bi-clipboard2-check me-2" style="color:var(--accent-3)"></i>Running the test suite</h2>
-      <pre><code class="language-bash"># PHPUnit test suite (890 tests)
+      <pre><code class="language-bash"># PHPUnit test suite (907 tests)
 ./vendor/bin/phpunit</code></pre>
     </section>
 
@@ -1552,7 +1572,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.7.6'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.7.7'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1564,6 +1584,21 @@ public function register(): void
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.7.7 — toDebugBindings() for Debugbar integration</div>
+          <ul>
+            <li><strong><code>QueryObject::toDebugBindings(): list&lt;mixed&gt;</code></strong> — new method returning a flat indexed array of bound values, compatible with Laravel's <code>QueryExecuted</code> constructor and Debugbar's <code>QueryCollector::addQuery()</code>.</li>
+            <li><strong>Filters internal implementation details:</strong>
+              <ul>
+                <li><code>_chk</code> suffixed params generated by <code>@optional</code> queries — prevents the <code>[,1]</code> display bug when bindings are passed directly to Debugbar.</li>
+                <li><code>:limit</code> and <code>:offset</code> from <code>:many-paginated</code> queries.</li>
+              </ul>
+            </li>
+            <li><strong>Two integration approaches documented:</strong> Option A (<code>toDebugSql()</code> + empty bindings) and Option B (<code>toString()</code> + <code>toDebugBindings()</code>).</li>
+            <li>17 new tests in <code>tests/DebugBindingsTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.7.6 — query execution timing (durationMs)</div>

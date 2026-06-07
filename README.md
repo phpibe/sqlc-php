@@ -1524,6 +1524,44 @@ sqlc-php/
 
 ## Changelog
 
+### [2.7.7] — `toDebugBindings()` for Debugbar integration
+
+- **`QueryObject::toDebugBindings(): list<mixed>`** — flat array of values for `QueryExecuted` / Debugbar `QueryCollector`. Filters `_chk` params (`@optional`) and `:limit`/`:offset` (`:many-paginated`).
+
+**The bug:** passing `$q->bindings()` directly to Debugbar showed `[,1]` because `bindings()` returns `[value, PDO_TYPE]` tuples — Debugbar serialized the inner array as a string.
+
+**Fix — Option A (recommended):** `toDebugSql()` + empty bindings:
+```php
+// ServiceProvider
+$this->app->bind(BillingConfigRepositoryInterface::class, function ($app) {
+    return new BillingConfigRepository(
+        pdo: $app->make('db')->connection()->getPdo(),
+        afterQuery: function (QueryObject $q) use ($app): void {
+            $collector = \Debugbar::getCollector('queries');
+            $qe = new QueryExecuted(
+                $q->toDebugSql(),  // SQL with values already interpolated
+                [],
+                $q->durationMs,
+                $app->make('db')->connection(),
+            );
+            $collector->addQuery($qe);
+        },
+    );
+});
+```
+
+**Fix — Option B:** `toString()` + `toDebugBindings()`:
+```php
+$qe = new QueryExecuted(
+    $q->toString(),        // SQL with :placeholders
+    $q->toDebugBindings(), // [1, 164] — flat, _chk filtered
+    $q->durationMs,
+    $connection,
+);
+```
+
+- 17 new tests in `tests/DebugBindingsTest.php`.
+
 ### [2.7.6] — query execution timing (durationMs)
 
 - **`QueryObject::$durationMs`** — every method wraps `$stmt->execute()` with `hrtime(true)` and stores the elapsed milliseconds.

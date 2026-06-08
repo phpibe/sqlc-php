@@ -679,15 +679,12 @@ PHP;
         $pageSql       = rtrim(preg_replace('/\s+/', ' ', trim($query->sql)), ';') . ' LIMIT :limit OFFSET :offset';
         $pageSqlLit    = $this->renderSqlLiteral($pageSql);
 
-        $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
 
-        $prepare       = $this->renderPrepare($query);
-        // Override the prepare to use the page SQL (renderPrepare uses query->sql)
-        $prepareCount  = "        \$__countStmt = \$this->pdo->prepare({$countSqlLit});\n";
-        $preparePage   = "        \$__stmt = \$this->pdo->prepare({$pageSqlLit});\n";
-
-        $bindingsForPage = str_replace('$stmt', '$__stmt', $bindings);
+        // Generate bindings blocks targeting the correct statement variable
+        $rawBindings     = $this->renderBindings($query);
+        $bindingsForCount = str_replace('$stmt->', '$__countStmt->', $rawBindings);
+        $bindingsForPage  = str_replace('$stmt->', '$__stmt->',      $rawBindings);
 
         return <<<PHP
     /**
@@ -698,12 +695,14 @@ PHP;
     public function {$signature}
     {
         // Count total rows (without LIMIT)
-{$prepareCount}{$bindings}        \$__countStmt->execute();
+        \$__countStmt = \$this->pdo->prepare({$countSqlLit});
+{$bindingsForCount}        \$__countStmt->execute();
         \$__countRow = \$__countStmt->fetch(PDO::FETCH_ASSOC);
         \$__total = (int) ((\$__countRow !== false ? \$__countRow['_total'] : null) ?? 0);
 
         // Fetch current page
-{$preparePage}        \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
+        \$__stmt = \$this->pdo->prepare({$pageSqlLit});
+        \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
         \$__stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
 {$bindingsForPage}
         \$this->lastQuery = new QueryObject({$pageSqlLit}, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');

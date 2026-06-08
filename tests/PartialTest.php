@@ -416,6 +416,6 @@ class PartialTest extends TestCase
 
     public function test_version_is_2_7_1(): void
     {
-        $this->assertSame('2.7.7', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.8.0', \SqlcPhp\Version::VERSION);
     }
 }

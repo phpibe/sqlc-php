@@ -49,7 +49,8 @@ class QueryAnalyzer
         // 2. Rewrite SQL for optional parameters (validates unsafe constructs first)
         $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
 
-        // 2. For :many-paginated, append LIMIT / OFFSET to the SQL
+        // For :many-paginated only, append LIMIT / OFFSET to the SQL
+        // :paginated handles LIMIT internally in the generator (two separate queries)
         if ($query->returns->value === ':many-paginated') {
             $rewrittenSql = $this->injectPagination($rewrittenSql, $query->name);
         }
@@ -60,8 +61,7 @@ class QueryAnalyzer
         // @optional marking will happen in markPartialAndOptional() below
         $params = $rawParams;
 
-        // 4. Resolve result columns, applying @nillable overrides
-        // Treat :many-paginated like :many for column resolution
+        // 4. Resolve result columns — treat :paginated like :many for column resolution
         $resultColumns        = [];
         $returnsModelDirectly = false;
         $modelClass           = null;
@@ -104,20 +104,28 @@ class QueryAnalyzer
 
         // Validate @counted: only valid on :many-paginated
         if ($query->counted && $query->returns !== ReturnType::ManyPaginated) {
+            if ($query->returns === ReturnType::Paginated) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': :paginated and @counted cannot be combined. " .
+                    ":paginated already includes an internal COUNT query. " .
+                    "Use :many-paginated with @counted for separate count method."
+                );
+            }
             throw new \RuntimeException(
                 "Query '{$query->name}': @counted is only valid on :many-paginated queries. " .
                 "Got: {$query->returns->value}"
             );
         }
 
-        // Validate @searchable: only valid on :many and :many-paginated
+        // Validate @searchable: valid on :many, :many-paginated, and :paginated
         if ($query->searchable
             && $query->returns !== ReturnType::Many
             && $query->returns !== ReturnType::ManyPaginated
+            && $query->returns !== ReturnType::Paginated
         ) {
             throw new \RuntimeException(
-                "Query '{$query->name}': @searchable is only valid on :many and :many-paginated queries. " .
-                "Got: {$query->returns->value}"
+                "Query '{$query->name}': @searchable is only valid on :many, :many-paginated, " .
+                "and :paginated queries. Got: {$query->returns->value}"
             );
         }
 
@@ -127,6 +135,47 @@ class QueryAnalyzer
                 "Query '{$query->name}': @partial is only valid on :exec queries (UPDATE statements). " .
                 "Got: {$query->returns->value}"
             );
+        }
+
+        // Validate :paginated: cannot combine with @counted
+        if ($query->returns === ReturnType::Paginated && $query->counted) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': :paginated and @counted cannot be combined. " .
+                "Use :paginated for a single PaginatedResult object, " .
+                "or :many-paginated with @counted for two separate methods."
+            );
+        }
+
+        // Validate @returning: only valid on :one INSERT queries
+        if ($query->returning) {
+            if ($query->returns !== ReturnType::One) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @returning is only valid on :one queries. " .
+                    "Got: {$query->returns->value}"
+                );
+            }
+            $sqlUpper = strtoupper(trim($query->sql));
+            if (!str_starts_with($sqlUpper, 'INSERT')) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @returning is only valid on INSERT statements."
+                );
+            }
+            if (str_contains($sqlUpper, 'ON DUPLICATE KEY')) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @returning cannot be used with ON DUPLICATE KEY UPDATE. " .
+                    "lastInsertId() is unreliable when an UPDATE occurs instead of an INSERT."
+                );
+            }
+            // Verify the table has a detectable primary key
+            if ($query->fromTable !== null) {
+                $pk = $this->catalog->primaryKey($query->fromTable);
+                if ($pk === null) {
+                    throw new \RuntimeException(
+                        "Query '{$query->name}': @returning requires a detectable primary key on " .
+                        "table '{$query->fromTable}'. Add PRIMARY KEY or AUTO_INCREMENT to the schema."
+                    );
+                }
+            }
         }
 
         // Detect which params are "partial" — appear in COALESCE(:param, col) in the SET clause
@@ -154,6 +203,7 @@ class QueryAnalyzer
             counted:              $query->counted,
             searchable:           $query->searchable,
             partial:              $query->partial,
+            returning:            $query->returning,
         );
     }
 

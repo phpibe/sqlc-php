@@ -217,6 +217,7 @@ class SchemaParser
             autoIncrement: $autoIncrement,
             default:       $default,
             enumValues:    $enumValues,
+            isPrimaryKey:  $hasPrimaryKey,
         );
     }
 

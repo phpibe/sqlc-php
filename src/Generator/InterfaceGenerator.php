@@ -76,6 +76,43 @@ PHP;
 
     private function renderMethodSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
+        // @returning: INSERT → returns the model class
+        if ($query->returning) {
+            $tableName   = $query->fromTable ?? '';
+            $returnClass = $query->modelClass
+                ?? (new \SqlcPhp\Parser\QueryParser())->toPascalCase(
+                    (new \SqlcPhp\Parser\QueryParser())->toSingular($tableName)
+                );
+            $paramList = $queryGen->buildParamListPublic($query);
+            $docblock  = $this->buildDocblock($query, $queryGen);
+            return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): {$returnClass};
+PHP;
+        }
+
+        // :paginated return type → PaginatedResult
+        if ($query->returns->value === ':paginated') {
+            $returnClass = $queryGen->resolveReturnClassPublic($query);
+            $paramList   = $queryGen->buildParamListPublic($query);
+
+            if ($query->searchable) {
+                $criteriaClass = $query->group . 'Criteria';
+                $sep       = $paramList !== '' ? ', ' : '';
+                $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0";
+            } else {
+                $sep       = $paramList !== '' ? ', ' : '';
+                $paramList = $paramList . $sep . 'int $limit = 10, int $offset = 0';
+            }
+
+            return <<<PHP
+    /**
+     * @return PaginatedResult<{$returnClass}>
+     */
+    public function {$query->name}({$paramList}): PaginatedResult;
+PHP;
+        }
+
         $returnType = $queryGen->resolveReturnTypePublic($query);
         $paramList  = $queryGen->buildParamListPublic($query);
 

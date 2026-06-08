@@ -45,4 +45,31 @@ class SchemaCatalog
     {
         return array_values($this->tables);
     }
+
+    /**
+     * Returns the name of the primary key column for the given table.
+     *
+     * Detection strategy (in order):
+     *   1. Column with isPrimaryKey = true  (inline PRIMARY KEY declaration)
+     *   2. Column with autoIncrement = true (AUTO_INCREMENT implies PK in MySQL)
+     *   3. Column named 'id' (common convention fallback)
+     *
+     * Returns null if none match — caller should emit a clear error.
+     */
+    public function primaryKey(string $tableName): ?string
+    {
+        $columns = $this->getColumns($tableName);
+
+        foreach ($columns as $col) {
+            if ($col->isPrimaryKey) return $col->name;
+        }
+        foreach ($columns as $col) {
+            if ($col->autoIncrement) return $col->name;
+        }
+        foreach ($columns as $col) {
+            if (strtolower($col->name) === 'id') return $col->name;
+        }
+
+        return null;
+    }
 }

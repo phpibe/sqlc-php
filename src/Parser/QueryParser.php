@@ -14,6 +14,7 @@ enum ReturnType: string
 {
     case Many          = ':many';
     case ManyPaginated = ':many-paginated';
+    case Paginated     = ':paginated';
     case One           = ':one';
     case Opt           = ':opt';
     case Exec          = ':exec';
@@ -99,6 +100,12 @@ class QueryDefinition
          * clause remain required. Only valid on :exec UPDATE queries.
          */
         public readonly bool       $partial = false,
+        /**
+         * When true, after executing the INSERT the generated method fetches
+         * the newly created row by its primary key (via lastInsertId()) and
+         * returns it as a model object. Only valid on :one INSERT queries.
+         */
+        public readonly bool       $returning = false,
     ) {}
 }
 
@@ -161,6 +168,7 @@ class QueryParser
         $counted          = false;
         $searchable       = false;
         $partial          = false;
+        $returning        = false;
         $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
@@ -201,6 +209,8 @@ class QueryParser
                     $searchable = true;
                 } elseif (preg_match('/^@partial\b/i', $comment)) {
                     $partial = true;
+                } elseif (preg_match('/^@returning\b/i', $comment)) {
+                    $returning = true;
                 } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
                     // @calls query1,query2,query3 — used by :transaction
                     // Store as the SQL body so the generator can retrieve it
@@ -283,6 +293,7 @@ class QueryParser
             counted:          $counted,
             searchable:       $searchable,
             partial:          $partial,
+            returning:        $returning,
         );
     }
     private function extractFromTable(string $sql): ?string

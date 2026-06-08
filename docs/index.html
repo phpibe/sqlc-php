@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.7.7</span>
+    <span class="badge-version">v2.8.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -154,12 +154,14 @@
       <a class="sidebar-link" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
       <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
+      <a class="sidebar-link" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
     </div>
 
     <div class="sidebar-group">
       <div class="sidebar-group-label">Return Types</div>
       <a class="sidebar-link" href="#rt-many"><i class="bi bi-collection"></i> :many</a>
       <a class="sidebar-link" href="#rt-many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
+      <a class="sidebar-link" href="#rt-paginated"><i class="bi bi-grid-3x3-gap"></i> :paginated</a>
       <a class="sidebar-link" href="#rt-one"><i class="bi bi-person"></i> :one</a>
       <a class="sidebar-link" href="#rt-opt"><i class="bi bi-question-diamond"></i> :opt</a>
       <a class="sidebar-link" href="#rt-exec"><i class="bi bi-pencil-square"></i> :exec</a>
@@ -518,6 +520,8 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
             <tr><td><span class="annotation ann-optional">@calls</span></td><td>No</td><td>Methods to call in sequence (used with <code>:transaction</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@partial</span></td><td>No</td><td>Mark SET params in an UPDATE as optional — passing <code>null</code> leaves the column unchanged. Only valid on <code>:exec</code> UPDATE queries.</td></tr>
+            
+            <tr><td><span class="annotation ann-optional">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the newly created row by its primary key. Only valid on <code>:one</code> INSERT queries without <code>ON DUPLICATE KEY</code>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -562,6 +566,7 @@ SELECT country_id, COUNT(*) AS total FROM users GROUP BY country_id;</code></pre
       <p style="color:var(--text-muted)">Declares the return type of the generated method. See the <a href="#rt-many">Return Types</a> section for full details on each type.</p>
       <pre><code class="language-sql">-- @returns :many            → array of rows
 -- @returns :many-paginated  → array of rows with optional LIMIT/OFFSET
+-- @returns :paginated        → PaginatedResult (items + total + pages + metadata)
 -- @returns :one             → single row (throws if not found)
 -- @returns :opt             → single row or null
 -- @returns :exec            → void (INSERT / UPDATE / DELETE)
@@ -806,8 +811,122 @@ SELECT * FROM users WHERE legacy_id = :legacy_id;</code></pre>
 public function getUserLegacy(string $legacy_id): ?User</code></pre>
     </section>
 
-    <!-- ── @calls -->
-    <section class="doc-section" id="ann-calls">
+    <!-- ── @paginate -->
+    <section class="doc-section" id="rt-paginated">
+      <h3><span class="return-type rt-paginated">:paginated</span></h3>
+      <p style="color:var(--text-muted)">Executes two queries in one call — a <code>COUNT(*)</code> and a paginated <code>SELECT</code> — and returns a single <code>PaginatedResult</code> object with items and full pagination metadata. Eliminates the need to call <code>listUsers()</code> and <code>listUsersCount()</code> separately.</p>
+      <p style="color:var(--text-muted)">Cannot be combined with <code>@counted</code> (they are alternatives). Can be combined with <code>@searchable</code>.</p>
+
+      <pre><code class="language-sql">-- @name ListUsers
+-- @returns :paginated
+SELECT * FROM users WHERE active = :active ORDER BY created_at DESC;</code></pre>
+
+      <pre><code class="language-php">// Generated signature — $limit defaults to 10, not nullable
+public function listUsers(int $active, int $limit = 10, int $offset = 0): PaginatedResult
+
+// Usage
+$result = $query->listUsers(active: 1, limit: 20, offset: 0);
+
+$result->items;         // User[] — the current page
+$result->total;         // 150 — total rows matching the query
+$result->limit;         // 20
+$result->offset;        // 0
+$result->pages;         // 8 — ceil(150 / 20)
+$result->hasMore;       // true
+
+// Navigation helpers
+$result->currentPage();    // 1
+$result->isFirstPage();    // true
+$result->isLastPage();     // false
+$result->nextOffset();     // 20
+$result->previousOffset(); // null</code></pre>
+
+      <h4>With @searchable</h4>
+      <pre><code class="language-sql">-- @name ListUsers
+-- @searchable
+-- @returns :paginated
+SELECT * FROM users;</code></pre>
+      <pre><code class="language-php">// Criteria + pagination in one call
+$result = $query->listUsers(
+    criteria: (new UserCriteria())->whereActiveEq(1)->orderByCreatedAt('DESC'),
+    limit: 20,
+    offset: 0,
+);
+// The COUNT also applies the same criteria — total reflects the filtered set</code></pre>
+
+      <h4>PaginatedResult API</h4>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead><tr><th>Property / Method</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td><code>$r->items</code></td><td><code>array</code></td><td>Rows for the current page (<code>ModelClass[]</code>)</td></tr>
+            <tr><td><code>$r->total</code></td><td><code>int</code></td><td>Total rows matching the query (all pages)</td></tr>
+            <tr><td><code>$r->limit</code></td><td><code>int</code></td><td>Rows per page as requested</td></tr>
+            <tr><td><code>$r->offset</code></td><td><code>int</code></td><td>Rows skipped as requested</td></tr>
+            <tr><td><code>$r->pages</code></td><td><code>int</code></td><td><code>ceil(total / limit)</code> — 0 when total is 0</td></tr>
+            <tr><td><code>$r->hasMore</code></td><td><code>bool</code></td><td>True when there are rows after this page</td></tr>
+            <tr><td><code>$r->currentPage()</code></td><td><code>int</code></td><td>Current page number (1-based)</td></tr>
+            <tr><td><code>$r->isFirstPage()</code></td><td><code>bool</code></td><td>True when offset is 0</td></tr>
+            <tr><td><code>$r->isLastPage()</code></td><td><code>bool</code></td><td>True when there is no next page</td></tr>
+            <tr><td><code>$r->nextOffset()</code></td><td><code>?int</code></td><td>Offset for the next page, null if last</td></tr>
+            <tr><td><code>$r->previousOffset()</code></td><td><code>?int</code></td><td>Offset for the previous page, null if first</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Two queries per call.</strong> The generated method always runs a <code>COUNT(*)</code> and a paginated <code>SELECT</code> — two database round-trips. If you need to control when the count runs (e.g. only on page 1), use <code>@counted</code> instead.
+      </div>
+    </section>
+
+    <!-- ── @returning -->
+    <section class="doc-section" id="ann-returning">
+      <h3><i class="bi bi-box-arrow-in-down me-2"></i>@returning</h3>
+      <p style="color:var(--text-muted)">After executing an INSERT, fetches and returns the newly created row by its primary key (<code>lastInsertId()</code>). Eliminates the manual fetch-after-insert pattern that every controller currently repeats.</p>
+      <p style="color:var(--text-muted)">Only valid on <code>:one</code> INSERT queries. Cannot be used with <code>ON DUPLICATE KEY UPDATE</code> (unreliable <code>lastInsertId()</code>). The table must have a detectable primary key in the schema.</p>
+
+      <pre><code class="language-sql">-- @name CreateUser
+-- @returning
+-- @returns :one
+INSERT INTO users (email, active) VALUES (:email, :active);</code></pre>
+
+      <pre><code class="language-php">// Generated — executes INSERT then SELECT by PK
+public function createUser(string $email, int $active): User
+
+// Usage
+$user = $query->createUser(email: 'alice@example.com', active: 1);
+echo $user->id;       // auto-increment PK from lastInsertId()
+echo $user->email;    // 'alice@example.com'
+echo $user->active;   // 1</code></pre>
+
+      <h4>Generated code (simplified)</h4>
+      <pre><code class="language-php">public function createUser(string $email, int $active): User
+{
+    // Execute the INSERT
+    $stmt = $this->pdo->prepare('INSERT INTO users (email, active) VALUES (:email, :active)');
+    $stmt->bindValue(':email',  $email,  PDO::PARAM_STR);
+    $stmt->bindValue(':active', $active, PDO::PARAM_INT);
+    $stmt->execute();
+
+    // Fetch the newly created row by its primary key
+    $__id = (int) $this->pdo->lastInsertId();
+    $__selectStmt = $this->pdo->prepare('SELECT * FROM users WHERE id = :id');
+    $__selectStmt->bindValue(':id', $__id, PDO::PARAM_INT);
+    $__selectStmt->execute();
+    $__row = $__selectStmt->fetch(PDO::FETCH_ASSOC);
+
+    return User::fromRow($__row);
+}</code></pre>
+
+      <h4>Primary key detection</h4>
+      <p style="color:var(--text-muted)">The PK column is detected automatically from the schema (in priority order): inline <code>PRIMARY KEY</code> declaration, <code>AUTO_INCREMENT</code> column, or a column named <code>id</code>. If none match, generation fails with a clear error.</p>
+
+      <div class="callout callout-warning">
+        <i class="bi bi-exclamation-triangle callout-icon"></i>
+        <strong>MySQL only — <code>ON DUPLICATE KEY UPDATE</code> is not supported.</strong> When an upsert performs an UPDATE instead of an INSERT, <code>lastInsertId()</code> returns <code>0</code> or the ID of a previous row. The analyzer will reject any INSERT with <code>ON DUPLICATE KEY</code> and <code>@returning</code>.
+      </div>
+    </section>
       <h3><i class="bi bi-arrow-repeat me-2"></i>@calls</h3>
       <p style="color:var(--text-muted)">Used with <code>:transaction</code> to declare which methods are called in sequence inside a single database transaction. See the <a href="#rt-transaction">:transaction</a> return type for a full example.</p>
       <pre><code class="language-sql">-- @name TransferFunds
@@ -900,6 +1019,7 @@ public function patchActiveUsers(
           <tbody>
             <tr><td><span class="return-type rt-many">:many</span></td><td><code>ModelClass[]</code></td><td>Array of rows — empty array if no rows</td></tr>
             <tr><td><span class="return-type rt-paginated">:many-paginated</span></td><td><code>ModelClass[]</code></td><td>Array with optional <code>?int $limit</code> / <code>int $offset</code>. <code>null</code> limit returns all rows.</td></tr>
+            <tr><td><span class="return-type rt-paginated">:paginated</span></td><td><code>PaginatedResult&lt;ModelClass&gt;</code></td><td>One call returns items + total + pages + navigation metadata. Executes COUNT + SELECT internally. <code>limit</code> defaults to 10.</td></tr>
             <tr><td><span class="return-type rt-one">:one</span></td><td><code>ModelClass</code></td><td>Single row — throws <code>RuntimeException</code> if not found</td></tr>
             <tr><td><span class="return-type rt-opt">:opt</span></td><td><code>ModelClass|null</code></td><td>Single row — returns <code>null</code> if not found</td></tr>
             <tr><td><span class="return-type rt-exec">:exec</span></td><td><code>void</code></td><td>INSERT / UPDATE / DELETE — no return value</td></tr>
@@ -1551,7 +1671,7 @@ public function register(): void
 
     <section class="doc-section" id="testing">
       <h2><i class="bi bi-clipboard2-check me-2" style="color:var(--accent-3)"></i>Running the test suite</h2>
-      <pre><code class="language-bash"># PHPUnit test suite (907 tests)
+      <pre><code class="language-bash"># PHPUnit test suite (960 tests)
 ./vendor/bin/phpunit</code></pre>
     </section>
 
@@ -1572,7 +1692,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.7.7'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.8.0'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1584,6 +1704,18 @@ public function register(): void
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.8.0 — :paginated &amp; @returning</div>
+          <ul>
+            <li><strong><code>@returns :paginated</code></strong> — new return type (native, like <code>:many</code> or <code>:one</code>). Runs a <code>COUNT(*)</code> and a paginated <code>SELECT</code> in one call, returning a <code>PaginatedResult</code> object with <code>items</code>, <code>total</code>, <code>pages</code>, <code>hasMore</code>, and navigation helpers. Defaults to <code>limit = 10</code>. Can be combined with <code>@searchable</code>. Cannot be combined with <code>@counted</code>.</li>
+            <li><strong><code>@returning</code></strong> — after executing an INSERT, fetches and returns the newly created row by its primary key (<code>lastInsertId()</code>). Only valid on <code>:one</code> INSERT queries. Rejects <code>ON DUPLICATE KEY UPDATE</code> with a clear error.</li>
+            <li><strong><code>SchemaCatalog::primaryKey()</code></strong> — new method detecting the PK column from <code>PRIMARY KEY</code>, <code>AUTO_INCREMENT</code>, or column named <code>id</code>.</li>
+            <li><strong><code>ColumnDefinition::$isPrimaryKey</code></strong> — new field parsed from inline <code>PRIMARY KEY</code> declarations in <code>CREATE TABLE</code>.</li>
+            <li><strong><code>SqlcPhp\Query\PaginatedResult</code></strong> — new runtime readonly class with navigation helper methods.</li>
+            <li>53 new tests in <code>tests/PaginateReturningTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.7.7 — toDebugBindings() for Debugbar integration</div>

@@ -17,7 +17,9 @@ class ColumnDefinition
         public readonly bool    $autoIncrement,
         public readonly ?string $default,
         /** Non-empty only when sqlType === 'ENUM', contains the raw quoted values. */
-        public readonly array   $enumValues = [],
+        public readonly array   $enumValues    = [],
+        /** True when this column is declared with PRIMARY KEY in its column definition. */
+        public readonly bool    $isPrimaryKey  = false,
     ) {}
 
     /** Returns true when this column is a MySQL ENUM. */

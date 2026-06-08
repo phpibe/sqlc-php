@@ -1524,6 +1524,45 @@ sqlc-php/
 
 ## Changelog
 
+### [2.8.0] — `:paginated` & `@returning`
+
+**`:paginated`** — new return type (alongside `:many`, `:one`, etc.) that returns a `PaginatedResult` with items + metadata in one call:
+
+```sql
+-- @name ListUsers
+-- @returns :paginated    ← limit defaults to 10, runs COUNT + SELECT
+SELECT * FROM users WHERE active = :active ORDER BY created_at DESC;
+```
+
+```php
+$result = $query->listUsers(active: 1, limit: 20, offset: 0);
+$result->items;         // User[] — current page
+$result->total;         // 150 — total matching rows
+$result->pages;         // 8
+$result->hasMore;       // true
+$result->nextOffset();  // 20
+```
+
+**`@returning`** — INSERT that fetches and returns the created row:
+
+```sql
+-- @name CreateUser
+-- @returning
+-- @returns :one
+INSERT INTO users (email, active) VALUES (:email, :active);
+```
+
+```php
+$user = $query->createUser(email: 'alice@example.com', active: 1);
+echo $user->id;    // auto-increment PK from lastInsertId()
+```
+
+Other changes:
+- `SchemaCatalog::primaryKey()` — detects PK from `PRIMARY KEY`, `AUTO_INCREMENT`, or column `id`
+- `ColumnDefinition::$isPrimaryKey` — new field from schema parser
+- `SqlcPhp\Query\PaginatedResult` — new runtime readonly class with navigation helpers
+- 53 new tests in `tests/PaginateReturningTest.php`
+
 ### [2.7.7] — `toDebugBindings()` for Debugbar integration
 
 - **`QueryObject::toDebugBindings(): list<mixed>`** — flat array of values for `QueryExecuted` / Debugbar `QueryCollector`. Filters `_chk` params (`@optional`) and `:limit`/`:offset` (`:many-paginated`).

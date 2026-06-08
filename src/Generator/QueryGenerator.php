@@ -6,7 +6,9 @@ namespace SqlcPhp\Generator;
 
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Parser\QueryDefinition;
+use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Parser\ReturnType;
+use SqlcPhp\Query\PaginatedResult;
 use SqlcPhp\Query\QueryObject;
 use SqlcPhp\Resolver\QueryParam;
 use SqlcPhp\TypeMapper\TypeMapperInterface;
@@ -18,6 +20,7 @@ use Psr\Log\LoggerInterface;
 class QueryGenerator
 {
     private CriteriaGenerator $criteriaGen;
+    private QueryParser       $parser;
 
     public function __construct(
         private readonly SchemaCatalog          $catalog,
@@ -30,6 +33,7 @@ class QueryGenerator
         private readonly string                 $classSuffix            = 'Query',
     ) {
         $this->criteriaGen = new CriteriaGenerator($namespace);
+        $this->parser      = new QueryParser();
     }
 
     /**
@@ -104,6 +108,10 @@ class QueryGenerator
             ? "\n    /** @var array<string, \\PDOStatement> */\n    private array \$stmts = [];\n"
             : '';
 
+        // PaginatedResult import only when the class has :paginated queries
+        $hasPaginate     = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Paginated));
+        $paginatedImport = $hasPaginate ? "\nuse SqlcPhp\\Query\\PaginatedResult;" : '';
+
         return <<<PHP
 <?php
 
@@ -114,7 +122,7 @@ namespace {$this->namespace};
 use Closure;
 use PDO;
 use Psr\Log\LoggerInterface;
-use RuntimeException;
+use RuntimeException;{$paginatedImport}
 use SqlcPhp\Query\QueryObject;
 
 /**
@@ -182,6 +190,18 @@ PHP;
 
     private function renderMethod(QueryDefinition $query): string
     {
+        // @returning: INSERT that fetches and returns the created row
+        if ($query->returning) {
+            return $this->renderReturningMethod($query);
+        }
+
+        // :paginated: returns a PaginatedResult object with items + metadata
+        if ($query->returns === ReturnType::Paginated) {
+            return $query->searchable
+                ? $this->renderSearchablePaginateMethod($query)
+                : $this->renderPaginateMethod($query);
+        }
+
         // @searchable queries get their own render path
         if ($query->searchable) {
             $main = $query->returns === ReturnType::ManyPaginated
@@ -523,6 +543,212 @@ PHP;
     }
 
     // =========================================================================
+    // @paginate — PaginatedResult
+    // =========================================================================
+
+    /**
+     * Builds the count SQL by wrapping the base SQL in a subquery.
+     * Strips any existing ORDER BY (irrelevant for counting).
+     */
+    private function buildCountSql(string $baseSql): string
+    {
+        $normalized = rtrim(preg_replace('/\s+/', ' ', trim($baseSql)) ?? $baseSql, ';');
+        // Remove trailing ORDER BY — irrelevant for COUNT
+        $normalized = (string) preg_replace('/\s+ORDER\s+BY\s+.+$/i', '', $normalized);
+        // Remove trailing LIMIT/OFFSET if present
+        $normalized = rtrim((string) preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $normalized));
+        return "SELECT COUNT(*) AS _total FROM ({$normalized}) AS _paginate_total";
+    }
+
+    private function renderPaginateMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $userParams    = $this->buildParamList($query);
+        $paginParams   = $userParams !== ''
+            ? ", int \$limit = 10, int \$offset = 0"
+            : "int \$limit = 10, int \$offset = 0";
+        $signature     = "{$query->name}({$userParams}{$paginParams}): PaginatedResult";
+
+        $countSqlLit   = $this->renderSqlLiteral($this->buildCountSql($query->sql));
+        $pageSql       = rtrim(preg_replace('/\s+/', ' ', trim($query->sql)), ';') . ' LIMIT :limit OFFSET :offset';
+        $pageSqlLit    = $this->renderSqlLiteral($pageSql);
+
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+
+        $prepare       = $this->renderPrepare($query);
+        // Override the prepare to use the page SQL (renderPrepare uses query->sql)
+        $prepareCount  = "        \$__countStmt = \$this->pdo->prepare({$countSqlLit});\n";
+        $preparePage   = "        \$__stmt = \$this->pdo->prepare({$pageSqlLit});\n";
+
+        $bindingsForPage = str_replace('$stmt', '$__stmt', $bindings);
+
+        return <<<PHP
+    /**
+     * @param int \$limit  Rows per page. Defaults to 10.
+     * @param int \$offset Rows to skip.
+     * @return PaginatedResult<{$returnClass}>
+     */
+    public function {$signature}
+    {
+        // Count total rows (without LIMIT)
+{$prepareCount}{$bindings}        \$__countStmt->execute();
+        \$__countRow = \$__countStmt->fetch(PDO::FETCH_ASSOC);
+        \$__total = (int) ((\$__countRow !== false ? \$__countRow['_total'] : null) ?? 0);
+
+        // Fetch current page
+{$preparePage}        \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
+        \$__stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
+{$bindingsForPage}
+        \$this->lastQuery = new QueryObject({$pageSqlLit}, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$__stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        \$__items = array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$__stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+
+        \$__pages  = \$__total > 0 && \$limit > 0 ? (int) ceil(\$__total / \$limit) : 0;
+        \$__hasMore = \$offset + count(\$__items) < \$__total;
+
+        return new PaginatedResult(
+            items:   \$__items,
+            total:   \$__total,
+            limit:   \$limit,
+            offset:  \$offset,
+            pages:   \$__pages,
+            hasMore: \$__hasMore,
+        );
+    }
+PHP;
+    }
+
+    private function renderSearchablePaginateMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams    = $this->buildParamList($query);
+        $critParam     = "?{$criteriaClass} \$criteria = null";
+        $allParams     = $userParams !== ''
+            ? "{$userParams}, {$critParam}, int \$limit = 10, int \$offset = 0"
+            : "{$critParam}, int \$limit = 10, int \$offset = 0";
+
+        $bindings      = $this->renderBindings($query);
+        $bindingsStr   = rtrim($bindings);
+        $bindBlock     = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+
+        $sqlBlock      = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+        $countSqlBlock = $sqlBlock; // same dynamic SQL, just wrapped in COUNT
+
+        return <<<PHP
+    /**
+     * @param ?{$criteriaClass} \$criteria  Dynamic filters and ordering.
+     * @param int \$limit                   Rows per page. Defaults to 10.
+     * @param int \$offset                  Rows to skip.
+     * @return PaginatedResult<{$returnClass}>
+     */
+    public function {$query->name}({$allParams}): PaginatedResult
+    {
+        // Build dynamic SQL from criteria filters
+{$sqlBlock}
+
+        // Count total rows
+        \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _paginate_total';
+        \$__countStmt = \$this->pdo->prepare(\$__countSql);
+{$bindBlock}        \$criteria?->bindAll(\$__countStmt);
+        \$__countStmt->execute();
+        \$__countRow = \$__countStmt->fetch(PDO::FETCH_ASSOC);
+        \$__total = (int) ((\$__countRow !== false ? \$__countRow['_total'] : null) ?? 0);
+
+        // Fetch current page
+        \$__pageSql = \$__sql . ' LIMIT :limit OFFSET :offset';
+        \$__stmt = \$this->pdo->prepare(\$__pageSql);
+{$bindBlock}        \$criteria?->bindAll(\$__stmt);
+        \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
+        \$__stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
+
+        \$this->lastQuery = new QueryObject(\$__pageSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$__stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        \$__items = array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$__stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+
+        \$__pages  = \$__total > 0 && \$limit > 0 ? (int) ceil(\$__total / \$limit) : 0;
+        \$__hasMore = \$offset + count(\$__items) < \$__total;
+
+        return new PaginatedResult(
+            items:   \$__items,
+            total:   \$__total,
+            limit:   \$limit,
+            offset:  \$offset,
+            pages:   \$__pages,
+            hasMore: \$__hasMore,
+        );
+    }
+PHP;
+    }
+
+    // =========================================================================
+    // @returning — INSERT that fetches and returns the created row
+    // =========================================================================
+
+    private function renderReturningMethod(QueryDefinition $query): string
+    {
+        // Derive model class from the INSERT table (same logic as ModelGenerator)
+        $tableName    = $query->fromTable ?? '';
+        $returnClass  = $query->modelClass
+            ?? $this->parser->toPascalCase($this->parser->toSingular($tableName));
+        $signature    = $this->buildSignature($query, $returnClass);
+        $docblock     = $this->buildDocblock($query, "@return {$returnClass}");
+        $bindings     = $this->renderBindings($query);
+        $prepare      = $this->renderPrepare($query);
+        $sqlExpr      = $this->renderSqlLiteral($query->sql);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+
+        // Determine the PK column for the SELECT-back query
+        $pkCol     = $this->catalog->primaryKey($tableName) ?? 'id';
+        $selectSql = "SELECT * FROM {$tableName} WHERE {$pkCol} = :{$pkCol}";
+        $selectLit = $this->renderSqlLiteral($selectSql);
+
+        return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+        // Execute the INSERT
+{$prepare}{$bindings}
+        \$this->lastQuery = new QueryObject({$sqlExpr}, {$bindingsExpr}, '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        // Fetch the newly created row by its primary key
+        \$__{$pkCol} = (int) \$this->pdo->lastInsertId();
+        \$__selectStmt = \$this->pdo->prepare({$selectLit});
+        \$__selectStmt->bindValue(':{$pkCol}', \$__{$pkCol}, PDO::PARAM_INT);
+        \$__selectStmt->execute();
+        \$__row = \$__selectStmt->fetch(PDO::FETCH_ASSOC);
+        if (\$__row === false) {
+            throw new RuntimeException(
+                '{$query->name}: inserted row not found (id=' . \$__{$pkCol} . ')'
+            );
+        }
+
+        return {$returnClass}::fromRow(\$__row);
+    }
+PHP;
+    }
+
+    // =========================================================================
     // :many
     // =========================================================================
 
@@ -789,11 +1015,21 @@ PHP;
     {
         return match ($query->returns->value) {
             ':many', ':many-paginated' => 'array',
+            ':paginated'               => 'PaginatedResult',
             ':one'                     => $this->resolveReturnClass($query),
             ':opt'                     => '?' . $this->resolveReturnClass($query),
             ':exec'                    => 'void',
             default                    => 'array',
         };
+    }
+
+    /**
+     * Returns the model/DTO class name for a query — the T in PaginatedResult<T>.
+     * Used by InterfaceGenerator for @paginate method signatures.
+     */
+    public function resolveReturnClassPublic(QueryDefinition $query): string
+    {
+        return $this->resolveReturnClass($query);
     }
 
     /**

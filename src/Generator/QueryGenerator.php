@@ -22,6 +22,11 @@ class QueryGenerator
     private CriteriaGenerator $criteriaGen;
     private QueryParser       $parser;
 
+    /**
+     * @param string $namespace      Namespace for generated Query classes
+     * @param string $dtosNamespace  Namespace for DTOs — PaginatedResult is generated there.
+     *                               Defaults to $namespace when not provided (string form out:).
+     */
     public function __construct(
         private readonly SchemaCatalog          $catalog,
         private readonly TypeMapperInterface    $typeMapper,
@@ -31,9 +36,106 @@ class QueryGenerator
         private readonly ?InterfaceGenerator    $interfaceGen           = null,
         private readonly bool                   $preparedStatementCache = false,
         private readonly string                 $classSuffix            = 'Query',
+        private readonly string                 $dtosNamespace          = '',
     ) {
         $this->criteriaGen = new CriteriaGenerator($namespace);
         $this->parser      = new QueryParser();
+    }
+
+    /**
+     * Returns the namespace where PaginatedResult lives.
+     * When dtosNamespace is set (map form out:), PaginatedResult is generated
+     * in that namespace. Otherwise it shares the query class namespace.
+     */
+    private function paginatedResultNamespace(): string
+    {
+        return $this->dtosNamespace !== '' ? $this->dtosNamespace : $this->namespace;
+    }
+
+    /**
+     * Generate the PaginatedResult class with the correct namespace for this target.
+     * Called by the CLI when any :paginated query is present in the target.
+     *
+     * @return array{className: string, code: string}
+     */
+    public function generatePaginatedResult(): array
+    {
+        $ns = $this->paginatedResultNamespace();
+
+        $code = <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$ns};
+
+/**
+ * Result of a :paginated query — items + pagination metadata in one object.
+ *
+ * Returned by generated methods with \`@returns :paginated\`. The \$items array
+ * contains the typed model/DTO objects for the requested page. The metadata
+ * fields describe the full result set so the caller can build pagination UI
+ * without a second query.
+ *
+ * @template T
+ */
+readonly class PaginatedResult
+{
+    /**
+     * @param array<T> \$items    The rows for the current page.
+     * @param int      \$total    Total number of rows matching the query (all pages).
+     * @param int      \$limit    Number of rows per page (as requested).
+     * @param int      \$offset   Number of rows skipped (as requested).
+     * @param int      \$pages    Total number of pages: ceil(\$total / \$limit). 0 when \$total is 0.
+     * @param bool     \$hasMore  True when there are rows after the current page.
+     */
+    public function __construct(
+        public array \$items,
+        public int   \$total,
+        public int   \$limit,
+        public int   \$offset,
+        public int   \$pages,
+        public bool  \$hasMore,
+    ) {}
+
+    /**
+     * The current page number (1-based).
+     * Returns 1 even when the result set is empty.
+     */
+    public function currentPage(): int
+    {
+        if (\$this->limit <= 0) return 1;
+        return (int) floor(\$this->offset / \$this->limit) + 1;
+    }
+
+    /** True when this is the first page (offset === 0). */
+    public function isFirstPage(): bool
+    {
+        return \$this->offset === 0;
+    }
+
+    /** True when this is the last page (no more rows after this one). */
+    public function isLastPage(): bool
+    {
+        return !\$this->hasMore;
+    }
+
+    /** Offset for the next page, or null when there is no next page. */
+    public function nextOffset(): ?int
+    {
+        return \$this->hasMore ? \$this->offset + \$this->limit : null;
+    }
+
+    /** Offset for the previous page, or null when on the first page. */
+    public function previousOffset(): ?int
+    {
+        if (\$this->offset <= 0) return null;
+        return max(0, \$this->offset - \$this->limit);
+    }
+}
+PHP;
+
+        return ['className' => 'PaginatedResult', 'code' => $code];
     }
 
     /**
@@ -110,7 +212,11 @@ class QueryGenerator
 
         // PaginatedResult import only when the class has :paginated queries
         $hasPaginate     = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Paginated));
-        $paginatedImport = $hasPaginate ? "\nuse SqlcPhp\\Query\\PaginatedResult;" : '';
+        $prNs            = $this->paginatedResultNamespace();
+        $prFqcn          = $prNs !== $this->namespace ? $prNs . '\\PaginatedResult' : null;
+        $paginatedImport = $hasPaginate
+            ? "\nuse " . ($prFqcn ?? 'SqlcPhp\\Query\\PaginatedResult') . ";"
+            : '';
 
         return <<<PHP
 <?php

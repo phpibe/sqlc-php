@@ -52,12 +52,21 @@ class InterfaceGenerator
 
         $methodsStr = implode("\n\n", $methods);
 
+        // Add PaginatedResult import when the interface has :paginated methods
+        $hasPaginated = !empty(array_filter(
+            $queries,
+            fn($q) => $q->returns === ReturnType::Paginated
+        ));
+        $paginatedImport = $hasPaginated
+            ? "\nuse SqlcPhp\\Query\\PaginatedResult;"
+            : '';
+
         $code = <<<PHP
 <?php
 
 declare(strict_types=1);
 
-namespace {$this->namespace};
+namespace {$this->namespace};{$paginatedImport}
 
 use PDO;
 

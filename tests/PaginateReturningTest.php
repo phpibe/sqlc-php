@@ -386,6 +386,57 @@ class PaginateReturningTest extends TestCase
         $this->assertStringContainsString('PaginatedResult', $iface);
     }
 
+    public function test_paginated_interface_has_use_statement(): void
+    {
+        // Regression: interface was missing `use SqlcPhp\Query\PaginatedResult`
+        // causing "Undefined class PaginatedResult" at runtime.
+        $dtoGen = new ResultDtoGenerator('App', $this->mapper);
+        $ig     = new InterfaceGenerator('App');
+        $qg     = new QueryGenerator($this->catalog, $this->mapper, $dtoGen, 'App', true, $ig);
+        $q      = $this->analyze(
+            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+        );
+        $files = $qg->generateInterfaces($q);
+        $iface = $files['UserQueryInterface']['code'];
+        $this->assertStringContainsString(
+            'use SqlcPhp\\Query\\PaginatedResult;',
+            $iface,
+            'Interface must import PaginatedResult when a :paginated method is declared'
+        );
+    }
+
+    public function test_interface_without_paginated_has_no_paginated_import(): void
+    {
+        $dtoGen = new ResultDtoGenerator('App', $this->mapper);
+        $ig     = new InterfaceGenerator('App');
+        $qg     = new QueryGenerator($this->catalog, $this->mapper, $dtoGen, 'App', true, $ig);
+        $q      = $this->analyze(
+            "-- @name ListUsers\n-- @returns :many\nSELECT * FROM users;"
+        );
+        $files = $qg->generateInterfaces($q);
+        $iface = $files['UserQueryInterface']['code'];
+        $this->assertStringNotContainsString('PaginatedResult', $iface);
+    }
+
+    public function test_paginated_interface_with_separate_namespace_has_use_statement(): void
+    {
+        // Regression: with map-form out:, namespace differs per type, but
+        // PaginatedResult (SqlcPhp\Query\) must still be imported in the interface.
+        $dtoGen = new ResultDtoGenerator('App\\Database\\DTOs', $this->mapper);
+        $ig     = new InterfaceGenerator('App\\Database\\Contracts');
+        $qg     = new QueryGenerator(
+            $this->catalog, $this->mapper, $dtoGen,
+            'App\\Database\\Repositories', true, $ig
+        );
+        $q    = $this->analyze(
+            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+        );
+        $files = $qg->generateInterfaces($q);
+        $iface = $files['UserQueryInterface']['code'];
+        $this->assertStringContainsString('use SqlcPhp\\Query\\PaginatedResult;', $iface);
+        $this->assertStringContainsString('namespace App\\Database\\Contracts', $iface);
+    }
+
     // =========================================================================
     // @returning — parser
     // =========================================================================

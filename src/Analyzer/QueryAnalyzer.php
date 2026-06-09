@@ -118,23 +118,49 @@ class QueryAnalyzer
         }
 
         // Validate @searchable: valid on :many, :many-paginated, and :paginated
-        if ($query->searchable
-            && $query->returns !== ReturnType::Many
-            && $query->returns !== ReturnType::ManyPaginated
-            && $query->returns !== ReturnType::Paginated
-        ) {
-            throw new \RuntimeException(
-                "Query '{$query->name}': @searchable is only valid on :many, :many-paginated, " .
-                "and :paginated queries. Got: {$query->returns->value}"
-            );
+        // but NOT on UNION queries (WHERE would only apply to the last branch)
+        if ($query->searchable) {
+            if ($query->isUnion) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @searchable cannot be used with UNION queries. " .
+                    "Appending a dynamic WHERE clause to a UNION applies only to the last " .
+                    "SELECT branch, which would produce incorrect results. " .
+                    "Use a subquery instead: SELECT * FROM (UNION query) AS t WHERE ..."
+                );
+            }
+            if ($query->returns !== ReturnType::Many
+                && $query->returns !== ReturnType::ManyPaginated
+                && $query->returns !== ReturnType::Paginated
+            ) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @searchable is only valid on :many, :many-paginated, " .
+                    "and :paginated queries. Got: {$query->returns->value}"
+                );
+            }
         }
 
-        // Validate @partial: only valid on :exec
-        if ($query->partial && $query->returns !== ReturnType::Exec) {
-            throw new \RuntimeException(
-                "Query '{$query->name}': @partial is only valid on :exec queries (UPDATE statements). " .
-                "Got: {$query->returns->value}"
-            );
+        // Validate @partial: only valid on :exec, not on UNION
+        if ($query->partial) {
+            if ($query->isUnion) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @partial cannot be used with UNION queries."
+                );
+            }
+            if ($query->returns !== ReturnType::Exec) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @partial is only valid on :exec queries (UPDATE statements). " .
+                    "Got: {$query->returns->value}"
+                );
+            }
+        }
+
+        // Validate @returning: only valid on :one INSERT, not on UNION
+        if ($query->returning) {
+            if ($query->isUnion) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @returning cannot be used with UNION queries."
+                );
+            }
         }
 
         // Validate :paginated: cannot combine with @counted
@@ -204,6 +230,7 @@ class QueryAnalyzer
             searchable:           $query->searchable,
             partial:              $query->partial,
             returning:            $query->returning,
+            isUnion:              $query->isUnion,
         );
     }
 

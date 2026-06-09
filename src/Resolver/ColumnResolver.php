@@ -67,18 +67,67 @@ class ColumnResolver
 
     /**
      * Extract the raw SELECT column list between SELECT and FROM.
+     * For UNION queries, only the first SELECT branch is parsed — subsequent
+     * branches must have the same column structure (SQL enforces this).
      *
      * @return string[]
      */
     private function extractSelectList(string $sql): array
     {
+        // Strip UNION branches — keep only the first SELECT
+        $firstBranch = $this->extractFirstUnionBranch($sql);
+
         // Match content between SELECT and FROM (handles multi-line)
-        if (!preg_match('/SELECT\s+(.*?)\s+FROM\s/si', $sql, $m)) {
+        if (!preg_match('/SELECT\s+(.*?)\s+FROM\s/si', $firstBranch, $m)) {
             return [];
         }
 
         $raw = $m[1];
         return $this->splitSelectItems($raw);
+    }
+
+    /**
+     * For UNION queries, return only the first SELECT branch (before UNION).
+     * For non-UNION queries, returns the original SQL unchanged.
+     *
+     * The split happens at top-level UNION keywords (not inside subqueries).
+     */
+    private function extractFirstUnionBranch(string $sql): string
+    {
+        // Fast path: no UNION keyword at all
+        if (!preg_match('/\bUNION\b/i', $sql)) {
+            return $sql;
+        }
+
+        // Walk the SQL character by character, tracking paren depth.
+        // Split at the first top-level UNION keyword.
+        $len   = strlen($sql);
+        $depth = 0;
+        $i     = 0;
+
+        while ($i < $len) {
+            $ch = $sql[$i];
+
+            if ($ch === '(') {
+                $depth++;
+                $i++;
+                continue;
+            }
+            if ($ch === ')') {
+                $depth--;
+                $i++;
+                continue;
+            }
+
+            // Check for UNION at top level (depth === 0)
+            if ($depth === 0 && stripos($sql, 'UNION', $i) === $i) {
+                return substr($sql, 0, $i);
+            }
+
+            $i++;
+        }
+
+        return $sql;
     }
 
     /**

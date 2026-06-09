@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.8.0</span>
+    <span class="badge-version">v2.9.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -155,6 +155,7 @@
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
       <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
       <a class="sidebar-link" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
+      <a class="sidebar-link" href="#union-queries"><i class="bi bi-collection"></i> UNION queries</a>
     </div>
 
     <div class="sidebar-group">
@@ -1692,7 +1693,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.8.0'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.0'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1704,6 +1705,36 @@ public function register(): void
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.8.5 — Technical debt refactor</div>
+          <ul>
+            <li><strong>Fix A — <code>renderPaginateCore()</code></strong>: The duplicated COUNT+SELECT body shared between <code>:paginated</code> and <code>:paginated + @searchable</code> is now extracted into a single <code>renderPaginateCore()</code> helper. Both entry points delegate to it with their specific SQL expressions and binding blocks.</li>
+            <li><strong>Fix B — <code>InterfaceGenerator</code> strategy dispatch</strong>: The monolithic <code>renderMethodSignature()</code> with 7 nested <code>if/elseif</code> branches is replaced by a <code>match()</code> dispatch table routing to one dedicated renderer per return-type family (<code>renderOneSignature</code>, <code>renderManyPaginatedSignature</code>, <code>renderPaginatedSignature</code>, etc.). Adding a new return type now means adding one method — the router never changes.</li>
+            <li><strong>Fix C — <code>renderBindings(string $stmtVar = '$stmt')</code></strong>: The root cause of the <code>$stmt undefined</code> bug. <code>renderBindings()</code> now accepts an explicit statement variable name. The <code>:paginated</code> methods call <code>renderBindings($query, '$__countStmt')</code> and <code>renderBindings($query, '$__stmt')</code> directly — eliminating the fragile <code>str_replace('$stmt->', '$__countStmt->')</code> workaround entirely.</li>
+            <li>23 new tests in <code>tests/TechDebtRefactorTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.9.0 — OR groups in Criteria &amp; UNION queries</div>
+          <ul>
+            <li><strong><code>Criteria::orGroup(callable $callback): static</code></strong> — new method for OR conditions. The callback receives a fresh instance of the same Criteria subclass; its filters are combined with AND and OR-ed with all other groups. Fully immutable and backward compatible — criteria without <code>orGroup()</code> generate identical SQL to before.</li>
+            <li><strong>UNION / UNION ALL queries</strong> — natively supported. Column types are resolved from the first SELECT branch. Parameters from all branches are collected. <code>@searchable</code>, <code>@partial</code>, and <code>@returning</code> are rejected with a clear error on UNION queries.</li>
+            <li><code>ColumnResolver::extractFirstUnionBranch()</code> — new method that correctly handles nested subquery UNIONs (respects paren depth).</li>
+            <li>35 new tests in <code>tests/OrGroupUnionTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.8.5 — Technical debt refactoring</div>
+          <ul>
+            <li><strong>Fix A — <code>renderBindings($stmtVar)</code></strong>: <code>renderBindings()</code> now accepts an explicit statement variable name. <code>renderPaginateMethod()</code> calls it with <code>'$__countStmt'</code> and <code>'$__stmt'</code> directly — no <code>str_replace()</code> hacks. Fixes <em>Undefined variable $stmt</em> when <code>@optional</code> params are used with <code>:paginated</code>.</li>
+            <li><strong>Fix B — <code>renderPaginateCore()</code> shared method</strong>: both <code>renderPaginateMethod()</code> and <code>renderSearchablePaginateMethod()</code> delegate to a single <code>renderPaginateCore()</code>. The COUNT+PAGE body exists exactly once — any future change happens in one place.</li>
+            <li><strong>Fix C — <code>InterfaceGenerator</code> strategy dispatch</strong>: <code>renderMethodSignature()</code> now uses a <code>match()</code> dispatch table. Each return-type family has a dedicated private renderer. Adding a new return type requires adding one method and one match arm — the router never changes.</li>
+            <li>37 tests updated and expanded in <code>tests/TechDebtRefactorTest.php</code>, covering structural invariants for each fix.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.8.0 — :paginated &amp; @returning</div>

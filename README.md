@@ -1524,6 +1524,34 @@ sqlc-php/
 
 ## Changelog
 
+### [2.9.0] — OR groups in Criteria & UNION queries
+
+**`Criteria::orGroup()`** — adds OR conditions to `@searchable` criteria. Fully immutable, backward compatible.
+
+```php
+(new UserCriteria())
+    ->whereActiveEq(1)
+    ->orGroup(fn($c) => $c->whereCountryIdEq(164))
+    ->orGroup(fn($c) => $c->whereCountryIdEq(165))
+// WHERE active = :active_f0 OR country_id = :country_id_f1 OR country_id = :country_id_f2
+```
+
+**UNION / UNION ALL** — natively supported. Types resolved from first SELECT. `@searchable`, `@partial`, `@returning` rejected on UNION with clear errors.
+
+35 new tests in `tests/OrGroupUnionTest.php`.
+
+### [2.8.5] — Technical debt refactor
+
+Three structural improvements with no user-facing behavior changes — same SQL output, same generated code, better internals.
+
+**Fix A — `renderPaginateCore()`**: the duplicated COUNT+SELECT body (∼50 lines) that appeared in both `renderPaginateMethod` and `renderSearchablePaginateMethod` is now a single shared method. Both entry points pass their specific SQL expressions and binding blocks as parameters.
+
+**Fix B — `InterfaceGenerator` strategy dispatch**: the monolithic `renderMethodSignature()` with 7 `if/elseif` branches is replaced by a `match()` dispatch table routing to one dedicated renderer per return-type family. Adding a new return type now means adding one method — the router never changes.
+
+**Fix C — `renderBindings(string $stmtVar = '$stmt')`**: root cause of the `$stmt undefined` bug in `:paginated`. `renderBindings()` now accepts the PDO statement variable name explicitly. The `:paginated` methods call `renderBindings($query, '$__countStmt')` and `renderBindings($query, '$__stmt')` directly — the `str_replace('$stmt->', ...)` workaround is gone.
+
+23 new tests in `tests/TechDebtRefactorTest.php`.
+
 ### [2.8.0] — `:paginated` & `@returning`
 
 **`:paginated`** — new return type (alongside `:many`, `:one`, etc.) that returns a `PaginatedResult` with items + metadata in one call:

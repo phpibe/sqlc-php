@@ -10,14 +10,12 @@ use SqlcPhp\Parser\ReturnType;
 /**
  * Generates a PHP interface for each Query class.
  *
- * The interface contains exactly the same method signatures as the
- * generated Query class, allowing consumers to depend on abstractions
- * rather than concrete PDO implementations.
+ * Method signatures are built via a strategy dispatch table: each return-type
+ * family has a dedicated renderer. Adding a new return type means adding one
+ * private method and one entry in the dispatch table — the main router never
+ * changes.
  *
  * Naming convention: {Group}QueryInterface  e.g. UserQueryInterface
- *
- * Usage in Laravel:
- *   $this->app->bind(UserQueryInterface::class, fn($app) => new UserQuery(...));
  */
 class InterfaceGenerator
 {
@@ -83,102 +81,128 @@ PHP;
         return ['className' => $interfaceName, 'code' => $code];
     }
 
+    // =========================================================================
+    // Dispatch — one entry per return-type family
+    // =========================================================================
+
+    /**
+     * Route to the correct renderer based on query flags and return type.
+     *
+     * Order matters only for flags that override the return type (e.g. @returning).
+     * Each renderer is a pure function of the query + queryGen with no side-effects.
+     */
     private function renderMethodSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
-        // @returning: INSERT → returns the model class
         if ($query->returning) {
-            $tableName   = $query->fromTable ?? '';
-            $returnClass = $query->modelClass
-                ?? (new \SqlcPhp\Parser\QueryParser())->toPascalCase(
-                    (new \SqlcPhp\Parser\QueryParser())->toSingular($tableName)
-                );
-            $paramList = $queryGen->buildParamListPublic($query);
-            $docblock  = $this->buildDocblock($query, $queryGen);
-            return <<<PHP
+            return $this->renderReturningSignature($query, $queryGen);
+        }
+
+        return match ($query->returns) {
+            ReturnType::Paginated     => $this->renderPaginatedSignature($query, $queryGen),
+            ReturnType::ManyPaginated => $this->renderManyPaginatedSignature($query, $queryGen),
+            ReturnType::Many          => $this->renderManySignature($query, $queryGen),
+            ReturnType::One           => $this->renderOneSignature($query, $queryGen),
+            ReturnType::Opt           => $this->renderOptSignature($query, $queryGen),
+            ReturnType::Exec          => $this->renderExecSignature($query, $queryGen),
+            ReturnType::Batch         => $this->renderBatchSignature($query, $queryGen),
+            ReturnType::Transaction   => $this->renderTransactionSignature($query, $queryGen),
+            default                   => $this->renderFallbackSignature($query, $queryGen),
+        };
+    }
+
+    // =========================================================================
+    // Renderers — one per return-type family
+    // =========================================================================
+
+    /**
+     * @returning — INSERT that fetches and returns the created model.
+     */
+    private function renderReturningSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $tableName   = $query->fromTable ?? '';
+        $returnClass = $query->modelClass
+            ?? (new \SqlcPhp\Parser\QueryParser())->toPascalCase(
+                (new \SqlcPhp\Parser\QueryParser())->toSingular($tableName)
+            );
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, "@return {$returnClass}");
+
+        return <<<PHP
 {$docblock}
     public function {$query->name}({$paramList}): {$returnClass};
 PHP;
+    }
+
+    /**
+     * :paginated — returns PaginatedResult<ModelClass>.
+     * Can be combined with @searchable (adds $criteria + int $limit + int $offset).
+     */
+    private function renderPaginatedSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+
+        if ($query->searchable) {
+            $criteriaClass = $query->group . 'Criteria';
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0";
+        } else {
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . 'int $limit = 10, int $offset = 0';
         }
 
-        // :paginated return type → PaginatedResult
-        if ($query->returns->value === ':paginated') {
-            $returnClass = $queryGen->resolveReturnClassPublic($query);
-            $paramList   = $queryGen->buildParamListPublic($query);
-
-            if ($query->searchable) {
-                $criteriaClass = $query->group . 'Criteria';
-                $sep       = $paramList !== '' ? ', ' : '';
-                $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0";
-            } else {
-                $sep       = $paramList !== '' ? ', ' : '';
-                $paramList = $paramList . $sep . 'int $limit = 10, int $offset = 0';
-            }
-
-            return <<<PHP
+        return <<<PHP
     /**
      * @return PaginatedResult<{$returnClass}>
      */
     public function {$query->name}({$paramList}): PaginatedResult;
 PHP;
-        }
+    }
 
-        $returnType = $queryGen->resolveReturnTypePublic($query);
-        $paramList  = $queryGen->buildParamListPublic($query);
+    /**
+     * :many-paginated — returns array with optional $limit/$offset.
+     * Can be combined with @searchable and/or @counted.
+     */
+    private function renderManyPaginatedSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
 
         if ($query->searchable) {
             $criteriaClass = $query->group . 'Criteria';
-            $critParam     = "?{$criteriaClass} \$criteria = null";
-
-            if ($query->returns->value === ':many-paginated') {
-                $sep       = $paramList !== '' ? ', ' : '';
-                $paramList = $paramList . $sep . $critParam . ', ?int $limit = null, int $offset = 0';
-            } else {
-                $sep       = $paramList !== '' ? ', ' : '';
-                $paramList = $paramList . $sep . $critParam;
-            }
-
-            $main = <<<PHP
-
-    public function {$query->name}({$paramList}): {$returnType};
-PHP;
-
-            if ($query->counted && $query->returns->value === ':many-paginated') {
-                $countParams = ($queryGen->buildParamListPublic($query) !== ''
-                    ? $queryGen->buildParamListPublic($query) . ', '
-                    : '') . "?{$criteriaClass} \$criteria = null";
-                $countName   = $query->name . 'Count';
-                $main .= <<<PHP
-
-
-    public function {$countName}({$countParams}): int;
-PHP;
-            }
-
-            return '    /**' . "\n" . '     * @searchable' . "\n" . '     */' . $main;
-        }
-
-        // :many-paginated adds limit/offset at the end — nullable $limit
-        if ($query->returns->value === ':many-paginated') {
             $sep       = $paramList !== '' ? ', ' : '';
-            $paramList = $paramList . $sep . '?int $limit = null, int $offset = 0';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?int \$limit = null, int \$offset = 0";
+
+            $main = "    /** @searchable */\n    public function {$query->name}({$paramList}): array;";
+
+            if ($query->counted) {
+                $countParams = $queryGen->buildParamListPublic($query);
+                $sep2        = $countParams !== '' ? ', ' : '';
+                $countParams = $countParams . $sep2 . "?{$criteriaClass} \$criteria = null";
+                $countName   = $query->name . 'Count';
+                $main .= "\n\n    public function {$countName}({$countParams}): int;";
+            }
+
+            return $main;
         }
 
-        $docblock = $this->buildDocblock($query, $queryGen);
+        $sep       = $paramList !== '' ? ', ' : '';
+        $paramList = $paramList . $sep . '?int $limit = null, int $offset = 0';
+        $docblock  = $this->buildDocblock($query, $queryGen, "@return {$returnClass}[]");
 
         $main = <<<PHP
 {$docblock}
-    public function {$query->name}({$paramList}): {$returnType};
+    public function {$query->name}({$paramList}): array;
 PHP;
 
-        // @counted: emit companion {name}Count() signature in the interface
-        if ($query->counted && $query->returns->value === ':many-paginated') {
-            $countParamList = $queryGen->buildParamListPublic($query); // no limit/offset
+        if ($query->counted) {
+            $countParamList = $queryGen->buildParamListPublic($query);
             $countName      = $query->name . 'Count';
             $main .= <<<PHP
 
 
     /**
-     * Returns the total number of rows matching the filter conditions (without pagination).
+     * Total rows matching the filter conditions (without pagination).
      * @return int
      */
     public function {$countName}({$countParamList}): int;
@@ -188,10 +212,134 @@ PHP;
         return $main;
     }
 
-    private function buildDocblock(QueryDefinition $query, QueryGenerator $queryGen): string
+    /**
+     * :many — can be combined with @searchable.
+     */
+    private function renderManySignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+
+        if ($query->searchable) {
+            $criteriaClass = $query->group . 'Criteria';
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null";
+            return "    /** @searchable */\n    public function {$query->name}({$paramList}): array;";
+        }
+
+        $docblock = $this->buildDocblock($query, $queryGen, "@return {$returnClass}[]");
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): array;
+PHP;
+    }
+
+    /**
+     * :one — returns model, throws if not found.
+     */
+    private function renderOneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+        $docblock    = $this->buildDocblock($query, $queryGen, "@return {$returnClass}");
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): {$returnClass};
+PHP;
+    }
+
+    /**
+     * :opt — returns model or null.
+     */
+    private function renderOptSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+        $docblock    = $this->buildDocblock($query, $queryGen, "@return {$returnClass}|null");
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): ?{$returnClass};
+PHP;
+    }
+
+    /**
+     * :exec — void (INSERT / UPDATE / DELETE).
+     */
+    private function renderExecSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, '@return void');
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): void;
+PHP;
+    }
+
+    /**
+     * :batch — executes query N times, returns total rows affected.
+     */
+    private function renderBatchSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, '@return int  Total rows affected.');
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): int;
+PHP;
+    }
+
+    /**
+     * :transaction — orchestrates multiple :exec methods in one DB transaction.
+     */
+    private function renderTransactionSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, '@return void');
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): void;
+PHP;
+    }
+
+    /**
+     * Fallback for any return type not explicitly handled above.
+     */
+    private function renderFallbackSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
         $returnType = $queryGen->resolveReturnTypePublic($query);
-        $lines      = ['    /**'];
+        $paramList  = $queryGen->buildParamListPublic($query);
+        $docblock   = $this->buildDocblock($query, $queryGen, "@return {$returnType}");
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): {$returnType};
+PHP;
+    }
+
+    // =========================================================================
+    // Shared helpers
+    // =========================================================================
+
+    /**
+     * Build a PHPDoc block for a method signature.
+     *
+     * @param string $returnTag  e.g. "@return User[]" or "@return void"
+     */
+    private function buildDocblock(
+        QueryDefinition $query,
+        QueryGenerator  $queryGen,
+        string          $returnTag = '',
+    ): string {
+        $lines = ['    /**'];
+
+        if ($query->deprecated !== null) {
+            $lines[] = '     * @deprecated ' . $query->deprecated;
+        }
 
         foreach ($query->params as $param) {
             $type    = $param->optional
@@ -201,10 +349,9 @@ PHP;
             $lines[] = "     * @param {$type} \${$param->name}{$note}";
         }
 
-        $lines[] = match($query->returns->value) {
-            ':exec'  => '     * @return void',
-            default  => "     * @return {$returnType}",
-        };
+        if ($returnTag !== '') {
+            $lines[] = "     * {$returnTag}";
+        }
 
         $lines[] = '     */';
         return implode("\n", $lines);

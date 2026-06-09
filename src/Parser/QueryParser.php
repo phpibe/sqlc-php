@@ -106,6 +106,13 @@ class QueryDefinition
          * returns it as a model object. Only valid on :one INSERT queries.
          */
         public readonly bool       $returning = false,
+        /**
+         * True when the SQL contains UNION or UNION ALL.
+         * Column types are resolved from the first SELECT only.
+         * @searchable is disallowed (appending WHERE to UNION applies only
+         * to the last branch). @partial and @returning are also disallowed.
+         */
+        public readonly bool       $isUnion   = false,
     ) {}
 }
 
@@ -168,8 +175,7 @@ class QueryParser
         $counted          = false;
         $searchable       = false;
         $partial          = false;
-        $returning        = false;
-        $columnAliases    = [];   // @column originalName alias
+        $returning        = false;        $columnAliases    = [];   // @column originalName alias
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -275,6 +281,9 @@ class QueryParser
             }
         }
 
+        // Detect UNION/UNION ALL — affects column resolution and disallows @searchable
+        $isUnion = (bool) preg_match('/\bUNION\b/i', $cleanSql);
+
         return new QueryDefinition(
             name:             lcfirst($name),
             group:            $group,
@@ -294,6 +303,7 @@ class QueryParser
             searchable:       $searchable,
             partial:          $partial,
             returning:        $returning,
+            isUnion:          $isUnion,
         );
     }
     private function extractFromTable(string $sql): ?string

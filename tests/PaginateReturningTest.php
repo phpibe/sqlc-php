@@ -319,6 +319,53 @@ class PaginateReturningTest extends TestCase
         $this->assertStringContainsString('int $limit = 10', $code);
     }
 
+    public function test_paginated_method_binds_to_count_stmt_not_stmt(): void
+    {
+        // Regression: @optional params were bound to $stmt (undefined) instead of
+        // $__countStmt and $__stmt which are the variable names used in :paginated.
+        $code = $this->code(
+            "-- @name ListUsers\n-- @optional active\n-- @returns :paginated\n" .
+            "SELECT * FROM users WHERE active = :active;"
+        );
+
+        // Count block must bind to $__countStmt, NOT to $stmt
+        $countStart = (int) strpos($code, '$__countStmt = $this->pdo->prepare(');
+        $countEnd   = (int) strpos($code, '$__countStmt->execute()');
+        $countBlock = substr($code, $countStart, $countEnd - $countStart);
+
+        $this->assertStringContainsString('$__countStmt->bindValue(', $countBlock,
+            'Count block must bind to $__countStmt');
+        $this->assertStringNotContainsString('$stmt->bindValue(', $countBlock,
+            'Count block must not reference undefined $stmt');
+
+        // Page block must bind to $__stmt, NOT to $stmt
+        $pageStart = (int) strpos($code, '$__stmt = $this->pdo->prepare(');
+        $pageEnd   = (int) strpos($code, '$__stmt->execute()');
+        $pageBlock = substr($code, $pageStart, $pageEnd - $pageStart);
+
+        $this->assertStringContainsString('$__stmt->bindValue(', $pageBlock,
+            'Page block must bind to $__stmt');
+        $this->assertStringNotContainsString("\$stmt->bindValue(", $pageBlock,
+            'Page block must not reference undefined $stmt');
+    }
+
+    public function test_paginated_without_optional_has_no_bare_stmt(): void
+    {
+        // Ensure no query with :paginated (no @optional) references bare $stmt
+        $code = $this->code(
+            "-- @name ListActiveUsers\n-- @returns :paginated\n" .
+            "SELECT * FROM users WHERE active = :active;"
+        );
+
+        // $stmt should not appear at all — only $__countStmt and $__stmt
+        $methodStart = (int) strpos($code, 'function listActiveUsers');
+        $methodCode  = substr($code, $methodStart);
+        // Strip '$__stmt' occurrences to check bare '$stmt'
+        $stripped = str_replace('$__stmt', '', $methodCode);
+        $this->assertStringNotContainsString('$stmt', $stripped,
+            'Generated method must not reference bare $stmt variable');
+    }
+
     public function test_paginated_strips_order_by_from_count(): void
     {
         $code = $this->code(
@@ -631,6 +678,6 @@ class PaginateReturningTest extends TestCase
 
     public function test_version_is_2_8_0(): void
     {
-        $this->assertSame('2.8.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.0', \SqlcPhp\Version::VERSION);
     }
 }

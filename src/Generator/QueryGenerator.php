@@ -666,46 +666,47 @@ PHP;
         return "SELECT COUNT(*) AS _total FROM ({$normalized}) AS _paginate_total";
     }
 
-    private function renderPaginateMethod(QueryDefinition $query): string
-    {
-        $returnClass   = $this->resolveReturnClass($query);
-        $userParams    = $this->buildParamList($query);
-        $paginParams   = $userParams !== ''
-            ? ", int \$limit = 10, int \$offset = 0"
-            : "int \$limit = 10, int \$offset = 0";
-        $signature     = "{$query->name}({$userParams}{$paginParams}): PaginatedResult";
+    // =========================================================================
+    // :paginated — shared core + two entry points
+    // =========================================================================
 
-        $countSqlLit   = $this->renderSqlLiteral($this->buildCountSql($query->sql));
-        $pageSql       = rtrim(preg_replace('/\s+/', ' ', trim($query->sql)), ';') . ' LIMIT :limit OFFSET :offset';
-        $pageSqlLit    = $this->renderSqlLiteral($pageSql);
-
-        $bindingsExpr  = $this->buildBindingsExpr($query);
-
-        // Generate bindings blocks targeting the correct statement variable
-        $rawBindings     = $this->renderBindings($query);
-        $bindingsForCount = str_replace('$stmt->', '$__countStmt->', $rawBindings);
-        $bindingsForPage  = str_replace('$stmt->', '$__stmt->',      $rawBindings);
-
-        return <<<PHP
     /**
-     * @param int \$limit  Rows per page. Defaults to 10.
-     * @param int \$offset Rows to skip.
-     * @return PaginatedResult<{$returnClass}>
+     * Core paginate body shared by renderPaginateMethod and renderSearchablePaginateMethod.
+     *
+     * @param string $countSqlExpr  PHP expression evaluating to the COUNT SQL string
+     * @param string $pageSqlExpr   PHP expression evaluating to the page SQL (includes LIMIT/OFFSET)
+     * @param string $countBindings Rendered bindValue() block targeting \$__countStmt
+     * @param string $pageBindings  Rendered bindValue() block targeting \$__stmt
+     * @param string $bindingsExpr  PHP expression for QueryObject bindings array
+     * @param string $returnClass   Class name for fromRow()
+     * @param string $queryName     Method name for QueryObject recording
+     * @param string $criteriaCount Optional criteria->bindAll($__countStmt) block
+     * @param string $criteriaPage  Optional criteria->bindAll($__stmt) block
      */
-    public function {$signature}
-    {
+    private function renderPaginateCore(
+        string $countSqlExpr,
+        string $pageSqlExpr,
+        string $countBindings,
+        string $pageBindings,
+        string $bindingsExpr,
+        string $returnClass,
+        string $queryName,
+        string $criteriaCount = '',
+        string $criteriaPage  = '',
+    ): string {
+        return <<<PHP
         // Count total rows (without LIMIT)
-        \$__countStmt = \$this->pdo->prepare({$countSqlLit});
-{$bindingsForCount}        \$__countStmt->execute();
+        \$__countStmt = \$this->pdo->prepare({$countSqlExpr});
+{$countBindings}{$criteriaCount}        \$__countStmt->execute();
         \$__countRow = \$__countStmt->fetch(PDO::FETCH_ASSOC);
         \$__total = (int) ((\$__countRow !== false ? \$__countRow['_total'] : null) ?? 0);
 
         // Fetch current page
-        \$__stmt = \$this->pdo->prepare({$pageSqlLit});
+        \$__stmt = \$this->pdo->prepare({$pageSqlExpr});
         \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
         \$__stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
-{$bindingsForPage}
-        \$this->lastQuery = new QueryObject({$pageSqlLit}, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$query->name}');
+{$pageBindings}{$criteriaPage}
+        \$this->lastQuery = new QueryObject({$pageSqlExpr}, array_merge({$bindingsExpr}, [':limit' => [\$limit, PDO::PARAM_INT], ':offset' => [\$offset, PDO::PARAM_INT]]), '{$queryName}');
         \$__t0 = hrtime(true);
         \$__stmt->execute();
         \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
@@ -727,7 +728,39 @@ PHP;
             pages:   \$__pages,
             hasMore: \$__hasMore,
         );
+PHP;
     }
+
+    private function renderPaginateMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $userParams   = $this->buildParamList($query);
+        $paginParams  = $userParams !== '' ? ", int \$limit = 10, int \$offset = 0" : "int \$limit = 10, int \$offset = 0";
+        $signature    = "{$query->name}({$userParams}{$paginParams}): PaginatedResult";
+
+        $countSqlLit = $this->renderSqlLiteral($this->buildCountSql($query->sql));
+        $pageSql     = rtrim(preg_replace('/\\s+/', ' ', trim($query->sql)), ';') . ' LIMIT :limit OFFSET :offset';
+        $pageSqlLit  = $this->renderSqlLiteral($pageSql);
+
+        $countBindings = $this->renderBindings($query, '$__countStmt');
+        $pageBindings  = $this->renderBindings($query, '$__stmt');
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+
+        $body = $this->renderPaginateCore(
+            $countSqlLit, $pageSqlLit,
+            $countBindings, $pageBindings,
+            $bindingsExpr, $returnClass, $query->name,
+        );
+
+        return <<<PHP
+    /**
+     * @param int \$limit  Rows per page. Defaults to 10.
+     * @param int \$offset Rows to skip.
+     * @return PaginatedResult<{$returnClass}>
+     */
+    public function {$signature}
+    {
+{$body}    }
 PHP;
     }
 
@@ -736,18 +769,30 @@ PHP;
         $returnClass   = $this->resolveReturnClass($query);
         $criteriaClass = $this->criteriaClass($query);
         $userParams    = $this->buildParamList($query);
-        $critParam     = "?{$criteriaClass} \$criteria = null";
         $allParams     = $userParams !== ''
-            ? "{$userParams}, {$critParam}, int \$limit = 10, int \$offset = 0"
-            : "{$critParam}, int \$limit = 10, int \$offset = 0";
+            ? "{$userParams}, ?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0"
+            : "?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0";
 
-        $bindings      = $this->renderBindings($query);
-        $bindingsStr   = rtrim($bindings);
-        $bindBlock     = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+
+        // Dynamic SQL expressions — evaluated at runtime from $__sql
+        $countSqlExpr = "'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _paginate_total'";
+        $pageSqlExpr  = "(\$__sql . ' LIMIT :limit OFFSET :offset')";
+
+        $countBindings = $this->renderBindings($query, '$__countStmt');
+        $pageBindings  = $this->renderBindings($query, '$__stmt');
         $bindingsExpr  = $this->buildBindingsExpr($query);
+        $mergedExpr    = "array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? [])";
 
-        $sqlBlock      = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
-        $countSqlBlock = $sqlBlock; // same dynamic SQL, just wrapped in COUNT
+        $criteriaCountBlock = "        \$criteria?->bindAll(\$__countStmt);\n";
+        $criteriaPageBlock  = "        \$criteria?->bindAll(\$__stmt);\n";
+
+        $body = $this->renderPaginateCore(
+            $countSqlExpr, $pageSqlExpr,
+            $countBindings, $pageBindings,
+            $mergedExpr, $returnClass, $query->name,
+            $criteriaCountBlock, $criteriaPageBlock,
+        );
 
         return <<<PHP
     /**
@@ -761,44 +806,7 @@ PHP;
         // Build dynamic SQL from criteria filters
 {$sqlBlock}
 
-        // Count total rows
-        \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _paginate_total';
-        \$__countStmt = \$this->pdo->prepare(\$__countSql);
-{$bindBlock}        \$criteria?->bindAll(\$__countStmt);
-        \$__countStmt->execute();
-        \$__countRow = \$__countStmt->fetch(PDO::FETCH_ASSOC);
-        \$__total = (int) ((\$__countRow !== false ? \$__countRow['_total'] : null) ?? 0);
-
-        // Fetch current page
-        \$__pageSql = \$__sql . ' LIMIT :limit OFFSET :offset';
-        \$__stmt = \$this->pdo->prepare(\$__pageSql);
-{$bindBlock}        \$criteria?->bindAll(\$__stmt);
-        \$__stmt->bindValue(':limit',  \$limit,  PDO::PARAM_INT);
-        \$__stmt->bindValue(':offset', \$offset, PDO::PARAM_INT);
-
-        \$this->lastQuery = new QueryObject(\$__pageSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
-        \$__t0 = hrtime(true);
-        \$__stmt->execute();
-        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
-        \$this->logLastQuery();
-
-        \$__items = array_map(
-            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
-            \$__stmt->fetchAll(PDO::FETCH_ASSOC),
-        );
-
-        \$__pages  = \$__total > 0 && \$limit > 0 ? (int) ceil(\$__total / \$limit) : 0;
-        \$__hasMore = \$offset + count(\$__items) < \$__total;
-
-        return new PaginatedResult(
-            items:   \$__items,
-            total:   \$__total,
-            limit:   \$limit,
-            offset:  \$offset,
-            pages:   \$__pages,
-            hasMore: \$__hasMore,
-        );
-    }
+{$body}    }
 PHP;
     }
 
@@ -1290,7 +1298,15 @@ PHP;
      * For regular queries returns simple bindValue() calls.
      * For queries with IN() params, emits runtime placeholder expansion first.
      */
-    private function renderBindings(QueryDefinition $query): string
+    /**
+     * Render the PDO bindValue() calls for all regular (non-IN-list) params.
+     *
+     * @param QueryDefinition $query
+     * @param string          $stmtVar  The PHP variable name of the PDOStatement.
+     *                                  Defaults to '$stmt'. Pass '$__countStmt' or
+     *                                  '$__stmt' for the :paginated render methods.
+     */
+    private function renderBindings(QueryDefinition $query, string $stmtVar = '$stmt'): string
     {
         $inListParams  = array_filter($query->params, fn($p) => $p->inList);
         $regularParams = array_filter($query->params, fn($p) => !$p->inList);
@@ -1310,10 +1326,10 @@ PHP;
                 if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
                     continue;
                 }
-                $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+                $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
                 if ($param->optional) {
                     $chk = $param->name . '_chk';
-                    $lines[] = "        \$stmt->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+                    $lines[] = "        {$stmtVar}->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
                 }
             }
             return empty($lines) ? '' : implode("\n", $lines) . "\n";
@@ -1335,7 +1351,7 @@ PHP;
             $lines[] = "        \$__sql = str_replace(':{$param->name}', {$ph}, \$__sql);";
         }
 
-        $lines[] = '        $stmt = $this->pdo->prepare($__sql);';
+        $lines[] = "        {$stmtVar} = \$this->pdo->prepare(\$__sql);";
 
         // Bind regular named params (excluding auto-injected limit/offset for paginated)
         $isPaginated    = $query->returns->value === ':many-paginated';
@@ -1345,10 +1361,10 @@ PHP;
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
                 continue;
             }
-            $lines[] = "        \$stmt->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+            $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
             if ($param->optional) {
                 $chk = $param->name . '_chk';
-                $lines[] = "        \$stmt->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+                $lines[] = "        {$stmtVar}->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
             }
         }
 
@@ -1358,7 +1374,7 @@ PHP;
             $executeArgParts[] = "...\${$param->name}";
         }
         $executeArgs = implode(', ', $executeArgParts);
-        $lines[] = "        \$stmt->execute([{$executeArgs}]);";
+        $lines[] = "        {$stmtVar}->execute([{$executeArgs}]);";
         $lines[] = '';
 
         return implode("\n", $lines) . "\n";

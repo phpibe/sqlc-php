@@ -1,6 +1,6 @@
 {
     "name": "phpibe/sqlc-php",
-    "version": "2.9.1",
+    "version": "2.9.2",
     "description": "A PHP code generator inspired by sqlc",
     "type": "library",
     "license": ["MIT"],

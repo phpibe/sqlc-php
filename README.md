@@ -1524,6 +1524,41 @@ sqlc-php/
 
 ## Changelog
 
+### [2.9.2] — `scoped_dtos` & embed collision detection
+
+**Embed collision detection:** when two queries use `@embed` with the same class name but different columns, generation now **aborts with a clear error** instead of silently overwriting:
+
+```
+Error: @embed class 'BillingReserve' is declared in multiple queries with different column shapes.
+
+  getBillingDetails   → id:int, total_price:float
+  getBillingWithDate  → id:int, created_at:DateTimeImmutable
+
+Solutions:
+  1. Enable scoped_dtos: true in sqlc.yaml
+  2. Use distinct class names
+  3. Use the same columns in both queries
+```
+
+**`scoped_dtos: true`:** each query's DTOs and embeds get a dedicated subdirectory named after the method. Collisions become structurally impossible:
+
+```yaml
+targets:
+  - namespace: "App\Database"
+    scoped_dtos: true
+    out:
+      dtos: app/Database/DTOs
+```
+
+```
+DTOs/GetBillingDetails/BillingDetails.php    ← App\Database\DTOs\GetBillingDetails
+DTOs/GetBillingDetails/BillingReserve.php    ← same namespace
+DTOs/GetBillingWithDate/BillingWithDate.php  ← App\Database\DTOs\GetBillingWithDate
+DTOs/GetBillingWithDate/BillingReserve.php   ← different namespace, no collision
+```
+
+Backward compatible — `scoped_dtos: false` by default. 16 new tests.
+
 ### [2.9.1] — `table.*` with `@embed` bugfix
 
 **Bug fix:** using `reserve_billing.*` alongside `@embed` columns with `__` prefixes now generates the correct return type.

@@ -369,7 +369,63 @@ function runGeneration(
             $toWrite["{$cls}.php"] = ['type' => 'models', 'label' => '[model]  ', 'code' => $code];
         }
 
-        // @dto collision detection
+        // ── Embed collision detection + DTO generation ─────────────────────────
+        //
+        // When scoped_dtos: false (default), two @embed annotations with the
+        // same class name but different column shapes would silently overwrite
+        // each other. We detect this and abort with a clear error.
+        //
+        // When scoped_dtos: true, each query method gets its own subdirectory:
+        //   DTOs/GetBillingDetails/BillingReserve.php
+        //   DTOs/GetBillingWithDate/BillingReserve.php
+        // Collisions are impossible in this mode.
+
+        if (!$target->scopedDtos) {
+            // Build registry: embedClassName → ['shape' => string, 'queryName' => string]
+            $embedRegistry = [];
+            foreach ($queries as $query) {
+                if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
+                if ($query->returns->value === ':exec') continue;
+                foreach ($query->embeds as $embed) {
+                    $embedCols = array_filter(
+                        $query->resultColumns,
+                        fn($c) => $embed->matches($c->alias),
+                    );
+                    $shape = implode(',', array_map(
+                        fn($c) => $embed->stripPrefix($c->alias) . ':' . $c->phpType,
+                        $embedCols,
+                    ));
+                    if (isset($embedRegistry[$embed->className])) {
+                        $existing = $embedRegistry[$embed->className];
+                        if ($existing['shape'] !== $shape) {
+                            $lines   = [];
+                            $lines[] = "Error: @embed class '{$embed->className}' is declared in " .
+                                       "multiple queries with different column shapes.";
+                            $lines[] = '';
+                            $lines[] = "  {$existing['queryName']}  → {$existing['shape']}";
+                            $lines[] = "  {$query->name}  → {$shape}";
+                            $lines[] = '';
+                            $lines[] = 'Solutions:';
+                            $lines[] = "  1. Enable scoped_dtos: true in sqlc.yaml to isolate DTOs per query method.";
+                            $lines[] = "     Each method gets its own subdirectory (e.g. DTOs/GetBilling/BillingReserve.php).";
+                            $lines[] = "  2. Use distinct class names for each query:";
+                            $lines[] = "       -- @embed {$embed->className}Details {$embed->prefix}  (in {$existing['queryName']})";
+                            $lines[] = "       -- @embed {$embed->className}Alt {$embed->prefix}      (in {$query->name})";
+                            $lines[] = "  3. Use the same columns in both queries if the same class is intended.";
+                            fwrite(STDERR, implode(PHP_EOL, $lines) . PHP_EOL);
+                            exit(1);
+                        }
+                    } else {
+                        $embedRegistry[$embed->className] = [
+                            'shape'     => $shape,
+                            'queryName' => $query->name,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // @dto name collision detection (existing behaviour)
         $dtoRegistry = [];
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
@@ -386,10 +442,20 @@ function runGeneration(
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
             if ($query->returns->value === ':exec') continue;
-            $r = $resultDtoGen->generate($query);
-            $toWrite["{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
-            foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
-                $toWrite["{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
+            $r = $resultDtoGen->generate($query, $target->scopedDtos);
+
+            if ($target->scopedDtos && $r['scopeSubdir'] !== null) {
+                // Place DTO and embeds in DTOs/{MethodPascalCase}/
+                $subdir = $r['scopeSubdir'];
+                $toWrite["{$subdir}/{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
+                foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
+                    $toWrite["{$subdir}/{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
+                }
+            } else {
+                $toWrite["{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
+                foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
+                    $toWrite["{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
+                }
             }
         }
 
@@ -432,17 +498,19 @@ function runGeneration(
 
         if (!$verifyMode && !$dryRun && !$diffMode) {
             foreach ($toWrite as $file => $entry) {
-                $type  = $entry['type'];
-                $dir   = $output->dirFor($type);
-                $code  = $allToWrite["{$dir}/{$file}"];
-                $label = $entry['label'];
+                $type     = $entry['type'];
+                $dir      = $output->dirFor($type);
+                $code     = $allToWrite["{$dir}/{$file}"];
+                $label    = $entry['label'];
+                $fullPath = "{$dir}/{$file}";
+                $fileDir  = dirname($fullPath);
 
-                if (!is_dir($dir) && !mkdir($dir, 0755, true)) {
-                    $result['error'] = "Cannot create output directory: {$dir}";
+                if (!is_dir($fileDir) && !mkdir($fileDir, 0755, true)) {
+                    $result['error'] = "Cannot create output directory: {$fileDir}";
                     return $result;
                 }
-                file_put_contents("{$dir}/{$file}", $code);
-                if (!$silent) echo "  {$label}{$dir}/{$file}\n";
+                file_put_contents($fullPath, $code);
+                if (!$silent) echo "  {$label}{$fullPath}\n";
                 $totalWritten++;
             }
         }
@@ -484,11 +552,24 @@ function injectUseStatements(
     $myType  = $entry['type'];
     $myNs    = $output->namespaceFor($myType);
 
-    // Build a map: className → FQCN for all generated classes in OTHER namespaces
+    // If this file itself has a deeper namespace (scoped_dtos), use it
+    if (preg_match('/^namespace\s+([\w\\\\]+);/m', $code, $nsMatch)) {
+        $myNs = $nsMatch[1];
+    }
+
+    // Build a map: className → FQCN for all generated classes in OTHER namespaces.
+    // For scoped DTO files, read the actual namespace from the generated code,
+    // not from OutputConfig (which only knows the base DTO namespace).
     $classToFqcn = [];
     foreach ($allFiles as $fileName => $other) {
-        $otherType = $other['type'];
-        $otherNs   = $output->namespaceFor($otherType);
+        $otherCode = $other['code'];
+        $otherNs   = $output->namespaceFor($other['type']);
+
+        // Prefer the actual namespace declared in the file (handles scoped_dtos)
+        if (preg_match('/^namespace\s+([\w\\\\]+);/m', $otherCode, $m)) {
+            $otherNs = $m[1];
+        }
+
         if ($otherNs === $myNs) continue;
 
         $cls = basename($fileName, '.php');

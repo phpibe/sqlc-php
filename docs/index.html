@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.9.1</span>
+    <span class="badge-version">v2.9.2</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1693,7 +1693,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.1'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.2'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1714,6 +1714,39 @@ public function register(): void
             <li><strong>Fix C — <code>renderBindings(string $stmtVar = '$stmt')</code></strong>: The root cause of the <code>$stmt undefined</code> bug. <code>renderBindings()</code> now accepts an explicit statement variable name. The <code>:paginated</code> methods call <code>renderBindings($query, '$__countStmt')</code> and <code>renderBindings($query, '$__stmt')</code> directly — eliminating the fragile <code>str_replace('$stmt->', '$__countStmt->')</code> workaround entirely.</li>
             <li>23 new tests in <code>tests/TechDebtRefactorTest.php</code>.</li>
           </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.9.2 — scoped_dtos &amp; embed collision detection</div>
+          <ul>
+            <li><strong>Embed collision detection</strong> — when two queries declare <code>@embed</code> with the same class name but different columns, generation now aborts with a clear error listing the conflicting queries and three resolution options.</li>
+            <li><strong><code>scoped_dtos: true</code></strong> — new target-level config option. When enabled, each query method's DTOs and embed classes are placed in a subdirectory named after the method (<code>DTOs/GetBillingDetails/BillingReserve.php</code>). The namespace is adjusted accordingly (<code>App\DTOs\GetBillingDetails</code>), making collisions structurally impossible.</li>
+            <li>Backward compatible: <code>scoped_dtos: false</code> by default. Existing projects work unchanged until a collision is detected.</li>
+            <li>16 new tests in <code>tests/ScopedDtosTest.php</code>.</li>
+          </ul>
+          <h4>Configuration</h4>
+          <pre><code class="language-yaml">targets:
+  - namespace: "App\\Database"
+    scoped_dtos: true   # ← isolates DTOs per query method
+    out:
+      queries:    app/Database/Repositories
+      dtos:       app/Database/DTOs
+      # DTOs/GetBillingDetails/BillingDetails.php    (namespace: App\Database\DTOs\GetBillingDetails)
+      # DTOs/GetBillingDetails/BillingReserve.php    (namespace: App\Database\DTOs\GetBillingDetails)
+      # DTOs/GetBillingWithDate/BillingWithDate.php  (namespace: App\Database\DTOs\GetBillingWithDate)
+      # DTOs/GetBillingWithDate/BillingReserve.php   (namespace: App\Database\DTOs\GetBillingWithDate)</code></pre>
+          <h4>Collision error (scoped_dtos: false)</h4>
+          <pre><code class="language-text">Error: @embed class 'BillingReserve' is declared in multiple queries with different column shapes.
+
+  getBillingDetails   → id:int, total_price:float
+  getBillingWithDate  → id:int, created_at:DateTimeImmutable
+
+Solutions:
+  1. Enable scoped_dtos: true in sqlc.yaml to isolate DTOs per query method.
+  2. Use distinct class names:
+       -- @embed BillingReserveDetails reserve__  (in getBillingDetails)
+       -- @embed BillingReserveAlt reserve__      (in getBillingWithDate)
+  3. Use the same columns in both queries if the same class is intended.</code></pre>
         </div>
 
         <div class="changelog-item">

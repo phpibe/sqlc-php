@@ -31,16 +31,33 @@ class ResultDtoGenerator
     }
 
     /**
+     * Derive the scoped namespace for a query method.
+     * e.g. namespace "App\DTOs", method "getBillingDetails"
+     *      → "App\DTOs\GetBillingDetails"
+     */
+    public function scopedNamespace(QueryDefinition $query): string
+    {
+        // Convert method name (camelCase) to PascalCase for the subdir
+        $subdir = ucfirst($query->name);
+        return rtrim($this->namespace, '\\') . '\\' . $subdir;
+    }
+
+    /**
      * Generate the PHP code for the result DTO.
      *
+     * @param  bool  $scoped  When true, the DTO and its embeds use a namespace
+     *                        scoped to the query method name (scoped_dtos: true).
      * @return array{
-     *   className: string,
-     *   code:      string,
-     *   embeds:    array<string, array{className: string, code: string}>
+     *   className:     string,
+     *   code:          string,
+     *   embeds:        array<string, array{className: string, code: string}>,
+     *   scopeSubdir:   string|null,
+     *   namespace:     string,
      * }
      */
-    public function generate(QueryDefinition $query): array
+    public function generate(QueryDefinition $query, bool $scoped = false): array
     {
+        $namespace = $scoped ? $this->scopedNamespace($query) : $this->namespace;
         $className = $this->dtoClassName($query);
         $embeds    = $query->embeds;
         $columns   = $query->resultColumns;
@@ -110,7 +127,7 @@ class ResultDtoGenerator
 
 declare(strict_types=1);
 
-namespace {$this->namespace};
+namespace {$namespace};
 
 /**
  * Result DTO for the `{$query->name}` query.
@@ -138,7 +155,7 @@ readonly class {$className}
 PHP;
 
         // Generate one embedded value-object file per @embed group
-        $embedGen   = new EmbedGenerator($this->namespace, $this->typeMapper);
+        $embedGen   = new EmbedGenerator($namespace, $this->typeMapper);
         $embedFiles = [];
 
         foreach ($embeds as $embed) {
@@ -148,7 +165,15 @@ PHP;
             $embedFiles[$cls] = ['className' => $cls, 'code' => $ec];
         }
 
-        return ['className' => $className, 'code' => $code, 'embeds' => $embedFiles];
+        $scopeSubdir = $scoped ? ucfirst($query->name) : null;
+
+        return [
+            'className'   => $className,
+            'code'        => $code,
+            'embeds'      => $embedFiles,
+            'scopeSubdir' => $scopeSubdir,
+            'namespace'   => $namespace,
+        ];
     }
 
     // -------------------------------------------------------------------------

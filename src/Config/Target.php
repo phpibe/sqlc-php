@@ -48,6 +48,20 @@ readonly class Target
         public bool         $preparedStatementCache = false,
         public string       $classSuffix           = 'Query',
         public ?DatabaseConfig $database           = null,
+        /**
+         * When true, each query method's DTOs and embed classes are placed in a
+         * subdirectory named after the method (PascalCase). This guarantees that
+         * two queries whose @embed annotations use the same class name but select
+         * different columns never collide.
+         *
+         * Example with scoped_dtos: true:
+         *   DTOs/GetBillingDetails/BillingReserve.php  ← namespace: DTOs\GetBillingDetails
+         *   DTOs/GetBillingWithDate/BillingReserve.php ← namespace: DTOs\GetBillingWithDate
+         *
+         * When false (default) and a collision is detected, generation aborts
+         * with a clear error message listing the conflicting queries.
+         */
+        public bool         $scopedDtos            = false,
     ) {}
 
     /**
@@ -105,6 +119,7 @@ readonly class Target
             database:               isset($data['database']) && is_array($data['database'])
                                         ? DatabaseConfig::fromArray($data['database'])
                                         : null,
+            scopedDtos:             filter_var($data['scoped_dtos'] ?? false, FILTER_VALIDATE_BOOLEAN),
         );
     }
 }

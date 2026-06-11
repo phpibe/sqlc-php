@@ -401,6 +401,6 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_version_is_2_8_5(): void
     {
-        $this->assertSame('2.9.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.3', \SqlcPhp\Version::VERSION);
     }
 }

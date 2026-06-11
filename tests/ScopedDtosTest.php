@@ -80,16 +80,16 @@ class ScopedDtosTest extends TestCase
 
     public function test_scoped_namespace_adds_method_subdir(): void
     {
-        $q = $this->analyze("-- @name GetBillingDetails\n-- @returns :one\n-- @dto BillingDetails\nSELECT billing.* FROM billing WHERE id = :id;");
+        $q = $this->analyze("-- @name GetBillingDetails\n-- @class Billing\n-- @returns :one\n-- @dto BillingDetails\nSELECT billing.* FROM billing WHERE id = :id;");
         $ns = $this->dtoGen->scopedNamespace($q[0]);
-        $this->assertSame('App\\DTOs\\GetBillingDetails', $ns);
+        $this->assertSame('App\\DTOs\\Billing\\GetBillingDetails', $ns);
     }
 
     public function test_scoped_namespace_uses_pascal_case_of_method(): void
     {
-        $q = $this->analyze("-- @name listBillingByDate\n-- @returns :many\n-- @dto ListBillingByDateRow\nSELECT billing.* FROM billing;");
+        $q = $this->analyze("-- @name listBillingByDate\n-- @class Billing\n-- @returns :many\n-- @dto ListBillingByDateRow\nSELECT billing.* FROM billing;");
         $ns = $this->dtoGen->scopedNamespace($q[0]);
-        $this->assertSame('App\\DTOs\\ListBillingByDate', $ns);
+        $this->assertSame('App\\DTOs\\Billing\\ListBillingByDate', $ns);
     }
 
     // =========================================================================
@@ -108,8 +108,8 @@ class ScopedDtosTest extends TestCase
 
         $r = $this->dtoGen->generate($q[0], scoped: true);
 
-        $this->assertSame('GetBillingDetails', $r['scopeSubdir']);
-        $this->assertStringContainsString('namespace App\\DTOs\\GetBillingDetails;', $r['code']);
+        $this->assertSame('Billing/GetBillingDetails', $r['scopeSubdir']);
+        $this->assertStringContainsString('namespace App\\DTOs\\Billing\\GetBillingDetails;', $r['code']);
     }
 
     public function test_scoped_generate_embeds_use_scoped_namespace(): void
@@ -126,7 +126,7 @@ class ScopedDtosTest extends TestCase
 
         $this->assertArrayHasKey('BillingReserve', $r['embeds']);
         $embedCode = $r['embeds']['BillingReserve']['code'];
-        $this->assertStringContainsString('namespace App\\DTOs\\GetBillingDetails;', $embedCode,
+        $this->assertStringContainsString('namespace App\\DTOs\\Billing\\GetBillingDetails;', $embedCode,
             'Embed class must use the scoped namespace');
     }
 
@@ -170,8 +170,8 @@ class ScopedDtosTest extends TestCase
         $this->assertSame('BillingReserve', $r1['embeds']['BillingReserve']['className']);
         $this->assertSame('BillingReserve', $r2['embeds']['BillingReserve']['className']);
 
-        $ns1 = 'App\\DTOs\\GetBillingDetails';
-        $ns2 = 'App\\DTOs\\GetBillingWithDate';
+        $ns1 = 'App\\DTOs\\Billing\\GetBillingDetails';
+        $ns2 = 'App\\DTOs\\Billing\\GetBillingWithDate';
 
         $this->assertStringContainsString($ns1, $r1['embeds']['BillingReserve']['code']);
         $this->assertStringContainsString($ns2, $r2['embeds']['BillingReserve']['code']);
@@ -368,8 +368,140 @@ class ScopedDtosTest extends TestCase
     }
 
     // =========================================================================
-    // Generate returns namespace in result array
+    // Group/Method directory structure — the key 2.9.3 behaviour
     // =========================================================================
+
+    /**
+     * The canonical example from the feature request:
+     * @class ReserveBilling + @name GetDetails
+     * must produce DTOs/ReserveBilling/GetDetails/XXX.php
+     * NOT DTOs/GetDetails/XXX.php
+     */
+    public function test_scoped_path_includes_group_as_parent_dir(): void
+    {
+        $q = $this->analyze(
+            "-- @name     GetDetails\n" .
+            "-- @class    ReserveBilling\n" .
+            "-- @dto      ReserveBilling\n" .
+            "-- @embed    ReserveBillingReserve reserve__\n" .
+            "-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r = $this->dtoGen->generate($q[0], scoped: true);
+
+        // scopeSubdir must be Group/Method — not just Method
+        $this->assertSame('ReserveBilling/GetDetails', $r['scopeSubdir'],
+            'scopeSubdir must be Group/Method, not just Method');
+
+        // Namespace: baseNs\Group\Method
+        $this->assertStringContainsString(
+            'namespace App\\DTOs\\ReserveBilling\\GetDetails;',
+            $r['code']
+        );
+    }
+
+    public function test_scoped_embed_path_includes_group_as_parent_dir(): void
+    {
+        $q = $this->analyze(
+            "-- @name     GetDetails\n" .
+            "-- @class    ReserveBilling\n" .
+            "-- @dto      ReserveBilling\n" .
+            "-- @embed    ReserveBillingReserve reserve__\n" .
+            "-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r = $this->dtoGen->generate($q[0], scoped: true);
+
+        $embedCode = $r['embeds']['ReserveBillingReserve']['code'];
+
+        // Embed lives in same namespace as parent DTO
+        $this->assertStringContainsString(
+            'namespace App\\DTOs\\ReserveBilling\\GetDetails;',
+            $embedCode,
+            'Embed class must share the Group/Method namespace'
+        );
+    }
+
+    public function test_scoped_two_methods_same_group_different_subdirs(): void
+    {
+        // GetDetails and GetSummary both in ReserveBilling group
+        // → ReserveBilling/GetDetails/ and ReserveBilling/GetSummary/
+        $q1 = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+        $q2 = $this->analyze(
+            "-- @name GetSummary\n-- @class ReserveBilling\n-- @dto ReserveBillingSummary\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.created_at as reserve__created_at\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
+        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+
+        $this->assertSame('ReserveBilling/GetDetails', $r1['scopeSubdir']);
+        $this->assertSame('ReserveBilling/GetSummary', $r2['scopeSubdir']);
+
+        // Different namespaces despite same group
+        $this->assertStringContainsString('App\\DTOs\\ReserveBilling\\GetDetails',  $r1['code']);
+        $this->assertStringContainsString('App\\DTOs\\ReserveBilling\\GetSummary', $r2['code']);
+    }
+
+    public function test_scoped_two_groups_can_have_same_method_name(): void
+    {
+        // Both groups have "GetDetails" — scoped path uses group prefix to distinguish
+        $q1 = $this->analyze(
+            "-- @name GetDetails\n-- @class Billing\n-- @dto BillingDetails\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+        $q2 = $this->analyze(
+            "-- @name GetDetails\n-- @class Reserve\n-- @dto ReserveDetails\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
+        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+
+        // Different groups → different paths even with same method name
+        $this->assertSame('Billing/GetDetails', $r1['scopeSubdir']);
+        $this->assertSame('Reserve/GetDetails',  $r2['scopeSubdir']);
+
+        $this->assertStringContainsString('App\\DTOs\\Billing\\GetDetails',  $r1['embeds']['BillingReserve']['code']);
+        $this->assertStringContainsString('App\\DTOs\\Reserve\\GetDetails',  $r2['embeds']['BillingReserve']['code']);
+    }
+
+    public function test_scoped_namespace_structure_group_then_method(): void
+    {
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @returns :one\n" .
+            "-- @dto ReserveBilling\nSELECT billing.* FROM billing WHERE id = :id;"
+        );
+
+        $ns = $this->dtoGen->scopedNamespace($q[0]);
+
+        // Must be: baseNs\Group\Method
+        $parts = explode('\\', $ns);
+        $last  = array_slice($parts, -2);
+        $this->assertSame(['ReserveBilling', 'GetDetails'], $last,
+            'Last two segments must be [Group, MethodPascalCase]');
+    }
 
     public function test_generate_returns_namespace_key(): void
     {
@@ -385,7 +517,7 @@ class ScopedDtosTest extends TestCase
         $rScoped = $this->dtoGen->generate($q[0], scoped: true);
 
         $this->assertSame('App\\DTOs', $rFlat['namespace']);
-        $this->assertSame('App\\DTOs\\GetBillingDetails', $rScoped['namespace']);
+        $this->assertSame('App\\DTOs\\Billing\\GetBillingDetails', $rScoped['namespace']);
     }
 
     // =========================================================================
@@ -394,6 +526,6 @@ class ScopedDtosTest extends TestCase
 
     public function test_version_is_2_9_2(): void
     {
-        $this->assertSame('2.9.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.3', \SqlcPhp\Version::VERSION);
     }
 }

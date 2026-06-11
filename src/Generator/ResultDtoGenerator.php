@@ -32,14 +32,30 @@ class ResultDtoGenerator
 
     /**
      * Derive the scoped namespace for a query method.
-     * e.g. namespace "App\DTOs", method "getBillingDetails"
-     *      → "App\DTOs\GetBillingDetails"
+     *
+     * Structure: {baseNamespace}\{Group}\{MethodPascalCase}
+     *
+     * Examples:
+     *   namespace "App\DTOs", group "ReserveBilling", method "getDetails"
+     *   → "App\DTOs\ReserveBilling\GetDetails"
+     *
+     *   namespace "App\DTOs", group "User", method "listActiveUsers"
+     *   → "App\DTOs\User\ListActiveUsers"
      */
     public function scopedNamespace(QueryDefinition $query): string
     {
-        // Convert method name (camelCase) to PascalCase for the subdir
-        $subdir = ucfirst($query->name);
-        return rtrim($this->namespace, '\\') . '\\' . $subdir;
+        $group  = $query->group;                // PascalCase group (@class)
+        $method = ucfirst($query->name);        // PascalCase method
+        return rtrim($this->namespace, '\\') . '\\' . $group . '\\' . $method;
+    }
+
+    /**
+     * Derive the scoped subdirectory path (relative to the DTOs base dir).
+     * Matches the namespace structure: {Group}/{MethodPascalCase}
+     */
+    private function scopeSubdirFor(QueryDefinition $query): string
+    {
+        return $query->group . '/' . ucfirst($query->name);
     }
 
     /**
@@ -165,7 +181,7 @@ PHP;
             $embedFiles[$cls] = ['className' => $cls, 'code' => $ec];
         }
 
-        $scopeSubdir = $scoped ? ucfirst($query->name) : null;
+        $scopeSubdir = $scoped ? $this->scopeSubdirFor($query) : null;
 
         return [
             'className'   => $className,

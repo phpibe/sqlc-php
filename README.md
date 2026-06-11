@@ -1524,6 +1524,41 @@ sqlc-php/
 
 ## Changelog
 
+### [2.9.3] — `scoped_dtos` path includes `@class` group
+
+Iterates the `scoped_dtos: true` feature. The subdirectory now includes the `@class` group as a parent:
+
+```
+Before (v2.9.2):  DTOs/GetDetails/ReserveBilling.php
+After  (v2.9.3):  DTOs/ReserveBilling/GetDetails/ReserveBilling.php
+                       ↑ Group        ↑ Method
+```
+
+This matches the exact structure from the feature request:
+```sql
+-- @name     GetDetails
+-- @class    ReserveBilling
+-- @dto      ReserveBilling
+-- @embed    ReserveBillingCustomer customer__
+-- @embed    ReserveBillingProduct  product__
+-- @embed    ReserveBillingReserve  reserve__
+-- @returns :one
+```
+
+Generates:
+```
+DTOs/ReserveBilling/GetDetails/ReserveBilling.php
+DTOs/ReserveBilling/GetDetails/ReserveBillingCustomer.php
+DTOs/ReserveBilling/GetDetails/ReserveBillingProduct.php
+DTOs/ReserveBilling/GetDetails/ReserveBillingReserve.php
+```
+
+Also enables two groups with the same method name to coexist:
+```
+DTOs/Billing/GetDetails/BillingReserve.php   ← App\DTOs\Billing\GetDetails
+DTOs/Reserve/GetDetails/BillingReserve.php   ← App\DTOs\Reserve\GetDetails
+```
+
 ### [2.9.2] — `scoped_dtos` & embed collision detection
 
 **Embed collision detection:** when two queries use `@embed` with the same class name but different columns, generation now **aborts with a clear error** instead of silently overwriting:

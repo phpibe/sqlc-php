@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.9.2</span>
+    <span class="badge-version">v2.9.3</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1693,7 +1693,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.2'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.3'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1717,7 +1717,7 @@ public function register(): void
         </div>
 
         <div class="changelog-item">
-          <div class="changelog-version">v2.9.2 — scoped_dtos &amp; embed collision detection</div>
+          <div class="changelog-version">v2.9.2-2.9.3 — scoped_dtos &amp; embed collision detection</div>
           <ul>
             <li><strong>Embed collision detection</strong> — when two queries declare <code>@embed</code> with the same class name but different columns, generation now aborts with a clear error listing the conflicting queries and three resolution options.</li>
             <li><strong><code>scoped_dtos: true</code></strong> — new target-level config option. When enabled, each query method's DTOs and embed classes are placed in a subdirectory named after the method (<code>DTOs/GetBillingDetails/BillingReserve.php</code>). The namespace is adjusted accordingly (<code>App\DTOs\GetBillingDetails</code>), making collisions structurally impossible.</li>

@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.9.0</span>
+    <span class="badge-version">v2.9.1</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1693,7 +1693,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.0'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.1'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -1714,6 +1714,30 @@ public function register(): void
             <li><strong>Fix C — <code>renderBindings(string $stmtVar = '$stmt')</code></strong>: The root cause of the <code>$stmt undefined</code> bug. <code>renderBindings()</code> now accepts an explicit statement variable name. The <code>:paginated</code> methods call <code>renderBindings($query, '$__countStmt')</code> and <code>renderBindings($query, '$__stmt')</code> directly — eliminating the fragile <code>str_replace('$stmt->', '$__countStmt->')</code> workaround entirely.</li>
             <li>23 new tests in <code>tests/TechDebtRefactorTest.php</code>.</li>
           </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.9.1 — table.* with @embed bugfix</div>
+          <ul>
+            <li><strong>Bug fix: <code>table.*</code> with <code>@embed</code> and <code>@dto</code> now generates the correct return type.</strong> Previously, writing <code>reserve_billing.*</code> alongside JOIN columns with <code>__</code> prefixes (e.g. <code>reserve.id as reserve__id</code>) caused <code>detectDirectModel</code> to see multiple table names and fall back to an unnamed DTO, ignoring the <code>@dto</code> annotation.</li>
+            <li><strong><code>detectDirectModel</code> improvement:</strong> columns with <code>__</code> in their alias are now excluded from the single-table uniqueness check. These are embedded object fields (from <code>@embed</code>) and belong to joined tables by design — they should not affect model detection for the primary table.</li>
+            <li><strong><code>@embed</code> still forces DTO mode</strong> (correct behaviour): even when all primary columns come from a single table, <code>@embed</code> means the result has nested embedded properties that the plain model doesn't have. The <code>@dto</code> class name is used as the return type.</li>
+            <li>13 new tests in <code>tests/TableWildcardEmbedTest.php</code>.</li>
+          </ul>
+          <h4>Fix summary</h4>
+          <pre><code class="language-sql">-- Before: return type was GetDetailsRow (wrong)
+-- After:  return type is ReserveBilling (correct)
+-- @name     GetDetails
+-- @class    ReserveBilling
+-- @dto      ReserveBilling
+-- @embed    ReserveBillingReserve reserve__
+-- @returns :one
+SELECT reserve_billing.*,           -- table.* expands all billing columns
+    reserve.id as reserve__id,      -- __ prefix = @embed column, ignored by model detector
+    reserve.created_at as reserve__created_at
+FROM reserve_billing
+INNER JOIN reserve ON reserve_billing.reserve_id = reserve.id
+WHERE reserve_billing.reserve_id = :id</code></pre>
         </div>
 
         <div class="changelog-item">

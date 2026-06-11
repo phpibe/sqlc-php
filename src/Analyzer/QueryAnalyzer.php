@@ -71,17 +71,26 @@ class QueryAnalyzer
             $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
 
-            // @nillable or @embed on a direct-model query forces a custom DTO
-            // @nillable, @embed, @column, or virtual table → always generate a custom DTO
+            // @nillable, @embed, @column, or virtual table → always generate a custom DTO.
+            // Exception: @embed is allowed to co-exist with detectDirectModel when
+            // all non-embedded columns come from a single table (table.* pattern).
+            // In that case, detectDirectModel filters out __ columns and may still
+            // return true — but we override it back to false because @embed means
+            // the result has nested objects and needs a DTO, not the plain model.
             $isVirtual = $this->catalog !== null
                 && $query->fromTable !== null
                 && ($this->catalog->getTable($query->fromTable)?->virtual ?? false);
             $hasCustomizations = !empty($query->nillableColumns)
-                || !empty($query->embeds)
                 || !empty($query->columnAliases)
                 || $isVirtual;
             if (!$hasCustomizations) {
                 [$returnsModelDirectly, $modelClass] = $this->detectDirectModel($query, $resultColumns);
+                // @embed forces DTO mode even when base columns are from a single table —
+                // the result object has nested embedded properties that the plain model lacks.
+                if ($returnsModelDirectly && !empty($query->embeds)) {
+                    $returnsModelDirectly = false;
+                    $modelClass           = null;
+                }
             }
         }
 
@@ -346,7 +355,20 @@ class QueryAnalyzer
             return [false, null];
         }
 
-        $tables = array_unique(array_map(fn($c) => $c->tableName, $resultColumns));
+        // Columns whose alias contains '__' are embedded object fields (from @embed).
+        // They come from joined tables and should NOT count against the "single table"
+        // check — they will be grouped into nested objects by the DTO generator.
+        // e.g. SELECT reserve_billing.*, reserve.id AS reserve__id
+        //   → reserve__id has tableName='reserve', but it belongs to an @embed object
+        $nonEmbedColumns = array_values(array_filter(
+            $resultColumns,
+            fn(ResolvedColumn $c) => !str_contains($c->alias, '__')
+        ));
+
+        // If all non-embed columns were filtered out, fall back to all columns
+        $columnsToCheck = empty($nonEmbedColumns) ? $resultColumns : $nonEmbedColumns;
+
+        $tables = array_unique(array_map(fn($c) => $c->tableName, $columnsToCheck));
 
         if (count($tables) > 1 || ($tables[0] ?? '') === '') {
             return [false, null];

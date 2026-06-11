@@ -1524,6 +1524,30 @@ sqlc-php/
 
 ## Changelog
 
+### [2.9.1] — `table.*` with `@embed` bugfix
+
+**Bug fix:** using `reserve_billing.*` alongside `@embed` columns with `__` prefixes now generates the correct return type.
+
+**Root cause:** `detectDirectModel` counted `reserve__id` (from `reserve` table) as proof of multiple tables, discarding the `@dto` annotation and falling back to `GetDetailsRow`.
+
+**Fix:** columns with `__` in their alias are excluded from the single-table check — they are embedded object fields by design. `@embed` still forces DTO mode (the plain model doesn't have nested properties), but the `@dto` class name is correctly used as the return type.
+
+```sql
+-- @name GetDetails
+-- @class ReserveBilling
+-- @dto   ReserveBilling         ← now correctly used as return type
+-- @embed ReserveBillingReserve reserve__
+-- @returns :one
+SELECT reserve_billing.*,          -- expands all billing columns
+    reserve.id as reserve__id,     -- __ prefix = @embed, excluded from model check
+    reserve.created_at as reserve__created_at
+FROM reserve_billing
+INNER JOIN reserve ON reserve_billing.reserve_id = reserve.id
+WHERE reserve_billing.reserve_id = :id
+```
+
+13 new tests in `tests/TableWildcardEmbedTest.php`.
+
 ### [2.9.0] — OR groups in Criteria & UNION queries
 
 **`Criteria::orGroup()`** — adds OR conditions to `@searchable` criteria. Fully immutable, backward compatible.

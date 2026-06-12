@@ -730,6 +730,13 @@ class ScopedDtosTest extends TestCase
         if (preg_match('/^(?:readonly\s+)?class\s+(\w+)/m', $code, $clsMatch)) {
             $myClassName = $clsMatch[1];
         }
+        // Collect siblings — short names already in $myNs, no use needed
+        $siblingNames = [];
+        foreach ($allFiles as $fileName => $other) {
+            if (!preg_match('/^namespace\s+([\w\\\\]+);/m', $other['code'], $m)) continue;
+            if ($m[1] !== $myNs) continue;
+            $siblingNames[basename($fileName, '.php')] = true;
+        }
         $classToFqcn = [];
         foreach ($allFiles as $fileName => $other) {
             if (!preg_match('/^namespace\s+([\w\\\\]+);/m', $other['code'], $m)) continue;
@@ -737,6 +744,7 @@ class ScopedDtosTest extends TestCase
             if ($otherNs === $myNs) continue;
             $cls = basename($fileName, '.php');
             if ($cls === $myClassName) continue;
+            if (isset($siblingNames[$cls])) continue;   // sibling takes priority
             $classToFqcn[$cls] = $otherNs . '\\' . $cls;
         }
         $bodyOnly = preg_replace('/^namespace\s+[^;]+;\s*/m', '', $code) ?? $code;
@@ -754,8 +762,68 @@ class ScopedDtosTest extends TestCase
         return preg_replace('/^(namespace [^;]+;)/m', "$1\n\n{$uses}", $code, 1) ?? $code;
     }
 
-    public function test_version_is_2_9_3(): void
+    public function test_sibling_embed_shadows_same_named_model(): void
     {
-        $this->assertSame('2.9.3', \SqlcPhp\Version::VERSION);
+        // Regression: when a second query is added to the same @class group,
+        // the DTO for the first query starts getting spurious `use ...Models\Reserve`
+        // because Models/Reserve.php has the same short name as the sibling embed
+        // DTOs/ReserveBilling/GetByReserveId/Reserve.php.
+        // Fix: siblings (classes in the same namespace as the current file) shadow
+        // same-named classes from other namespaces — no use injection for them.
+        $dtoCode     = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\DTOs\\ReserveBilling\\GetByReserveId;\nreadonly class ReserveBilling {\n    public function __construct(public Reserve \$reserve) {}\n    public static function fromRow(array \$row): self { return new self(Reserve::fromRow(\$row)); }\n}";
+        $embedCode   = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\DTOs\\ReserveBilling\\GetByReserveId;\nreadonly class Reserve {\n    public function __construct(public int \$id) {}\n}";
+        $modelCode   = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\Models;\nreadonly class Reserve {\n    public function __construct(public int \$id) {}\n}";
+        // Second query in same @class — this is what triggered the bug
+        $dto2Code    = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\DTOs\\ReserveBilling\\GetProducts;\nreadonly class ProductRow {\n    public function __construct(public int \$id) {}\n}";
+
+        $toWrite = [
+            'ReserveBilling/GetByReserveId/ReserveBilling.php' => ['type' => 'dtos',   'code' => $dtoCode],
+            'ReserveBilling/GetByReserveId/Reserve.php'        => ['type' => 'dtos',   'code' => $embedCode],
+            'Reserve.php'                                       => ['type' => 'models', 'code' => $modelCode],
+            'ReserveBilling/GetProducts/ProductRow.php'        => ['type' => 'dtos',   'code' => $dto2Code],
+        ];
+
+        $injected = $this->inject(
+            $dtoCode,
+            $toWrite['ReserveBilling/GetByReserveId/ReserveBilling.php'],
+            $toWrite
+        );
+
+        // The sibling Reserve.php in the same namespace shadows Models\Reserve
+        // → must NOT inject `use Mod\Models\Reserve`
+        $this->assertStringNotContainsString(
+            'use Mod\\Models\\Reserve;',
+            $injected,
+            'Sibling embed Reserve must shadow Models\Reserve — no use injection'
+        );
+    }
+
+    public function test_non_sibling_different_name_still_injected(): void
+    {
+        // A class from another namespace whose name does NOT clash with any sibling
+        // must still be imported correctly.
+        $qryCode   = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\Repos;\nclass FooQuery implements FooQueryInterface\n{\n    public function get(): FooResult { return FooResult::fromRow([]); }\n}";
+        $ifaceCode = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\Contracts;\ninterface FooQueryInterface { public function get(): FooResult; }";
+        $dtoCode   = "<?php\ndeclare(strict_types=1);\nnamespace Mod\\DTOs;\nreadonly class FooResult {\n    public function __construct(public int \$id) {}\n    public static function fromRow(array \$row): self { return new self(1); }\n}";
+
+        $toWrite = [
+            'FooQuery.php'          => ['type' => 'queries',    'code' => $qryCode],
+            'FooQueryInterface.php' => ['type' => 'interfaces', 'code' => $ifaceCode],
+            'FooResult.php'         => ['type' => 'dtos',       'code' => $dtoCode],
+        ];
+
+        $injected = $this->inject(
+            $qryCode,
+            $toWrite['FooQuery.php'],
+            $toWrite
+        );
+
+        $this->assertStringContainsString('use Mod\\Contracts\\FooQueryInterface;', $injected);
+        $this->assertStringContainsString('use Mod\\DTOs\\FooResult;', $injected);
+    }
+
+    public function test_version_is_2_9_4(): void
+    {
+        $this->assertSame('2.9.4', \SqlcPhp\Version::VERSION);
     }
 }

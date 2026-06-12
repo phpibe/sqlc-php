@@ -551,14 +551,71 @@ PHP;
      * Generate the $stmt = ... prepare line.
      * With prepared_statement_cache on: uses $this->stmts[__FUNCTION__] ??= ...
      * Without: direct $this->pdo->prepare(...)
+     *
+     * When the same placeholder appears more than once (e.g. in UNION queries),
+     * PDO named parameter binding requires each occurrence to have a unique name.
+     * We rename occurrences 2, 3, … to :param__2, :param__3, etc. in the SQL
+     * sent to prepare(), then bind those aliases to the same PHP value.
      */
     private function renderPrepare(QueryDefinition $query): string
     {
-        $sqlLiteral = $this->renderSqlLiteral($query->sql);
+        $sql        = $this->expandDuplicatePlaceholders($query->sql);
+        $sqlLiteral = $this->renderSqlLiteral($sql);
         if ($this->preparedStatementCache) {
             return "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n";
         }
         return "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+    }
+
+    /**
+     * Rename the 2nd, 3rd, … occurrence of each named placeholder in the SQL
+     * to `:name__2`, `:name__3`, etc.  Returns the rewritten SQL.
+     *
+     * This is needed for UNION queries (and any other query) where the same
+     * parameter appears in multiple branches — PDO throws when the same named
+     * placeholder appears more than once in a prepared statement.
+     */
+    private function expandDuplicatePlaceholders(string $sql): string
+    {
+        $counts = [];
+        return (string) preg_replace_callback(
+            '/:[a-zA-Z_][a-zA-Z0-9_]*/',
+            function (array $m) use (&$counts): string {
+                $name = $m[0]; // e.g. ':reserveId'
+                $counts[$name] = ($counts[$name] ?? 0) + 1;
+                if ($counts[$name] === 1) {
+                    return $name;                           // first occurrence — unchanged
+                }
+                return $name . '__' . $counts[$name];      // :reserveId__2, :reserveId__3
+            },
+            $sql
+        );
+    }
+
+    /**
+     * Render extra bindValue calls for duplicate-placeholder aliases.
+     * e.g. if :reserveId appears twice, this emits:
+     *   $stmt->bindValue(':reserveId__2', $reserveId, PDO::PARAM_INT);
+     */
+    private function renderDuplicateBindings(QueryDefinition $query, string $stmtVar = '$stmt'): string
+    {
+        $counts = [];
+        $lines  = [];
+        preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $query->sql, $m);
+        foreach ($m[0] as $raw) {
+            $counts[$raw] = ($counts[$raw] ?? 0) + 1;
+            if ($counts[$raw] < 2) continue;
+            // Find the resolved param for this placeholder
+            $paramName = ltrim($raw, ':');
+            $param     = null;
+            foreach ($query->params as $p) {
+                if ($p->name === $paramName) { $param = $p; break; }
+            }
+            if ($param === null) continue;
+            $alias = ":{$paramName}__{$counts[$raw]}";
+            $lines[] = "        {$stmtVar}->bindValue('{$alias}', \${$paramName}, {$param->pdoParam});";
+        }
+        return empty($lines) ? '' : implode("\n", $lines) . "\n";
     }
 
     // =========================================================================
@@ -1313,7 +1370,7 @@ PHP;
 
         if (empty($inListParams)) {
             // Standard path: bindValue only
-            if (empty($regularParams)) return '';
+            if (empty($regularParams)) return $this->renderDuplicateBindings($query, $stmtVar);
             $lines = [];
 
             // For :many-paginated, :limit and :offset are bound separately in the
@@ -1332,7 +1389,12 @@ PHP;
                     $lines[] = "        {$stmtVar}->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
                 }
             }
-            return empty($lines) ? '' : implode("\n", $lines) . "\n";
+
+            // Extra bindings for repeated placeholders (e.g. UNION queries)
+            $dupBindings = $this->renderDuplicateBindings($query, $stmtVar);
+
+            $all = empty($lines) ? '' : implode("\n", $lines) . "\n";
+            return $all . $dupBindings;
         }
 
         // Has IN params — expand placeholders at runtime

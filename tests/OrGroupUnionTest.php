@@ -501,11 +501,113 @@ class OrGroupUnionTest extends TestCase
     }
 
     // =========================================================================
-    // Version
+    // Duplicate placeholder expansion — UNION queries with same param in each branch
     // =========================================================================
+
+    public function test_union_duplicate_param_expands_in_prepare_sql(): void
+    {
+        // PDO does not allow the same named placeholder more than once.
+        // When :reserveId appears in both UNION branches, the second occurrence
+        // must be renamed to :reserveId__2 in the SQL sent to prepare().
+        $q    = $this->analyze(
+            "-- @name GetProducts\n-- @class Reserve\n-- @dto ProductRow\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users WHERE users.active = :active\n" .
+            "UNION ALL\n" .
+            "SELECT users.id, users.email FROM admins WHERE admins.active = :active;"
+        );
+        $code = $this->qg->generate($q)['ReserveQuery']['code'];
+
+        // Prepare SQL must have :active and :active__2
+        $this->assertStringContainsString(':active__2', $code,
+            'Second occurrence of :active must be renamed to :active__2 in prepare SQL');
+
+        // Both must be bound
+        $this->assertStringContainsString("bindValue(':active',",    $code);
+        $this->assertStringContainsString("bindValue(':active__2',", $code);
+    }
+
+    public function test_union_duplicate_param_both_bindings_use_same_php_var(): void
+    {
+        $q    = $this->analyze(
+            "-- @name GetProducts\n-- @class Reserve\n-- @dto ProductRow\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users WHERE users.active = :active\n" .
+            "UNION ALL\n" .
+            "SELECT users.id, users.email FROM admins WHERE admins.active = :active;"
+        );
+        $code = $this->qg->generate($q)['ReserveQuery']['code'];
+
+        // Both bindings reference the same PHP variable $active
+        $this->assertStringContainsString("bindValue(':active', \$active,",    $code);
+        $this->assertStringContainsString("bindValue(':active__2', \$active,", $code);
+    }
+
+    public function test_union_three_occurrences_get_numbered_aliases(): void
+    {
+        // Three branches: :id appears three times → :id, :id__2, :id__3
+        $q    = $this->analyze(
+            "-- @name GetAll\n-- @class Reserve\n-- @dto Row\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users WHERE users.id = :id\n" .
+            "UNION ALL SELECT users.id, users.email FROM admins WHERE admins.id = :id\n" .
+            "UNION ALL SELECT users.id, users.email FROM users WHERE users.active = :id;"
+        );
+        $code = $this->qg->generate($q)['ReserveQuery']['code'];
+
+        $this->assertStringContainsString(':id__2', $code);
+        $this->assertStringContainsString(':id__3', $code);
+        $this->assertStringContainsString("bindValue(':id__2', \$id,", $code);
+        $this->assertStringContainsString("bindValue(':id__3', \$id,", $code);
+    }
+
+    public function test_union_queryobject_preserves_original_sql(): void
+    {
+        // QueryObject (for logging/debugging) must use the ORIGINAL SQL
+        // with the repeated placeholder, not the expanded version.
+        $q    = $this->analyze(
+            "-- @name GetProducts\n-- @class Reserve\n-- @dto ProductRow\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users WHERE users.active = :active\n" .
+            "UNION ALL\n" .
+            "SELECT users.id, users.email FROM admins WHERE admins.active = :active;"
+        );
+        $code = $this->qg->generate($q)['ReserveQuery']['code'];
+
+        // QueryObject constructor must get the original SQL (no __2 alias)
+        $qoStart = strpos($code, 'new QueryObject(');
+        $qoSnippet = substr($code, $qoStart, 300);
+        $this->assertStringNotContainsString('active__2', $qoSnippet,
+            'QueryObject must use original SQL, not the expanded version');
+    }
+
+    public function test_non_union_query_not_affected_by_expansion(): void
+    {
+        // A normal (non-UNION) query with one :param occurrence must not be changed.
+        $q    = $this->analyze(
+            "-- @name GetUser\n-- @returns :one\nSELECT * FROM users WHERE id = :id;"
+        );
+        $code = $this->qg->generate($q)['UserQuery']['code'];
+
+        $this->assertStringNotContainsString('id__2', $code,
+            'Non-UNION query with single param occurrence must not get alias suffixes');
+    }
+
+    public function test_union_different_params_each_branch_no_expansion(): void
+    {
+        // If each branch uses a different param name, no expansion is needed.
+        $q    = $this->analyze(
+            "-- @name GetCombined\n-- @class Reserve\n-- @dto Row\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users WHERE users.id = :userId\n" .
+            "UNION ALL\n" .
+            "SELECT users.id, users.email FROM admins WHERE admins.id = :adminId;"
+        );
+        $code = $this->qg->generate($q)['ReserveQuery']['code'];
+
+        $this->assertStringNotContainsString('userId__2',  $code);
+        $this->assertStringNotContainsString('adminId__2', $code);
+        $this->assertStringContainsString("bindValue(':userId',",  $code);
+        $this->assertStringContainsString("bindValue(':adminId',", $code);
+    }
 
     public function test_version_is_2_9_0(): void
     {
-        $this->assertSame('2.9.3', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.4', \SqlcPhp\Version::VERSION);
     }
 }

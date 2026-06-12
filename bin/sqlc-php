@@ -570,6 +570,24 @@ function injectUseStatements(
     // Build a map: className → FQCN for all generated classes in OTHER namespaces.
     // For scoped DTO files, read the actual namespace from the generated code,
     // not from OutputConfig (which only knows the base DTO namespace).
+
+    // First pass: collect all short names that already live in $myNs.
+    // These are "siblings" — classes in the same namespace as this file.
+    // A sibling class is always available without a `use` statement, so any
+    // class from another namespace with the same short name must be skipped
+    // (importing it would create a duplicate short-name conflict).
+    $siblingNames = [];
+    foreach ($allFiles as $fileName => $other) {
+        $otherCode = $other['code'];
+        $otherNs   = $output->namespaceFor($other['type']);
+        if (preg_match('/^namespace\s+([\w\\\\]+);/m', $otherCode, $m)) {
+            $otherNs = $m[1];
+        }
+        if ($otherNs !== $myNs) continue;
+        $cls = basename($fileName, '.php');
+        $siblingNames[$cls] = true;
+    }
+
     $classToFqcn = [];
     foreach ($allFiles as $fileName => $other) {
         $otherCode = $other['code'];
@@ -587,6 +605,11 @@ function injectUseStatements(
         // Never import a class whose short name equals this file's own class name.
         // e.g. readonly class ReserveBilling must not get `use ...\ReserveBilling`
         if ($cls === $myClassName) continue;
+
+        // Never import a class whose short name is already taken by a sibling
+        // in the same namespace. e.g. if Reserve.php exists in $myNs (as an embed),
+        // don't inject `use Models\Reserve` even though the model has the same name.
+        if (isset($siblingNames[$cls])) continue;
 
         $classToFqcn[$cls] = $otherNs . '\\' . $cls;
     }

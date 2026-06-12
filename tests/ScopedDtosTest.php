@@ -521,10 +521,240 @@ class ScopedDtosTest extends TestCase
     }
 
     // =========================================================================
-    // Version
+    // Use statement injection — regression for 2.9.3
     // =========================================================================
 
-    public function test_version_is_2_9_2(): void
+    public function test_scoped_dto_namespace_is_deeper_than_query_namespace(): void
+    {
+        // When scoped_dtos: true, the DTO lives in App\DTOs\Group\Method
+        // while the Query class lives in App\Repositories.
+        // These are different — so use injection must happen.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r      = $this->dtoGen->generate($q[0], scoped: true);
+        $dtoNs  = $r['namespace'];    // App\DTOs\ReserveBilling\GetDetails (or Billing\GetDetails)
+        $baseNs = 'App\\DTOs';
+
+        $this->assertStringStartsWith($baseNs, $dtoNs);
+        $this->assertNotSame($baseNs, $dtoNs,
+            'Scoped DTO namespace must be deeper than base DTO namespace');
+    }
+
+    public function test_embed_shares_namespace_with_parent_dto(): void
+    {
+        // The parent DTO and all its embeds must share the same namespace.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r = $this->dtoGen->generate($q[0], scoped: true);
+
+        $dtoNs = $r['namespace'];
+        $embedNs = null;
+        preg_match('/^namespace\s+([\w\\\\]+);/m', $r['embeds']['BillingReserve']['code'], $m);
+        $embedNs = $m[1] ?? null;
+
+        $this->assertSame($dtoNs, $embedNs,
+            'Embed class must share the same scoped namespace as its parent DTO — no cross-ns use needed');
+    }
+
+    public function test_embed_does_not_import_class_matching_namespace_segment(): void
+    {
+        // Bug: `preg_match('/\bReserveBilling\b/', $embedCode)` matched the word
+        // 'ReserveBilling' inside `namespace ...DTOs\ReserveBilling\GetDetails`
+        // causing a spurious `use ...\Models\ReserveBilling` in the embed class.
+        // Fix: strip namespace/use/class declaration lines before searching.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id, reserve.total_price as reserve__total_price\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r = $this->dtoGen->generate($q[0], scoped: true);
+
+        // The embed class lives in namespace ...DTOs\ReserveBilling\GetDetails
+        // That namespace contains 'ReserveBilling' as a segment — it must NOT
+        // trigger injection of `use ...Models\ReserveBilling` or similar
+        $embedCode = $r['embeds']['BillingReserve']['code'];
+
+        // The embed only has int and float properties — it never references ReserveBilling
+        $this->assertStringNotContainsString('use ', $embedCode,
+            'Embed with no cross-namespace dependencies must have no use statements');
+    }
+
+    public function test_model_does_not_import_scoped_dto_with_same_class_name(): void
+    {
+        // Bug: Models/ReserveBilling.php was getting
+        // `use ...DTOs\ReserveBilling\GetDetails\ReserveBilling`
+        // because injectUseStatements found 'ReserveBilling' referenced in the file
+        // (it's the class name itself). Fix: skip any class whose short name === myClassName.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r = $this->dtoGen->generate($q[0], scoped: true);
+
+        // The DTO class is ReserveBilling in namespace ...DTOs\ReserveBilling\GetDetails
+        // A Model class named ReserveBilling (in ...Models) must NOT import the DTO
+        $dtoCls  = $r['className'];               // 'ReserveBilling'
+        $dtoNs   = $r['namespace'];               // ...DTOs\ReserveBilling\GetDetails
+        $dtoCode = $r['code'];
+
+        // Verify the DTO itself has no self-import
+        $this->assertStringNotContainsString(
+            "use {$dtoNs}\\{$dtoCls};",
+            $dtoCode,
+            'DTO must not import itself'
+        );
+        $this->assertStringNotContainsString(
+            'use App\\DTOs\\' . $dtoCls . ';',
+            $dtoCode,
+            'DTO must not import a class with same short name'
+        );
+    }
+
+    public function test_scoped_dto_does_not_self_import(): void
+    {
+        // The DTO ReserveBilling in namespace ...DTOs\ReserveBilling\GetDetails
+        // must not have `use ...Models\ReserveBilling` even though a model
+        // with the same name exists — they have different FQCNs but same short name.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class ReserveBilling\n-- @dto ReserveBilling\n" .
+            "-- @embed BillingReserve reserve__\n-- @returns :one\n" .
+            "SELECT billing.*, reserve.id as reserve__id\n" .
+            "FROM billing INNER JOIN reserves reserve ON billing.reserve_id = reserve.id\n" .
+            "WHERE billing.id = :id;"
+        );
+
+        $r       = $this->dtoGen->generate($q[0], scoped: true);
+        $dtoCls  = $r['className']; // 'ReserveBilling'
+
+        // Simulate the toWrite map
+        $subdir  = $r['scopeSubdir'];
+        $toWrite = [
+            "{$subdir}/{$dtoCls}.php" => ['type' => 'dtos', 'code' => $r['code']],
+            "{$dtoCls}.php"           => [
+                'type' => 'models',
+                'code' => "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Models;\n\nreadonly class {$dtoCls} {}\n",
+            ],
+        ];
+
+        // Count unique class names to verify no self-import would occur
+        $classNames = [];
+        foreach ($toWrite as $file => $entry) {
+            preg_match('/^(?:readonly\s+)?class\s+(\w+)/m', $entry['code'], $m);
+            if (isset($m[1])) $classNames[$file] = $m[1];
+        }
+
+        // Both files declare the same short class name — the injector must skip
+        // importing one into the other
+        $this->assertSame($dtoCls, $classNames["{$subdir}/{$dtoCls}.php"]);
+        $this->assertSame($dtoCls, $classNames["{$dtoCls}.php"]);
+    }
+
+    public function test_exact_user_scenario_no_self_import_in_dto_or_model(): void
+    {
+        // Regression: DTO `ReserveBilling` (in ...DTOs\ReserveBilling\GetDetails) must NOT
+        // get `use ...Models\ReserveBilling`, and Model `ReserveBilling` (in ...Models) must
+        // NOT get `use ...DTOs\...\ReserveBilling`. Both had the same short class name.
+        // Also: Query class MUST get `use ...Interface` for the interface it implements.
+        $dtoCode = "<?php\ndeclare(strict_types=1);\nnamespace Modules\\Billing\\Database\\DTOs\\ReserveBilling\\GetDetails;\nreadonly class ReserveBilling {\n    public function __construct(public int \$id, public ReserveBillingReserve \$reserve) {}\n    public static function fromRow(array \$row): self { return new self((int)\$row['id'], ReserveBillingReserve::fromRow(\$row)); }\n}";
+        $modelCode = "<?php\ndeclare(strict_types=1);\nnamespace Modules\\Billing\\Database\\Models;\nreadonly class ReserveBilling {\n    public function __construct(public int \$id) {}\n    public static function fromRow(array \$row): self { return new self((int)\$row['id']); }\n}";
+        $embedCode = "<?php\ndeclare(strict_types=1);\nnamespace Modules\\Billing\\Database\\DTOs\\ReserveBilling\\GetDetails;\nreadonly class ReserveBillingReserve {\n    public function __construct(public int \$id) {}\n    public static function fromRow(array \$row): self { return new self((int)\$row['reserve__id']); }\n}";
+        $ifaceCode = "<?php\ndeclare(strict_types=1);\nnamespace Modules\\Billing\\Database\\Contracts;\ninterface ReserveBillingRepositoryInterface {\n    public function getDetails(int \$id): ReserveBilling;\n}";
+        $queryCode = "<?php\ndeclare(strict_types=1);\nnamespace Modules\\Billing\\Database\\Repositories;\nuse Closure;\nuse PDO;\nclass ReserveBillingRepository implements ReserveBillingRepositoryInterface\n{\n    public function getDetails(int \$id): ReserveBilling { return ReserveBilling::fromRow([]); }\n}";
+
+        $toWrite = [
+            'ReserveBilling.php'                                  => ['type' => 'models',     'code' => $modelCode],
+            'ReserveBilling/GetDetails/ReserveBilling.php'        => ['type' => 'dtos',        'code' => $dtoCode],
+            'ReserveBilling/GetDetails/ReserveBillingReserve.php' => ['type' => 'dtos',        'code' => $embedCode],
+            'ReserveBillingRepositoryInterface.php'               => ['type' => 'interfaces',  'code' => $ifaceCode],
+            'ReserveBillingRepository.php'                        => ['type' => 'queries',     'code' => $queryCode],
+        ];
+
+        $dtoInjected   = $this->inject($dtoCode,   $toWrite['ReserveBilling/GetDetails/ReserveBilling.php'],        $toWrite);
+        $modelInjected = $this->inject($modelCode, $toWrite['ReserveBilling.php'],                                   $toWrite);
+        $embedInjected = $this->inject($embedCode, $toWrite['ReserveBilling/GetDetails/ReserveBillingReserve.php'],  $toWrite);
+        $queryInjected = $this->inject($queryCode, $toWrite['ReserveBillingRepository.php'],                         $toWrite);
+
+        // DTO must NOT import model with same class name
+        $this->assertStringNotContainsString('use Modules\\Billing\\Database\\Models\\ReserveBilling;', $dtoInjected,
+            'DTO must not import model with same class name');
+        $this->assertStringNotContainsString('use Modules\\Billing\\Database\\DTOs\\ReserveBilling\\GetDetails\\ReserveBilling;', $dtoInjected,
+            'DTO must not self-import');
+
+        // Model must NOT import DTO with same class name
+        $this->assertStringNotContainsString('use Modules\\Billing\\Database\\DTOs\\ReserveBilling\\GetDetails\\ReserveBilling;', $modelInjected,
+            'Model must not import DTO with same class name');
+
+        // Embed with only primitives must have no cross-namespace use
+        $this->assertStringNotContainsString('use Modules', $embedInjected,
+            'Embed with primitives only must have no cross-namespace use');
+
+        // Query class MUST import the interface it implements
+        $this->assertStringContainsString(
+            'use Modules\\Billing\\Database\\Contracts\\ReserveBillingRepositoryInterface;',
+            $queryInjected,
+            'Query class must import the interface it implements'
+        );
+
+        // Query class MUST import the scoped DTO it returns
+        $this->assertStringContainsString(
+            'use Modules\\Billing\\Database\\DTOs\\ReserveBilling\\GetDetails\\ReserveBilling;',
+            $queryInjected,
+            'Query class must import the scoped DTO it uses as return type'
+        );
+    }
+
+    private function inject(string $code, array $entry, array $allFiles): string
+    {
+        if (!preg_match('/^namespace\s+([\w\\\\]+);/m', $code, $nsMatch)) return $code;
+        $myNs = $nsMatch[1];
+        $myClassName = null;
+        if (preg_match('/^(?:readonly\s+)?class\s+(\w+)/m', $code, $clsMatch)) {
+            $myClassName = $clsMatch[1];
+        }
+        $classToFqcn = [];
+        foreach ($allFiles as $fileName => $other) {
+            if (!preg_match('/^namespace\s+([\w\\\\]+);/m', $other['code'], $m)) continue;
+            $otherNs = $m[1];
+            if ($otherNs === $myNs) continue;
+            $cls = basename($fileName, '.php');
+            if ($cls === $myClassName) continue;
+            $classToFqcn[$cls] = $otherNs . '\\' . $cls;
+        }
+        $bodyOnly = preg_replace('/^namespace\s+[^;]+;\s*/m', '', $code) ?? $code;
+        $bodyOnly = preg_replace('/^use\s+[^;]+;\s*/m', '', $bodyOnly) ?? $bodyOnly;
+        // Strip ONLY "class ClassName" — keep implements/extends clause for interface detection
+        $bodyOnly = preg_replace('/^(?:readonly\s+)?class\s+\w+/m', '', $bodyOnly) ?? $bodyOnly;
+        $needed = [];
+        foreach ($classToFqcn as $cls => $fqcn) {
+            if (preg_match('/\b' . preg_quote($cls, '/') . '\b/', $bodyOnly)) {
+                $needed[$fqcn] = true;
+            }
+        }
+        if (empty($needed)) return $code;
+        $uses = implode("\n", array_map(fn($fqcn) => "use {$fqcn};", array_keys($needed)));
+        return preg_replace('/^(namespace [^;]+;)/m', "$1\n\n{$uses}", $code, 1) ?? $code;
+    }
+
+    public function test_version_is_2_9_3(): void
     {
         $this->assertSame('2.9.3', \SqlcPhp\Version::VERSION);
     }

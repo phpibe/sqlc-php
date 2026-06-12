@@ -485,11 +485,13 @@ function runGeneration(
         foreach ($toWrite as $file => $entry) {
             $type    = $entry['type'];
             $dir     = $output->dirFor($type);
-            $nsFrom  = $output->namespaceFor($type);
 
-            // When namespaces differ, we may need to inject `use` statements
+            // Inject `use` statements when any generated class lives in a
+            // different namespace. This covers both map-form out: and
+            // scoped_dtos: true (where DTOs get deeper namespaces).
             $code = $entry['code'];
-            if ($output->isMap()) {
+            $needsInjection = $output->isMap() || $target->scopedDtos;
+            if ($needsInjection) {
                 $code = injectUseStatements($code, $entry, $toWrite, $output);
             }
 
@@ -557,6 +559,14 @@ function injectUseStatements(
         $myNs = $nsMatch[1];
     }
 
+    // Determine this file's own class name — it must never be imported.
+    // A file declaring `readonly class ReserveBilling` cannot also have
+    // `use App\Models\ReserveBilling` — PHP rejects duplicate short names.
+    $myClassName = null;
+    if (preg_match('/^(?:readonly\s+)?class\s+(\w+)/m', $code, $clsMatch)) {
+        $myClassName = $clsMatch[1];
+    }
+
     // Build a map: className → FQCN for all generated classes in OTHER namespaces.
     // For scoped DTO files, read the actual namespace from the generated code,
     // not from OutputConfig (which only knows the base DTO namespace).
@@ -573,16 +583,31 @@ function injectUseStatements(
         if ($otherNs === $myNs) continue;
 
         $cls = basename($fileName, '.php');
+
+        // Never import a class whose short name equals this file's own class name.
+        // e.g. readonly class ReserveBilling must not get `use ...\ReserveBilling`
+        if ($cls === $myClassName) continue;
+
         $classToFqcn[$cls] = $otherNs . '\\' . $cls;
     }
 
     if (empty($classToFqcn)) return $code;
 
-    // Find which of those classes are actually referenced in this file
+    // Find which of those classes are actually referenced in this file.
+    // Strip namespace and use-statement lines — they contain class names as
+    // string segments (e.g. namespace X\ReserveBilling\Y contains 'ReserveBilling'
+    // as a namespace segment, not a type reference).
+    // Also strip the `class ClassName` prefix — but KEEP the implements/extends
+    // clause so we can detect interface references.
+    $bodyOnly = preg_replace('/^namespace\s+[^;]+;\s*/m', '', $code) ?? $code;
+    $bodyOnly = preg_replace('/^use\s+[^;]+;\s*/m', '', $bodyOnly) ?? $bodyOnly;
+    // Strip ONLY "class ClassName" — not the implements/extends part
+    $bodyOnly = preg_replace('/^(?:readonly\s+)?class\s+\w+/m', '', $bodyOnly) ?? $bodyOnly;
+
     $needed = [];
     foreach ($classToFqcn as $cls => $fqcn) {
-        // Match class usage: return type, param type, new X, implements X, X::, X $
-        if (preg_match('/\b' . preg_quote($cls, '/') . '\b/', $code)) {
+        // Match class usage in the body (return type, param type, new X, X::, X $, etc.)
+        if (preg_match('/\b' . preg_quote($cls, '/') . '\b/', $bodyOnly)) {
             $needed[$fqcn] = true;
         }
     }

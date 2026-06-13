@@ -113,6 +113,23 @@ class QueryDefinition
          * to the last branch). @partial and @returning are also disallowed.
          */
         public readonly bool       $isUnion   = false,
+        /**
+         * Explicit PHP type overrides for result columns, declared via @type.
+         * Format: alias → phpType  e.g. ['role' => 'string', 'total' => '?float']
+         *
+         * Applied after column resolution — overrides whatever type the resolver
+         * inferred from the schema or expression. Useful for UNION queries where
+         * the second branch has a different type, or for expressions that the
+         * resolver cannot determine (constants, complex expressions, etc.).
+         *
+         * Usage:
+         *   -- @type role string
+         *   -- @type total ?float
+         *   -- @type active bool
+         *
+         * @var array<string, string>  alias → phpType
+         */
+        public readonly array      $typeOverrides = [],
     ) {}
 }
 
@@ -176,6 +193,7 @@ class QueryParser
         $searchable       = false;
         $partial          = false;
         $returning        = false;        $columnAliases    = [];   // @column originalName alias
+        $typeOverrides    = [];           // @type alias phpType
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -224,6 +242,12 @@ class QueryParser
                 } elseif (preg_match('/@column\s+(\w+)\s+(\w+)/i', $comment, $m)) {
                     // @column originalName alias  — rename a result column in the DTO
                     $columnAliases[$m[1]] = $m[2];
+                } elseif (preg_match('/@type\s+(\w+)\s+(\S+)/i', $comment, $m)) {
+                    // @type alias phpType  — force PHP type on a result column
+                    // e.g. -- @type role string
+                    //      -- @type total ?float
+                    //      -- @type active bool
+                    $typeOverrides[$m[1]] = $m[2];
                 } elseif (preg_match('/@embed\s+(\w+)\s+(\S+)/i', $comment, $m)) {
                     // @embed ClassName prefix_  (trailing underscore optional, multiple allowed)
                     // Normalise: if user wrote "country" add one underscore → "country_"
@@ -304,6 +328,7 @@ class QueryParser
             partial:          $partial,
             returning:        $returning,
             isUnion:          $isUnion,
+            typeOverrides:    $typeOverrides,
         );
     }
     private function extractFromTable(string $sql): ?string

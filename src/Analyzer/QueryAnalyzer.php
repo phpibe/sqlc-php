@@ -70,6 +70,7 @@ class QueryAnalyzer
         if ($isSelectQuery) {
             $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
+            $resultColumns = $this->applyTypeOverrides($resultColumns, $query->typeOverrides);
 
             // @nillable, @embed, @column, or virtual table → always generate a custom DTO.
             // Exception: @embed is allowed to co-exist with detectDirectModel when
@@ -240,6 +241,7 @@ class QueryAnalyzer
             partial:              $query->partial,
             returning:            $query->returning,
             isUnion:              $query->isUnion,
+            typeOverrides:        $query->typeOverrides,
         );
     }
 
@@ -344,6 +346,70 @@ class QueryAnalyzer
                 phpType:    $newType,
             );
         }, $columns);
+    }
+
+    /**
+     * Override the PHP type of result columns explicitly annotated with @type.
+     *
+     * -- @type alias phpType
+     *
+     * This is the primary mechanism for fixing inferred types in UNION queries,
+     * for constant expressions ('user' as role), or for any column whose type
+     * the resolver cannot determine.
+     *
+     * @param  ResolvedColumn[]         $columns
+     * @param  array<string, string>    $overrides  alias → phpType
+     * @return ResolvedColumn[]
+     */
+    private function applyTypeOverrides(array $columns, array $overrides): array
+    {
+        if (empty($overrides)) return $columns;
+
+        $valid = $this->validatePhpTypeNames(array_values($overrides));
+        if (!empty($valid)) {
+            throw new \RuntimeException(
+                '@type annotation contains invalid PHP type(s): ' . implode(', ', $valid)
+            );
+        }
+
+        return array_map(function (\SqlcPhp\Resolver\ResolvedColumn $col) use ($overrides): \SqlcPhp\Resolver\ResolvedColumn {
+            if (!isset($overrides[$col->alias])) return $col;
+
+            $phpType  = $overrides[$col->alias];
+            $nullable = str_starts_with($phpType, '?');
+
+            return new \SqlcPhp\Resolver\ResolvedColumn(
+                alias:      $col->alias,
+                columnName: $col->columnName,
+                tableName:  $col->tableName,
+                sqlType:    $col->sqlType,     // preserve original SQL type for reference
+                nullable:   $nullable,
+                phpType:    $phpType,
+            );
+        }, $columns);
+    }
+
+    /**
+     * Returns any type names that are not valid PHP scalar / built-in types.
+     * Allows: bool, int, float, string, array, mixed, null, and any class name
+     * (starts with uppercase letter or backslash), all optionally prefixed with ?.
+     *
+     * @param  string[] $types
+     * @return string[] Invalid types
+     */
+    private function validatePhpTypeNames(array $types): array
+    {
+        $scalars = ['bool', 'int', 'float', 'string', 'array', 'mixed', 'null',
+                    'void', 'never', 'object', 'iterable', 'callable',
+                    '\\DateTimeImmutable', 'DateTimeImmutable', '\\DateTimeInterface'];
+        $invalid = [];
+        foreach ($types as $t) {
+            $base = ltrim($t, '?');
+            $ok   = in_array(strtolower($base), array_map('strtolower', $scalars), true)
+                 || preg_match('/^\\\\?[A-Z][A-Za-z0-9_\\\\]*$/', $base);
+            if (!$ok) $invalid[] = $t;
+        }
+        return $invalid;
     }
 
     /**

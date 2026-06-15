@@ -148,8 +148,8 @@
       <a class="sidebar-link" href="#ann-optional"><i class="bi bi-toggles"></i> @optional</a>
       <a class="sidebar-link" href="#ann-dto"><i class="bi bi-box"></i> @dto / @column</a>
       <a class="sidebar-link" href="#ann-embed"><i class="bi bi-boxes"></i> @embed</a>
-      <a class="sidebar-link" href="#ann-type"><i class="bi bi-tag"></i> @type</a>
       <a class="sidebar-link" href="#ann-nillable"><i class="bi bi-question-circle"></i> @nillable</a>
+      <a class="sidebar-link" href="#ann-type"><i class="bi bi-tag"></i> @type</a>
       <a class="sidebar-link" href="#ann-counted"><i class="bi bi-hash"></i> @counted</a>
       <a class="sidebar-link" href="#ann-searchable"><i class="bi bi-funnel"></i> @searchable</a>
       <a class="sidebar-link" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
@@ -515,7 +515,8 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name</td></tr>
             <tr><td><span class="annotation ann-optional">@column</span></td><td>No</td><td>Rename a result column without SQL <code>AS</code></td></tr>
             <tr><td><span class="annotation ann-optional">@embed</span></td><td>No</td><td>Group prefixed columns into a nested readonly object</td></tr>
-            <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code></td></tr>
+            <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable)</td></tr>
+            <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
             <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method (only with <code>:many-paginated</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE/ORDER BY (only with <code>:many</code> / <code>:many-paginated</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
@@ -692,30 +693,147 @@ WHERE u.id = :id;</code></pre>
       <p style="color:var(--text-muted)">Result: <code>public ?int $orderId</code> and <code>public ?float $orderTotal</code> in the DTO.</p>
     </section>
 
+    <!-- ── @type -->
+    <section class="doc-section" id="ann-type">
+      <h3><i class="bi bi-tag me-2"></i>@type <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.9.6</span></h3>
+      <p style="color:var(--text-muted)">Forces an explicit PHP type on a result column, completely overriding whatever the resolver inferred from the schema or expression. This is the primary tool for fixing types in UNION queries, constant string discriminators, and any column the resolver cannot determine.</p>
+
+      <h4>Syntax</h4>
+      <pre><code class="language-sql">-- @type alias phpType</code></pre>
+
+      <h4>Primary use case — UNION with constant discriminators and NULL branches</h4>
+      <p style="color:var(--text-muted)">In UNION queries, the resolver analyses only the <em>first</em> SELECT. Constant expressions like <code>'user' as role</code> resolve to <code>mixed</code> because they have no schema backing. <code>NULL</code> in the second branch is invisible to the resolver. <code>@type</code> corrects both.</p>
+
+      <pre><code class="language-sql">-- @name GetProductsByReserveId
+-- @class ReserveBilling
+-- @dto ProductRow
+-- @type role string      ← 'direct'/'upgrade' are string constants → resolver gives mixed
+-- @type amount ?float    ← second UNION branch returns NULL → should be nullable
+-- @returns :many
+SELECT products.id, products.name, 'direct' AS role, reserve.price AS amount
+FROM reserve
+INNER JOIN products ON reserve.product_id = products.id
+WHERE reserve.id = :reserveId
+UNION ALL
+SELECT products.id, products.name, 'upgrade' AS role, NULL AS amount
+FROM reserve_insured_upgrade
+INNER JOIN products ON reserve_insured_upgrade.upgrade_id = products.id
+WHERE reserve_insured_upgrade.reserve_id = :reserveId;</code></pre>
+
+      <pre><code class="language-php">// Generated DTO — types from @type take effect
+readonly class ProductRow {
+    public function __construct(
+        public int    $id,
+        public string $name,
+        public string $role,    // ← @type string
+        public ?float $amount,  // ← @type ?float
+    ) {}
+}</code></pre>
+
+      <h4>Other use cases</h4>
+      <pre><code class="language-sql">-- @type active bool       ← TINYINT column used as boolean flag
+-- @type subtotal float    ← complex expression (price * qty) resolver gives mixed
+-- @type label ?string     ← column that may be NULL at runtime
+-- @type score int         ← CAST or aggregate result needing an explicit type</code></pre>
+
+      <h4>Supported types</h4>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead><tr><th>phpType</th><th>Nullable variant</th><th>Example</th></tr></thead>
+          <tbody>
+            <tr><td><code>int</code></td><td><code>?int</code></td><td><code>-- @type count int</code></td></tr>
+            <tr><td><code>float</code></td><td><code>?float</code></td><td><code>-- @type total ?float</code></td></tr>
+            <tr><td><code>string</code></td><td><code>?string</code></td><td><code>-- @type role string</code></td></tr>
+            <tr><td><code>bool</code></td><td><code>?bool</code></td><td><code>-- @type active bool</code></td></tr>
+            <tr><td><code>mixed</code></td><td>—</td><td><code>-- @type computed mixed</code></td></tr>
+            <tr><td><code>array</code></td><td><code>?array</code></td><td><code>-- @type tags ?array</code></td></tr>
+            <tr><td>Any class</td><td><code>?ClassName</code></td><td><code>-- @type dt \DateTimeImmutable</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Precedence over @nillable.</strong> When both <code>@nillable</code> and <code>@type</code> target the same column, <code>@type</code> wins — it is applied last and completely replaces the resolved type. Use <code>@type ?float</code> rather than combining <code>@nillable</code> and <code>@type float</code> on the same alias.
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Works on any query, not only UNION.</strong> <code>@type</code> applies to all return types and query shapes. If any inferred type is wrong — for example a TINYINT being <code>int</code> when you need <code>bool</code> — annotate it with <code>@type</code>.
+      </div>
+    </section>
+
     <!-- ── @counted -->
     <section class="doc-section" id="ann-counted">
       <h3><i class="bi bi-hash me-2"></i>@counted</h3>
-      <p style="color:var(--text-muted)">Generates a companion <code>{name}Count(): int</code> method alongside a <code>:many-paginated</code> method. The count method wraps the original SQL in <code>SELECT COUNT(*) FROM (...) AS _count_subquery</code> and is essential for building paginators.</p>
+      <p style="color:var(--text-muted)">Generates a companion <code>{name}Count(): int</code> method alongside a <code>:many-paginated</code> method. The count method wraps the original SQL in <code>SELECT COUNT(*) FROM (...) AS _count_subquery</code> and returns the total number of rows matching the current filters — without any <code>LIMIT</code> or <code>OFFSET</code> applied.</p>
       <p style="color:var(--text-muted)">Only valid with <code>:many-paginated</code>.</p>
 
       <pre><code class="language-sql">-- @name ListUsers
--- @counted                  ← generate listUsersCount() alongside listUsers()
+-- @counted
 -- @returns :many-paginated
 SELECT id, email, active FROM users WHERE active = :active;</code></pre>
 
-      <pre><code class="language-php">// Generated methods:
-
-// Main paginated method
+      <pre><code class="language-php">// Two generated methods
 public function listUsers(int $active, ?int $limit = null, int $offset = 0): array
+public function listUsersCount(int $active): int
 
-// Companion count method — same filters, no limit/offset
-public function listUsersCount(int $active): int</code></pre>
+// Usage — the caller decides when to count
+$total = $query->listUsersCount(active: 1);
+$page  = $query->listUsers(active: 1, limit: 20, offset: 0);
+$pages = (int) ceil($total / 20);</code></pre>
 
-      <pre><code class="language-php">// Usage
-$total   = $query->listUsersCount(active: 1);
-$page    = $query->listUsers(active: 1, limit: 20, offset: 0);
-$perPage = 20;
-$pages   = (int) ceil($total / $perPage);</code></pre>
+      <h4>@counted vs :paginated — choosing the right approach</h4>
+      <p style="color:var(--text-muted)">Both solve pagination, but with different trade-offs. The choice comes down to whether you need control over when the COUNT runs.</p>
+
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead>
+            <tr><th></th><th><code>:paginated</code></th><th><code>:many-paginated</code> + <code>@counted</code></th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>DB queries per page load</strong></td><td>Always 2 (COUNT + SELECT)</td><td>Caller controls — 1 or 2</td></tr>
+            <tr><td><strong>Return type</strong></td><td><code>PaginatedResult</code> — items, total, pages, hasMore pre-computed</td><td><code>array</code> + separate <code>int</code></td></tr>
+            <tr><td><strong>Boilerplate</strong></td><td>None — one call does everything</td><td>Caller must call both methods and compute pages/hasMore</td></tr>
+            <tr><td><strong>COUNT on every page</strong></td><td>Yes, always</td><td>No — caller decides (e.g. cache it, skip on page 2+)</td></tr>
+            <tr><td><strong>Infinite scroll / cursor</strong></td><td>Counts every request unnecessarily</td><td>✅ Count once on page 1, skip on subsequent pages</td></tr>
+            <tr><td><strong>Very large tables</strong></td><td>COUNT(*) can be slow on every call</td><td>✅ COUNT can be deferred or cached</td></tr>
+            <tr><td><strong>@searchable compatible</strong></td><td>✅</td><td>✅</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>When to use <code>:paginated</code> (recommended default)</h4>
+      <p style="color:var(--text-muted)">Use <code>:paginated</code> for the vast majority of paginated lists. It eliminates boilerplate, keeps the page total and navigation metadata in one place, and makes the API surface clean — one method, one call, everything you need.</p>
+
+      <pre><code class="language-sql">-- @name ListUsers
+-- @returns :paginated         ← recommended: one call, full metadata
+SELECT * FROM users WHERE active = :active ORDER BY created_at DESC;</code></pre>
+      <pre><code class="language-php">$result = $query->listUsers(active: 1, limit: 20, offset: 0);
+// $result->items, $result->total, $result->pages, $result->hasMore — all ready</code></pre>
+
+      <h4>When to use <code>@counted</code> instead</h4>
+      <p style="color:var(--text-muted)">Prefer <code>@counted</code> when <code>COUNT(*)</code> is expensive and you can avoid running it on every request:</p>
+
+      <pre><code class="language-php">// Pattern 1 — count only on first page, reuse for subsequent pages
+$total = ($page === 1)
+    ? $query->listUsersCount(active: 1)
+    : $session->get('users_total');            // cached from page 1
+
+$items = $query->listUsers(active: 1, limit: 20, offset: ($page - 1) * 20);
+
+// Pattern 2 — infinite scroll: never count, just check hasMore manually
+$items = $query->listUsers(active: 1, limit: 21, offset: $offset);
+$hasMore = count($items) > 20;
+$items   = array_slice($items, 0, 20);         // discard the probe row
+
+// Pattern 3 — export / "load all" button: skip pagination entirely
+$all = $query->listUsers(active: 1, limit: null);</code></pre>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Rule of thumb.</strong> Start with <code>:paginated</code>. Switch to <code>@counted</code> only if profiling shows the <code>COUNT(*)</code> is a bottleneck, or if your pagination UX is infinite scroll / load-more (where the total is irrelevant after page 1).
+      </div>
     </section>
 
     <!-- ── @searchable -->
@@ -878,7 +996,7 @@ $result = $query->listUsers(
 
       <div class="callout callout-info">
         <i class="bi bi-info-circle callout-icon"></i>
-        <strong>Two queries per call.</strong> The generated method always runs a <code>COUNT(*)</code> and a paginated <code>SELECT</code> — two database round-trips. If you need to control when the count runs (e.g. only on page 1), use <code>@counted</code> instead.
+        <strong>Two queries per call.</strong> The generated method always runs a <code>COUNT(*)</code> and a paginated <code>SELECT</code> in the same PHP call — two database round-trips. This is the right default for most UIs (numbered pages, "showing X of Y" labels). If the COUNT is expensive and you need to avoid running it on every page load — for example in infinite scroll or very large tables — use <code>:many-paginated</code> + <code>@counted</code> instead, which gives you two separate methods and full control over when each runs.
       </div>
     </section>
 

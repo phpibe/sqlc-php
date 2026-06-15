@@ -285,6 +285,6 @@ class DurationTest extends TestCase
 
     public function test_version_is_2_7_6(): void
     {
-        $this->assertSame('2.9.6', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.7', \SqlcPhp\Version::VERSION);
     }
 }

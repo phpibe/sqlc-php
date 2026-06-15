@@ -552,10 +552,14 @@ PHP;
      * With prepared_statement_cache on: uses $this->stmts[__FUNCTION__] ??= ...
      * Without: direct $this->pdo->prepare(...)
      *
-     * When the same placeholder appears more than once (e.g. in UNION queries),
-     * PDO named parameter binding requires each occurrence to have a unique name.
-     * We rename occurrences 2, 3, … to :param__2, :param__3, etc. in the SQL
-     * sent to prepare(), then bind those aliases to the same PHP value.
+     * When the same placeholder appears more than once in the SQL — in UNION
+     * queries, UPSERT (ON DUPLICATE KEY UPDATE), or any query using the same
+     * param in multiple clauses — PDO named parameter binding requires each
+     * occurrence to have a unique name. We rename occurrences 2, 3, … to
+     * :param__2, :param__3, etc. in the SQL sent to prepare(). The companion
+     * renderDuplicateBindings() emits the extra bindValue() calls pointing to
+     * the same PHP variable. The QueryObject always receives the original SQL
+     * (with repeated placeholders) for logging/debugging purposes.
      */
     private function renderPrepare(QueryDefinition $query): string
     {
@@ -569,11 +573,12 @@ PHP;
 
     /**
      * Rename the 2nd, 3rd, … occurrence of each named placeholder in the SQL
-     * to `:name__2`, `:name__3`, etc.  Returns the rewritten SQL.
+     * to `:name__2`, `:name__3`, etc. Returns the rewritten SQL.
      *
-     * This is needed for UNION queries (and any other query) where the same
-     * parameter appears in multiple branches — PDO throws when the same named
-     * placeholder appears more than once in a prepared statement.
+     * Applies universally to all query types — UNION, UPSERT (ON DUPLICATE KEY
+     * UPDATE), queries with the same param in WHERE and HAVING, etc. PDO throws
+     * when the same named placeholder appears more than once in a prepared
+     * statement, regardless of the SQL construct.
      */
     private function expandDuplicatePlaceholders(string $sql): string
     {

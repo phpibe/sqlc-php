@@ -20,11 +20,21 @@ use SqlcPhp\TypeMapper\TypeMapperInterface;
  *   SELECT COUNT(*) AS total         → ExpressionTypeResolver → int $total
  *   SELECT SUM(price)                → ExpressionTypeResolver → ?float $sumPrice
  *   Multiple tables via JOIN         → disambiguate by table prefix
+ *   WITH name AS (subquery) SELECT … → CTE resolved as virtual tables
  */
 class ColumnResolver
 {
     /** Positional counter for expressions with no alias and no inferable name */
     private int $positional = 0;
+
+    /**
+     * CTE virtual tables for the current resolve() call.
+     * Maps CTE name (lowercase) → ResolvedColumn[].
+     * Reset at the start of each resolve() call.
+     *
+     * @var array<string, ResolvedColumn[]>
+     */
+    private array $cteColumns = [];
 
     public function __construct(
         private readonly SchemaCatalog          $catalog,
@@ -41,8 +51,15 @@ class ColumnResolver
     public function resolve(string $sql): array
     {
         $this->positional = 0;
-        $tableAliases = $this->paramResolver->extractTableAliases($sql);
-        $selectList   = $this->extractSelectList($sql);
+        $this->cteColumns = [];
+
+        // Detect and resolve CTEs before processing the outer query.
+        // Each CTE's inner subquery is resolved and registered as a virtual
+        // table so that the outer SELECT can reference it by name.
+        $outerSql = $this->extractAndResolveCtes($sql);
+
+        $tableAliases = $this->paramResolver->extractTableAliases($outerSql);
+        $selectList   = $this->extractSelectList($outerSql);
 
         if (empty($selectList)) {
             return [];
@@ -63,6 +80,91 @@ class ColumnResolver
         return $columns;
     }
 
+    // -------------------------------------------------------------------------
+    // CTE parsing
+    // -------------------------------------------------------------------------
+
+    /**
+     * Detect CTE definitions at the start of the SQL (WITH name AS (...), ...).
+     * For each CTE, resolve its inner subquery's columns and register them under
+     * the CTE name in $this->cteColumns. Returns the SQL with the WITH clause
+     * stripped — just the outer SELECT/UPDATE/DELETE.
+     *
+     * Handles multiple CTEs: WITH a AS (...), b AS (...) SELECT ...
+     */
+    private function extractAndResolveCtes(string $sql): string
+    {
+        $trimmed = ltrim($sql);
+        if (!preg_match('/^WITH\b/i', $trimmed)) {
+            return $sql; // fast path: no CTE
+        }
+
+        // Skip past the WITH keyword
+        $pos = stripos($trimmed, 'WITH') + 4;
+        $len = strlen($trimmed);
+
+        while ($pos < $len) {
+            // Skip whitespace between WITH/comma and the CTE name
+            while ($pos < $len && ctype_space($trimmed[$pos])) $pos++;
+
+            // Read the CTE name (identifier)
+            $nameStart = $pos;
+            while ($pos < $len && (ctype_alnum($trimmed[$pos]) || $trimmed[$pos] === '_')) $pos++;
+            $cteName = strtolower(substr($trimmed, $nameStart, $pos - $nameStart));
+
+            if ($cteName === '') break; // malformed — bail out
+
+            // Skip whitespace then expect AS
+            while ($pos < $len && ctype_space($trimmed[$pos])) $pos++;
+            if (stripos($trimmed, 'AS', $pos) !== $pos) break;
+            $pos += 2;
+
+            // Skip whitespace then expect (
+            while ($pos < $len && ctype_space($trimmed[$pos])) $pos++;
+            if ($pos >= $len || $trimmed[$pos] !== '(') break;
+
+            // Find the matching ) using paren depth — the inner subquery body
+            $depth     = 0;
+            $bodyStart = $pos;
+            while ($pos < $len) {
+                if ($trimmed[$pos] === '(') $depth++;
+                elseif ($trimmed[$pos] === ')') {
+                    $depth--;
+                    if ($depth === 0) { $pos++; break; }
+                }
+                $pos++;
+            }
+            $body = substr($trimmed, $bodyStart + 1, ($pos - 1) - ($bodyStart + 1));
+
+            // Resolve the inner subquery columns (strip parameters to avoid conflicts)
+            try {
+                // Temporarily clear cteColumns so inner CTEs don't bleed into outer
+                $outerCte = $this->cteColumns;
+                $this->cteColumns = [];
+                $innerCols = $this->resolve($body);
+                // Restore outer context and register this CTE
+                $this->cteColumns = $outerCte;
+                $this->cteColumns[$cteName] = $innerCols;
+            } catch (\Throwable) {
+                // If inner resolution fails (e.g. complex expressions), register empty
+                $this->cteColumns[$cteName] = [];
+            }
+
+            // Skip whitespace; if next char is comma, there are more CTEs
+            while ($pos < $len && ctype_space($trimmed[$pos])) $pos++;
+            if ($pos < $len && $trimmed[$pos] === ',') {
+                $pos++; // consume comma, loop to next CTE
+            } else {
+                break; // no more CTEs — remainder is the outer query
+            }
+        }
+
+        // Return only the outer query (after all CTE definitions)
+        return trim(substr($trimmed, $pos));
+    }
+
+    // -------------------------------------------------------------------------
+    // SELECT list extraction
     // -------------------------------------------------------------------------
 
     /**
@@ -238,11 +340,26 @@ class ColumnResolver
 
     /**
      * Expand all columns of a table into ResolvedColumn objects.
+     * Checks CTE virtual tables first, then the schema catalog.
      *
      * @return ResolvedColumn[]
      */
     private function expandTable(string $tableName): array
     {
+        // Check CTE virtual tables first
+        $cteKey = strtolower($tableName);
+        if (isset($this->cteColumns[$cteKey])) {
+            // Return CTE columns with tableName set to the CTE name
+            return array_map(fn(ResolvedColumn $c) => new ResolvedColumn(
+                alias:      $c->alias,
+                columnName: $c->columnName,
+                tableName:  $tableName,
+                sqlType:    $c->sqlType,
+                nullable:   $c->nullable,
+                phpType:    $c->phpType,
+            ), $this->cteColumns[$cteKey]);
+        }
+
         $cols = [];
         foreach ($this->catalog->getColumns($tableName) as $col) {
             $phpType = $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $tableName, $col->name);
@@ -260,6 +377,7 @@ class ColumnResolver
 
     /**
      * Resolve table.col with a given output alias.
+     * Checks CTE virtual tables first, then the schema catalog.
      *
      * @return ResolvedColumn[]
      */
@@ -269,6 +387,25 @@ class ColumnResolver
         string $alias,
         array $tableAliases,
     ): array {
+        // Check CTE virtual tables first
+        $cteKey = strtolower($tableName);
+        if (isset($this->cteColumns[$cteKey])) {
+            foreach ($this->cteColumns[$cteKey] as $cteCol) {
+                if (strtolower($cteCol->alias) === strtolower($colName)) {
+                    return [new ResolvedColumn(
+                        alias:      $alias,
+                        columnName: $cteCol->columnName,
+                        tableName:  $tableName,
+                        sqlType:    $cteCol->sqlType,
+                        nullable:   $cteCol->nullable,
+                        phpType:    $cteCol->phpType,
+                    )];
+                }
+            }
+            // Column not found in CTE — return unknown
+            return [$this->unknownColumn($alias)];
+        }
+
         $table = $this->catalog->getTable($tableName);
         if ($table === null) {
             return [$this->unknownColumn($alias)];

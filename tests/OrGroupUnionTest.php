@@ -606,8 +606,70 @@ class OrGroupUnionTest extends TestCase
         $this->assertStringContainsString("bindValue(':adminId',", $code);
     }
 
-    public function test_version_is_2_9_0(): void
+    // =========================================================================
+    // Duplicate placeholders outside UNION — UPSERT, WHERE+HAVING, etc.
+    // =========================================================================
+
+    public function test_upsert_duplicate_params_expanded_in_prepare_sql(): void
     {
-        $this->assertSame('2.9.6', \SqlcPhp\Version::VERSION);
+        $q    = $this->analyze(
+            "-- @name UpsertUser\n-- @returns :exec\n" .
+            "INSERT INTO users (id, email, active) VALUES (:id, :email, :active)\n" .
+            "ON DUPLICATE KEY UPDATE email = :email, active = :active;"
+        );
+        $code = $this->qg->generate($q)['UserQuery']['code'];
+
+        $this->assertStringContainsString(':email__2',  $code,
+            'UPSERT: second :email must be renamed to :email__2 in prepare SQL');
+        $this->assertStringContainsString(':active__2', $code,
+            'UPSERT: second :active must be renamed to :active__2 in prepare SQL');
+        $this->assertStringContainsString("bindValue(':email', \$email,",    $code);
+        $this->assertStringContainsString("bindValue(':email__2', \$email,", $code);
+        $this->assertStringContainsString("bindValue(':active__2', \$active,", $code);
+    }
+
+    public function test_upsert_queryobject_preserves_original_sql(): void
+    {
+        $q    = $this->analyze(
+            "-- @name UpsertUser\n-- @returns :exec\n" .
+            "INSERT INTO users (id, email, active) VALUES (:id, :email, :active)\n" .
+            "ON DUPLICATE KEY UPDATE email = :email, active = :active;"
+        );
+        $code = $this->qg->generate($q)['UserQuery']['code'];
+
+        $qoStart   = strpos($code, 'new QueryObject(');
+        $qoSnippet = substr($code, $qoStart, 400);
+        $this->assertStringNotContainsString('email__2', $qoSnippet,
+            'QueryObject must receive original SQL — not the expanded version');
+    }
+
+    public function test_same_param_in_where_and_having_expanded(): void
+    {
+        $q    = $this->analyze(
+            "-- @name GetActiveUsers\n-- @returns :many\n" .
+            "SELECT id, email FROM users WHERE active = :active GROUP BY id HAVING id >= :active;"
+        );
+        $code = $this->qg->generate($q)['UserQuery']['code'];
+
+        $this->assertStringContainsString(':active__2', $code,
+            'Second :active in HAVING must be renamed to :active__2');
+        $this->assertStringContainsString("bindValue(':active__2', \$active,", $code);
+    }
+
+    public function test_single_occurrence_param_not_renamed(): void
+    {
+        $q    = $this->analyze(
+            "-- @name GetUser\n-- @returns :one\n" .
+            "SELECT * FROM users WHERE id = :id AND active = :active;"
+        );
+        $code = $this->qg->generate($q)['UserQuery']['code'];
+
+        $this->assertStringNotContainsString(':id__2',     $code);
+        $this->assertStringNotContainsString(':active__2', $code);
+    }
+
+    public function test_version_is_2_9_7(): void
+    {
+        $this->assertSame('2.9.7', \SqlcPhp\Version::VERSION);
     }
 }

@@ -333,19 +333,72 @@ class QueryParser
     }
     private function extractFromTable(string $sql): ?string
     {
+        // For CTE queries (WITH ... AS (...) SELECT ...), skip past all CTE
+        // definitions and extract the FROM table of the outer SELECT only.
+        $stripped = ltrim($sql);
+        if (preg_match('/^WITH\b/i', $stripped)) {
+            $stripped = $this->stripCteBlock($stripped);
+        }
+
         // SELECT … FROM table  /  DELETE FROM table
-        if (preg_match('/FROM\s+[`"]?(\w+)[`"]?/i', $sql, $m)) {
+        // Use preg_match_all and take the LAST match to avoid picking up
+        // table names from subqueries that appear before the main FROM.
+        // For simple queries this is always the outer FROM.
+        if (preg_match('/\bFROM\s+[`"]?(\w+)[`"]?(?!\s*\()/i', $stripped, $m)) {
             return $m[1];
         }
         // UPDATE table SET …
-        if (preg_match('/^\s*UPDATE\s+[`"]?(\w+)[`"]?/i', $sql, $m)) {
+        if (preg_match('/^\s*UPDATE\s+[`"]?(\w+)[`"]?/i', $stripped, $m)) {
             return $m[1];
         }
         // INSERT INTO table
-        if (preg_match('/INSERT\s+INTO\s+[`"]?(\w+)[`"]?/i', $sql, $m)) {
+        if (preg_match('/INSERT\s+INTO\s+[`"]?(\w+)[`"]?/i', $stripped, $m)) {
             return $m[1];
         }
         return null;
+    }
+
+    /**
+     * Strip all CTE definitions from a SQL string that starts with WITH.
+     * Returns the outer query (SELECT/INSERT/UPDATE/DELETE) alone.
+     *
+     * WITH a AS (...), b AS (...) SELECT ... → SELECT ...
+     */
+    private function stripCteBlock(string $sql): string
+    {
+        $len = strlen($sql);
+        // Skip 'WITH'
+        $pos = 4;
+
+        while ($pos < $len) {
+            // Skip whitespace
+            while ($pos < $len && ctype_space($sql[$pos])) $pos++;
+
+            // Skip CTE name
+            while ($pos < $len && (ctype_alnum($sql[$pos]) || $sql[$pos] === '_')) $pos++;
+
+            // Skip whitespace then AS
+            while ($pos < $len && ctype_space($sql[$pos])) $pos++;
+            if (stripos($sql, 'AS', $pos) === $pos) $pos += 2;
+
+            // Skip whitespace then ( ... )
+            while ($pos < $len && ctype_space($sql[$pos])) $pos++;
+            if ($pos >= $len || $sql[$pos] !== '(') break;
+
+            $depth = 0;
+            while ($pos < $len) {
+                if ($sql[$pos] === '(') $depth++;
+                elseif ($sql[$pos] === ')') { $depth--; if ($depth === 0) { $pos++; break; } }
+                $pos++;
+            }
+
+            // Skip whitespace; if comma, another CTE follows
+            while ($pos < $len && ctype_space($sql[$pos])) $pos++;
+            if ($pos < $len && $sql[$pos] === ',') { $pos++; continue; }
+            break;
+        }
+
+        return trim(substr($sql, $pos));
     }
 
     /** @deprecated Use InflectorService::singularize() — kept for backward compatibility */

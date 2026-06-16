@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace SqlcPhp\Generator;
 
 use SqlcPhp\Parser\EmbedDefinition;
+use SqlcPhp\Generator\ExtensionData;
+use SqlcPhp\Generator\ExtensionGenerator;
 use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Resolver\ResolvedColumn;
 use SqlcPhp\TypeMapper\TypeMapperInterface;
@@ -61,17 +63,20 @@ class ResultDtoGenerator
     /**
      * Generate the PHP code for the result DTO.
      *
-     * @param  bool  $scoped  When true, the DTO and its embeds use a namespace
-     *                        scoped to the query method name (scoped_dtos: true).
+     * @param  bool                  $scoped   When true, the DTO and its embeds use a namespace
+     *                                         scoped to the query method name (scoped_dtos: true).
+     * @param  ExtensionGenerator|null $extGen  When provided, injects extension trait and returns
+     *                                         scaffold data for write-once generation.
      * @return array{
      *   className:     string,
      *   code:          string,
      *   embeds:        array<string, array{className: string, code: string}>,
      *   scopeSubdir:   string|null,
      *   namespace:     string,
+     *   extensions:    array<string, ExtensionData>,
      * }
      */
-    public function generate(QueryDefinition $query, bool $scoped = false): array
+    public function generate(QueryDefinition $query, bool $scoped = false, ?ExtensionGenerator $extGen = null): array
     {
         $namespace = $scoped ? $this->scopedNamespace($query) : $this->namespace;
         $className = $this->dtoClassName($query);
@@ -183,12 +188,50 @@ PHP;
 
         $scopeSubdir = $scoped ? $this->scopeSubdirFor($query) : null;
 
+        // ── Extension trait injection ────────────────────────────────────────
+        $extensions = [];
+        if ($extGen !== null) {
+            // Main DTO extension
+            $dtoExt = $extGen->forDto($className, $flatColumns, $embeds, $scopeSubdir);
+            $code   = $extGen->injectIntoClass($code, $dtoExt);
+            $extensions[$dtoExt->relPath] = $dtoExt;
+
+            // Embed extensions — use prefix-stripped property names to match the embed DTO
+            foreach ($embeds as $embed) {
+                $embedColSet = $embedColumns[$embed->className] ?? [];
+                if (empty($embedColSet)) continue;
+                // Strip the embed prefix from column aliases so the abstract properties
+                // match what the embed DTO actually declares (email, not user__email)
+                $strippedCols = array_map(function ($col) use ($embed) {
+                    $strippedAlias = $embed->stripPrefix($col->alias);
+                    return new \SqlcPhp\Resolver\ResolvedColumn(
+                        alias:      $strippedAlias,
+                        columnName: $col->columnName,
+                        tableName:  $col->tableName,
+                        sqlType:    $col->sqlType,
+                        nullable:   $col->nullable,
+                        phpType:    $col->phpType,
+                    );
+                }, $embedColSet);
+                $embedExt = $extGen->forDto($embed->className, $strippedCols, [], $scopeSubdir);
+                // Inject into embed code
+                if (isset($embedFiles[$embed->className])) {
+                    $embedFiles[$embed->className]['code'] = $extGen->injectIntoClass(
+                        $embedFiles[$embed->className]['code'],
+                        $embedExt
+                    );
+                }
+                $extensions[$embedExt->relPath] = $embedExt;
+            }
+        }
+
         return [
             'className'   => $className,
             'code'        => $code,
             'embeds'      => $embedFiles,
             'scopeSubdir' => $scopeSubdir,
             'namespace'   => $namespace,
+            'extensions'  => $extensions,
         ];
     }
 

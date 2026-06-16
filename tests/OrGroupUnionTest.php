@@ -670,6 +670,6 @@ class OrGroupUnionTest extends TestCase
 
     public function test_version_is_2_9_7(): void
     {
-        $this->assertSame('2.9.7', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.8', \SqlcPhp\Version::VERSION);
     }
 }

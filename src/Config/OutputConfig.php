@@ -20,6 +20,9 @@ namespace SqlcPhp\Config;
  *   enums:      database/Enums
  *   interfaces: database/Contracts
  *   criterias:  database/Criterias
+ *   extensions: database/Extensions   # Optional — enables extension trait scaffolding.
+ *                                     # Automatically creates Extensions/Models/ and
+ *                                     # Extensions/DTOs/ sub-directories.
  *
  * Namespace derivation in map form:
  *   The namespace for each type is: baseNamespace + '\' + last path segment (as-is)
@@ -32,8 +35,14 @@ namespace SqlcPhp\Config;
  */
 readonly class OutputConfig
 {
-    /** Known file types */
-    public const TYPES = ['queries', 'models', 'dtos', 'enums', 'interfaces', 'criterias'];
+    /** Known file types (declarable in out:) */
+    public const TYPES = ['queries', 'models', 'dtos', 'enums', 'interfaces', 'criterias', 'extensions'];
+
+    /**
+     * Virtual sub-types derived from 'extensions' — not declarable directly.
+     * dirFor() and namespaceFor() synthesize these from the extensions base path.
+     */
+    private const EXTENSION_SUBTYPES = ['extensions_models', 'extensions_dtos'];
 
     /**
      * @param string  $baseNamespace  The target's base PHP namespace
@@ -117,6 +126,14 @@ readonly class OutputConfig
             return $this->defaultDir;
         }
 
+        // Synthesize extension sub-type directories from the 'extensions' base
+        if ($type === 'extensions_models') {
+            return ($this->dirs['extensions'] ?? $this->defaultDir) . '/Models';
+        }
+        if ($type === 'extensions_dtos') {
+            return ($this->dirs['extensions'] ?? $this->defaultDir) . '/DTOs';
+        }
+
         if (!isset($this->dirs[$type])) {
             throw new \RuntimeException(
                 "Output directory for type '{$type}' is not declared in the out: map. " .
@@ -143,14 +160,31 @@ readonly class OutputConfig
             return $this->baseNamespace;
         }
 
+        // Synthesize extension sub-type namespaces from the 'extensions' base
+        if ($type === 'extensions_models') {
+            $base = basename($this->dirs['extensions'] ?? 'Extensions');
+            return $this->baseNamespace . '\\' . $base . '\\Models';
+        }
+        if ($type === 'extensions_dtos') {
+            $base = basename($this->dirs['extensions'] ?? 'Extensions');
+            return $this->baseNamespace . '\\' . $base . '\\DTOs';
+        }
+
         if (!isset($this->dirs[$type])) {
-            // If the type has no declared dir, fall back to base namespace.
-            // dirFor() would have thrown already before we get here.
             return $this->baseNamespace;
         }
 
         $lastSegment = basename($this->dirs[$type]);
         return $this->baseNamespace . '\\' . $lastSegment;
+    }
+
+    /**
+     * True when the 'extensions' output path is declared.
+     * Controls whether extension trait scaffolding is generated.
+     */
+    public function hasExtensions(): bool
+    {
+        return isset($this->dirs['extensions']);
     }
 
     /**

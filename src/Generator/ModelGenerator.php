@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace SqlcPhp\Generator;
 
 use SqlcPhp\Catalog\SchemaCatalog;
+use SqlcPhp\Generator\ExtensionData;
+use SqlcPhp\Generator\ExtensionGenerator;
 use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\TypeMapper\TypeMapperInterface;
 
@@ -26,9 +28,13 @@ class ModelGenerator
     /**
      * Generate a PHP class file for the given table name.
      *
-     * @return array{className: string, code: string}
+     * When $extGen is provided, the generated class will include a
+     * `use XExtension;` statement and the scaffold will be returned
+     * in the result array under 'extension'.
+     *
+     * @return array{className: string, code: string, extension?: ExtensionData}
      */
-    public function generate(string $tableName): array
+    public function generate(string $tableName, ?ExtensionGenerator $extGen = null): array
     {
         $table     = $this->catalog->getTable($tableName);
         $columns   = $table?->columns ?? [];
@@ -73,6 +79,17 @@ readonly class {$className}
     }
 }
 PHP;
+
+        // Inject extension trait if ExtensionGenerator is provided
+        if ($extGen !== null) {
+            $propDefs = array_map(fn($col) => [
+                'name'    => $col->name,
+                'phpType' => $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $tableName, $col->name),
+            ], $columns);
+            $ext  = $extGen->forModel($className, $propDefs);
+            $code = $extGen->injectIntoClass($code, $ext);
+            return ['className' => $className, 'code' => $code, 'extension' => $ext];
+        }
 
         return ['className' => $className, 'code' => $code];
     }

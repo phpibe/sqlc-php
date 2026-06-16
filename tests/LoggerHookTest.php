@@ -274,6 +274,6 @@ class LoggerHookTest extends TestCase
 
     public function test_version_is_2_7_5(): void
     {
-        $this->assertSame('2.9.7', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.9.8', \SqlcPhp\Version::VERSION);
     }
 }

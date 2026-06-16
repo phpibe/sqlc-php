@@ -341,6 +341,14 @@ function runGeneration(
         $queries       = $analyzer->analyze($rawQueries);
 
         $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper);
+
+        // Extension trait scaffolding — activated by declaring `extensions:` in out:
+        $extGen = $output->hasExtensions()
+            ? new \SqlcPhp\Generator\ExtensionGenerator(
+                $output->namespaceFor('extensions_models'),
+                $output->namespaceFor('extensions_dtos'),
+            )
+            : null;
         $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($nsInterfaces) : null;
         $queryGen     = new QueryGenerator(
             $catalog, $typeMapper, $resultDtoGen, $nsQueries,
@@ -350,7 +358,8 @@ function runGeneration(
         );
         $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels);
 
-        $toWrite = [];
+        $toWrite      = [];
+        $scaffoldWrite = [];  // Extension scaffolds — written once, never overwritten
 
         foreach ($catalog->all() as $table) {
             if ($table->virtual) continue;
@@ -365,8 +374,15 @@ function runGeneration(
         foreach ($tablesUsed as $tableName) {
             $tableDef = $catalog->getTable($tableName);
             if ($tableDef?->virtual) continue;
-            ['className' => $cls, 'code' => $code] = $modelGen->generate($tableName);
-            $toWrite["{$cls}.php"] = ['type' => 'models', 'label' => '[model]  ', 'code' => $code];
+            $m = $modelGen->generate($tableName, $extGen);
+            $toWrite["{$m['className']}.php"] = ['type' => 'models', 'label' => '[model]  ', 'code' => $m['code']];
+            if ($extGen !== null && isset($m['extension'])) {
+                $scaffoldWrite[$m['extension']->relPath] = [
+                    'type'  => 'extensions_models',
+                    'label' => '[ext-m]  ',
+                    'ext'   => $m['extension'],
+                ];
+            }
         }
 
         // ── Embed collision detection + DTO generation ─────────────────────────
@@ -442,7 +458,7 @@ function runGeneration(
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
             if ($query->returns->value === ':exec') continue;
-            $r = $resultDtoGen->generate($query, $target->scopedDtos);
+            $r = $resultDtoGen->generate($query, $target->scopedDtos, $extGen);
 
             if ($target->scopedDtos && $r['scopeSubdir'] !== null) {
                 // Place DTO and embeds in DTOs/{MethodPascalCase}/
@@ -456,6 +472,14 @@ function runGeneration(
                 foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
                     $toWrite["{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
                 }
+            }
+            // Collect DTO extension scaffolds
+            foreach ($r['extensions'] ?? [] as $relPath => $ext) {
+                $scaffoldWrite[$relPath] = [
+                    'type'  => 'extensions_dtos',
+                    'label' => '[ext-d]  ',
+                    'ext'   => $ext,
+                ];
             }
         }
 
@@ -515,13 +539,44 @@ function runGeneration(
                 if (!$silent) echo "  {$label}{$fullPath}\n";
                 $totalWritten++;
             }
+
+            // Scaffold files — write ONCE only (never overwrite user edits)
+            foreach ($scaffoldWrite as $relPath => $entry) {
+                $type     = $entry['type'];
+                $dir      = $output->dirFor($type);
+                $fullPath = "{$dir}/{$relPath}";
+                $fileDir  = dirname($fullPath);
+
+                // Skip if already exists — this is the core write-once guarantee
+                if (file_exists($fullPath)) continue;
+
+                if (!is_dir($fileDir) && !mkdir($fileDir, 0755, true)) {
+                    $result['error'] = "Cannot create output directory: {$fileDir}";
+                    return $result;
+                }
+                file_put_contents($fullPath, $entry['ext']->scaffoldCode);
+                if (!$silent) echo "  {$entry['label']}{$fullPath}\n";
+                $totalWritten++;
+            }
+        }
+
+        // In dry-run: show what scaffolds would be created
+        if ($dryRun) {
+            foreach ($scaffoldWrite as $relPath => $entry) {
+                $type     = $entry['type'];
+                $dir      = $output->dirFor($type);
+                $fullPath = "{$dir}/{$relPath}";
+                if (file_exists($fullPath)) continue; // would not be written
+                if (!$silent) echo "  {$entry['label']}[new] {$fullPath}\n";
+            }
         }
 
         if (!$silent) echo "\n";
     }
 
-    $result['written']  = $totalWritten;
-    $result['toWrite']  = $allToWrite;
+    $result['written']       = $totalWritten;
+    $result['toWrite']       = $allToWrite;
+    $result['scaffoldWrite'] = $scaffoldWrite ?? [];
 
     return $result;
 }

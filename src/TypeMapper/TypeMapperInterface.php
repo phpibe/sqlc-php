@@ -18,6 +18,12 @@ namespace SqlcPhp\TypeMapper;
 interface TypeMapperInterface
 {
     /**
+     * Returns true when a PHP value of the given type must have `->value`
+     * extracted before being passed to PDO::bindValue() — e.g. backed enums.
+     */
+    public function needsValueExtraction(string $phpType): bool;
+
+    /**
      * Return the fully-qualified class name for types that are classes (enums,
      * DateTimeImmutable, etc.), or null for scalars (int, string, float, bool, array).
      *

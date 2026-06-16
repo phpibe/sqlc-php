@@ -560,11 +560,162 @@ class ExtensionGeneratorTest extends TestCase
     }
 
     // =========================================================================
+    // Enum extensions (v2.10.0)
+    // =========================================================================
+
+    public function test_for_enum_returns_extension_data(): void
+    {
+        $cases = [['name' => 'Afip', 'value' => 'afip'], ['name' => 'Test', 'value' => 'test']];
+        $ext   = $this->extGen->forEnum('FacturantelogSupplier', $cases, 'string');
+
+        $this->assertSame('FacturantelogSupplierExtension', $ext->traitName);
+        $this->assertSame(self::NS_EXT_MODELS . '\\FacturantelogSupplierExtension', $ext->fqcn);
+        $this->assertSame('FacturantelogSupplierExtension.php', $ext->relPath);
+    }
+
+    public function test_for_enum_scaffold_contains_trait_declaration(): void
+    {
+        $ext = $this->extGen->forEnum('OrderStatus', [], 'string');
+        $this->assertStringContainsString('trait OrderStatusExtension', $ext->scaffoldCode);
+        $this->assertStringContainsString('NEVER overwrite', $ext->scaffoldCode);
+    }
+
+    public function test_for_enum_scaffold_has_mixin_tag(): void
+    {
+        $ext = $this->extGen->forEnum('OrderStatus', [], 'string', self::NS_MODELS . '\\OrderStatus');
+        $this->assertStringContainsString('@mixin OrderStatus', $ext->scaffoldCode);
+        $this->assertStringContainsString('use ' . self::NS_MODELS . '\\OrderStatus;', $ext->scaffoldCode);
+    }
+
+    public function test_for_enum_scaffold_lists_cases(): void
+    {
+        $cases = [
+            ['name' => 'Afip', 'value' => 'afip'],
+            ['name' => 'Test', 'value' => 'test'],
+        ];
+        $ext = $this->extGen->forEnum('FacturantelogSupplier', $cases, 'string');
+
+        $this->assertStringContainsString("FacturantelogSupplier::Afip", $ext->scaffoldCode);
+        $this->assertStringContainsString("FacturantelogSupplier::Test", $ext->scaffoldCode);
+        $this->assertStringContainsString("'afip'", $ext->scaffoldCode);
+        $this->assertStringContainsString("'test'", $ext->scaffoldCode);
+    }
+
+    public function test_for_enum_scaffold_has_no_property_tags(): void
+    {
+        // Enums cannot have instance properties — @property must never appear
+        $cases = [['name' => 'Active', 'value' => 'active']];
+        $ext   = $this->extGen->forEnum('Status', $cases, 'string');
+
+        $this->assertStringNotContainsString('@property', $ext->scaffoldCode,
+            'Enum scaffold must NOT have @property — enums cannot have instance properties');
+    }
+
+    public function test_for_enum_scaffold_has_property_restriction_warning(): void
+    {
+        $ext = $this->extGen->forEnum('Status', [], 'string');
+        $this->assertStringContainsString(
+            'Traits used by enums MUST NOT declare instance properties',
+            $ext->scaffoldCode
+        );
+    }
+
+    public function test_for_enum_scaffold_example_uses_match_this(): void
+    {
+        $cases = [['name' => 'Active', 'value' => 'active'], ['name' => 'Inactive', 'value' => 'inactive']];
+        $ext   = $this->extGen->forEnum('Status', $cases, 'string');
+
+        $this->assertStringContainsString('match($this)', $ext->scaffoldCode);
+    }
+
+    public function test_inject_into_enum_adds_use_fqcn_after_namespace(): void
+    {
+        $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Enums;\n\nenum Status: string\n{\n    case Active = 'active';\n}\n";
+        $ext  = new ExtensionData('StatusExtension', 'App\\Ext', 'App\\Ext\\StatusExtension', 'StatusExtension.php', '');
+
+        $result = $this->extGen->injectIntoEnum($code, $ext);
+
+        $this->assertStringContainsString('use App\\Ext\\StatusExtension;', $result);
+    }
+
+    public function test_inject_into_enum_adds_use_trait_inside_enum_body(): void
+    {
+        $code = "<?php\ndeclare(strict_types=1);\nnamespace App\\Enums;\nenum Status: string\n{\n    case Active = 'active';\n}\n";
+        $ext  = new ExtensionData('StatusExtension', 'App\\Ext', 'App\\Ext\\StatusExtension', 'StatusExtension.php', '');
+
+        $result = $this->extGen->injectIntoEnum($code, $ext);
+
+        $this->assertStringContainsString('use StatusExtension;', $result);
+        // Must be inside the enum body
+        $this->assertMatchesRegularExpression('/enum Status[^{]*\{[^}]*use StatusExtension;/s', $result);
+    }
+
+    public function test_enum_generator_without_extgen_unchanged(): void
+    {
+        $schema  = "CREATE TABLE orders (id INT PRIMARY KEY, status ENUM('active','inactive') NOT NULL);";
+        $cat     = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $enumGen = new \SqlcPhp\Generator\EnumGenerator('App\\Enums');
+
+        $table = $cat->getTable('orders');
+        $col   = array_values(array_filter($table->columns, fn($c) => $c->isEnum()))[0];
+
+        $result = $enumGen->generate('orders', $col);
+
+        $this->assertArrayNotHasKey('extension', $result);
+        $this->assertStringNotContainsString('use ', $result['code'],
+            'Without extGen no use statement injected');
+    }
+
+    public function test_enum_generator_with_extgen_injects_use_trait(): void
+    {
+        $schema  = "CREATE TABLE orders (id INT PRIMARY KEY, status ENUM('active','inactive') NOT NULL);";
+        $cat     = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $enumGen = new \SqlcPhp\Generator\EnumGenerator('App\\Enums');
+        $extGen  = new \SqlcPhp\Generator\ExtensionGenerator(
+            'App\\Extensions\\Models',
+            'App\\Extensions\\DTOs',
+            'App\\Extensions\\Enums',
+        );
+
+        $table = $cat->getTable('orders');
+        $col   = array_values(array_filter($table->columns, fn($c) => $c->isEnum()))[0];
+
+        $result = $enumGen->generate('orders', $col, $extGen);
+
+        $this->assertArrayHasKey('extension', $result);
+        $this->assertSame('OrderStatusExtension', $result['extension']->traitName);
+        $this->assertStringContainsString('use App\\Extensions\\Enums\\OrderStatusExtension;', $result['code']);
+        $this->assertStringContainsString('use OrderStatusExtension;', $result['code']);
+        // No @mixin in the host enum
+        $this->assertStringNotContainsString('@mixin', $result['code']);
+    }
+
+    public function test_output_config_dir_for_extensions_enums(): void
+    {
+        $out = \SqlcPhp\Config\OutputConfig::fromRaw([
+            'extensions' => 'app/Extensions',
+            'enums'      => 'app/Enums',
+        ], 'App');
+
+        $this->assertSame('app/Extensions/Enums', $out->dirFor('extensions_enums'));
+    }
+
+    public function test_output_config_namespace_for_extensions_enums(): void
+    {
+        $out = \SqlcPhp\Config\OutputConfig::fromRaw([
+            'extensions' => 'app/Database/Extensions',
+            'enums'      => 'app/Database/Enums',
+        ], 'App\\Database');
+
+        $this->assertSame('App\\Database\\Extensions\\Enums', $out->namespaceFor('extensions_enums'));
+    }
+
+    // =========================================================================
     // Version
     // =========================================================================
 
-    public function test_version_is_2_9_8(): void
+    public function test_version_is_2_10_0(): void
     {
-        $this->assertSame('2.9.8', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.10.0', \SqlcPhp\Version::VERSION);
     }
 }

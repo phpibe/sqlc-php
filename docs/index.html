@@ -112,7 +112,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.9.8</span>
+    <span class="badge-version">v2.10.0</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -1813,7 +1813,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.9.8'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.10.0'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -2032,6 +2032,17 @@ trait UserExtension
     <!-- ════════════════════════════════════ CHANGELOG -->
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.10.0 — Enum extension traits</div>
+          <ul>
+            <li><strong>Extension traits for enums</strong> — the <code>extensions:</code> feature now also covers backed enums. For every generated enum, sqlc-php generates a write-once trait scaffold in <code>Extensions/Enums/</code>.</li>
+            <li>Enum scaffolds document the available cases (<code>FacturantelogSupplier::Afip → 'afip'</code>) and carry a <code>@mixin EnumClass</code> for IDE type inference, but deliberately omit <code>@property</code> tags — PHP raises a fatal error if a trait used by an enum declares instance properties.</li>
+            <li>The warning <em>"Traits used by enums MUST NOT declare instance properties"</em> is included in every scaffold so developers who are unfamiliar with the restriction see it immediately.</li>
+            <li><code>OutputConfig</code> gains <code>extensions_enums</code> subtype → <code>Extensions/Enums/</code>.</li>
+            <li>13 new tests in <code>tests/ExtensionGeneratorTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.9.8 — Extension traits</div>

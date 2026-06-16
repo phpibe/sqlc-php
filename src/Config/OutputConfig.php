@@ -133,6 +133,9 @@ readonly class OutputConfig
         if ($type === 'extensions_dtos') {
             return ($this->dirs['extensions'] ?? $this->defaultDir) . '/DTOs';
         }
+        if ($type === 'extensions_enums') {
+            return ($this->dirs['extensions'] ?? $this->defaultDir) . '/Enums';
+        }
 
         if (!isset($this->dirs[$type])) {
             throw new \RuntimeException(
@@ -168,6 +171,10 @@ readonly class OutputConfig
         if ($type === 'extensions_dtos') {
             $base = basename($this->dirs['extensions'] ?? 'Extensions');
             return $this->baseNamespace . '\\' . $base . '\\DTOs';
+        }
+        if ($type === 'extensions_enums') {
+            $base = basename($this->dirs['extensions'] ?? 'Extensions');
+            return $this->baseNamespace . '\\' . $base . '\\Enums';
         }
 
         if (!isset($this->dirs[$type])) {

@@ -46,11 +46,45 @@ class ExtensionGenerator
         private readonly string $nsModels,
         /** Base namespace for DTO extensions: e.g. App\Database\Extensions\DTOs */
         private readonly string $nsDtos,
+        /** Base namespace for enum extensions: e.g. App\Database\Extensions\Enums */
+        private readonly string $nsEnums = '',
     ) {}
 
     // =========================================================================
     // Public API
     // =========================================================================
+
+    /**
+     * Generate extension data for an enum.
+     *
+     * Unlike model/DTO extensions, enum extensions MUST NOT declare instance
+     * properties — PHP forbids properties in enums. The scaffold only carries
+     * @mixin for IDE support and a documented list of available cases.
+     *
+     * @param  string  $enumClass   e.g. 'FacturantelogSupplier'
+     * @param  array   $cases       [{name: string, value: string}]
+     * @param  string  $backingType PHP backing type: 'string' | 'int'
+     * @param  string  $hostFqcn    FQCN of the enum, e.g. 'App\Enums\FacturantelogSupplier'
+     * @return ExtensionData
+     */
+    public function forEnum(
+        string $enumClass,
+        array  $cases,
+        string $backingType,
+        string $hostFqcn = '',
+    ): ExtensionData {
+        $traitName = $enumClass . 'Extension';
+        $namespace = $this->nsEnums !== '' ? $this->nsEnums : $this->nsModels;
+        $relPath   = "{$traitName}.php";
+
+        return new ExtensionData(
+            traitName:    $traitName,
+            namespace:    $namespace,
+            fqcn:         $namespace . '\\' . $traitName,
+            relPath:      $relPath,
+            scaffoldCode: $this->buildEnumScaffold($traitName, $namespace, $enumClass, $cases, $backingType, $hostFqcn),
+        );
+    }
 
     /**
      * Generate extension data for a model class.
@@ -312,6 +346,134 @@ namespace {$namespace};
  * Add domain methods that operate on `{$className}` properties.
  * All properties of the {$kindLabel} are available via `\$this`.
 {$docExtras} *
+ * Example:
+{$exampleMethod}
+ */
+trait {$traitName}
+{
+    // Your methods here
+}
+PHP;
+    }
+    // =========================================================================
+    // Enum scaffold builder
+    // =========================================================================
+
+    /**
+     * Inject `use FQCN;` and `use TraitName;` into a generated enum.
+     *
+     * For enums we do NOT inject @mixin into the enum body — same reasoning
+     * as for classes: PHPStan resolves the trait via `use` directly.
+     * The @mixin lives only in the scaffold, pointing back at the enum.
+     */
+    public function injectIntoEnum(string $code, ExtensionData $ext): string
+    {
+        // 1. `use FQCN;` after namespace
+        $code = preg_replace(
+            '/^(namespace [^;]+;)/m',
+            "$1\n\nuse {$ext->fqcn};",
+            $code,
+            1
+        ) ?? $code;
+
+        // 2. `use TraitName;` as first line inside the enum body
+        //    Match `enum Name: type\n{` or `enum Name: type {`
+        $enumClass = substr($ext->traitName, 0, -strlen('Extension'));
+        $code = preg_replace(
+            '/^(enum\s+' . preg_quote($enumClass, '/') . '\s*:[^{]+\{)/m',
+            "$1\n    use {$ext->traitName};\n",
+            $code,
+            1
+        ) ?? $code;
+
+        return $code;
+    }
+
+    /**
+     * Build the write-once enum trait scaffold.
+     *
+     * Key differences from model/DTO scaffolds:
+     *   - NO @property tags — PHP forbids instance properties in enums
+     *   - Documents available cases instead (for developer reference)
+     *   - Example uses match($this) pattern instead of $this->property
+     *   - Explicit warning about the property restriction
+     */
+    private function buildEnumScaffold(
+        string $traitName,
+        string $namespace,
+        string $enumClass,
+        array  $cases,
+        string $backingType,
+        string $hostFqcn,
+    ): string {
+        // use statements — only the host enum (for @mixin), no properties to resolve
+        $useLines = '';
+        if ($hostFqcn !== '') {
+            $hostNs = implode('\\', array_slice(explode('\\', $hostFqcn), 0, -1));
+            if ($hostNs !== $namespace) {
+                $useLines = "\nuse {$hostFqcn};\n";
+            }
+        }
+
+        // @mixin line
+        $hostShort = $hostFqcn !== '' ? basename(str_replace('\\', '/', $hostFqcn)) : '';
+        $mixinLine = $hostShort !== '' ? " * @mixin {$hostShort}\n" : '';
+
+        // Cases documentation block
+        $caseLines = '';
+        if (!empty($cases)) {
+            $caseLines .= " *\n * Available cases (backing type: {$backingType}):\n";
+            $maxName = max(array_map(fn($c) => strlen($enumClass . '::' . $c['name']), $cases));
+            foreach ($cases as $case) {
+                $label = $enumClass . '::' . $case['name'];
+                $pad   = str_repeat(' ', $maxName - strlen($label) + 2);
+                $val   = $backingType === 'int' ? $case['value'] : "'{$case['value']}'";
+                $caseLines .= " *   {$label}{$pad}→ {$val}\n";
+            }
+        }
+
+        // Example match expression — use first two cases or generic
+        $exampleCases = array_slice($cases, 0, 2);
+        $exampleLines = '';
+        foreach ($exampleCases as $i => $case) {
+            $val           = $i === 0 ? "'Label A'" : "'Label B'";
+            $exampleLines .= "    //     self::{$case['name']} => {$val},\n";
+        }
+        if (count($cases) > 2) {
+            $exampleLines .= "    //     default      => \$this->name,\n";
+        }
+        $exampleMethod = "    // public function label(): string\n" .
+                         "    // {\n" .
+                         "    //     return match(\$this) {\n" .
+                         $exampleLines .
+                         "    //     };\n" .
+                         "    // }";
+
+        $docExtras = $mixinLine !== '' || $caseLines !== ''
+            ? " *\n{$mixinLine}{$caseLines}"
+            : '';
+
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace};
+{$useLines}
+/**
+ * Extension trait for the `{$enumClass}` enum.
+ *
+ * ╔══════════════════════════════════════════════════════════╗
+ * ║  This file is yours — sqlc-php will NEVER overwrite it.  ║
+ * ╚══════════════════════════════════════════════════════════╝
+ *
+ * Add methods that operate on `{$enumClass}` cases.
+ * Inside trait methods, `\$this` is a `{$enumClass}` instance — you can
+ * use `\$this->value`, `\$this->name`, and `self::cases()`.
+{$docExtras} *
+ * ⚠  Traits used by enums MUST NOT declare instance properties.
+ *    Methods, constants, and interface implementations are allowed.
+ *
  * Example:
 {$exampleMethod}
  */

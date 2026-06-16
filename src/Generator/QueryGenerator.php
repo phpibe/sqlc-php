@@ -598,6 +598,22 @@ PHP;
     }
 
     /**
+     * Returns the PHP expression to use when binding a parameter value.
+     * For backed enums: $param->value (or $param?->value for nullable)
+     * For all other types: $param
+     */
+    private function bindValueExpr(\SqlcPhp\Resolver\QueryParam $param): string
+    {
+        if ($this->typeMapper->needsValueExtraction($param->phpType)) {
+            $nullable = str_starts_with($param->phpType, '?');
+            return $nullable
+                ? "\${$param->name}?->value"
+                : "\${$param->name}->value";
+        }
+        return "\${$param->name}";
+    }
+
+    /**
      * Render extra bindValue calls for duplicate-placeholder aliases.
      * e.g. if :reserveId appears twice, this emits:
      *   $stmt->bindValue(':reserveId__2', $reserveId, PDO::PARAM_INT);
@@ -610,7 +626,6 @@ PHP;
         foreach ($m[0] as $raw) {
             $counts[$raw] = ($counts[$raw] ?? 0) + 1;
             if ($counts[$raw] < 2) continue;
-            // Find the resolved param for this placeholder
             $paramName = ltrim($raw, ':');
             $param     = null;
             foreach ($query->params as $p) {
@@ -618,7 +633,8 @@ PHP;
             }
             if ($param === null) continue;
             $alias = ":{$paramName}__{$counts[$raw]}";
-            $lines[] = "        {$stmtVar}->bindValue('{$alias}', \${$paramName}, {$param->pdoParam});";
+            $value = $this->bindValueExpr($param);
+            $lines[] = "        {$stmtVar}->bindValue('{$alias}', {$value}, {$param->pdoParam});";
         }
         return empty($lines) ? '' : implode("\n", $lines) . "\n";
     }
@@ -694,13 +710,14 @@ PHP;
 
         $parts = [];
         foreach ($query->params as $param) {
-            if ($param->inList) continue; // IN() bindings are positional, skip
+            if ($param->inList) continue;
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) continue;
 
-            $parts[] = "    ':{$param->name}' => [\${$param->name}, {$param->pdoParam}]";
+            $value   = $this->bindValueExpr($param);
+            $parts[] = "    ':{$param->name}' => [{$value}, {$param->pdoParam}]";
             if ($param->optional) {
                 $chk     = $param->name . '_chk';
-                $parts[] = "    ':{$chk}' => [\${$param->name}, {$param->pdoParam}]";
+                $parts[] = "    ':{$chk}' => [{$value}, {$param->pdoParam}]";
             }
         }
 
@@ -1388,10 +1405,11 @@ PHP;
                 if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
                     continue;
                 }
-                $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+                $value = $this->bindValueExpr($param);
+                $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', {$value}, {$param->pdoParam});";
                 if ($param->optional) {
                     $chk = $param->name . '_chk';
-                    $lines[] = "        {$stmtVar}->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+                    $lines[] = "        {$stmtVar}->bindValue(':{$chk}', {$value}, {$param->pdoParam});";
                 }
             }
 
@@ -1428,14 +1446,13 @@ PHP;
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
                 continue;
             }
-            $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', \${$param->name}, {$param->pdoParam});";
+            $value = $this->bindValueExpr($param);
+            $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', {$value}, {$param->pdoParam});";
             if ($param->optional) {
                 $chk = $param->name . '_chk';
-                $lines[] = "        {$stmtVar}->bindValue(':{$chk}', \${$param->name}, {$param->pdoParam});";
+                $lines[] = "        {$stmtVar}->bindValue(':{$chk}', {$value}, {$param->pdoParam});";
             }
         }
-
-        // execute() receives positional values for all IN lists merged in order
         $executeArgParts = [];
         foreach ($inListParams as $param) {
             $executeArgParts[] = "...\${$param->name}";

@@ -668,8 +668,105 @@ class OrGroupUnionTest extends TestCase
         $this->assertStringNotContainsString(':active__2', $code);
     }
 
-    public function test_version_is_2_9_7(): void
+    // =========================================================================
+    // Enum parameter binding — must use ->value not object directly
+    // =========================================================================
+
+    public function test_enum_param_binding_uses_value_property(): void
     {
-        $this->assertSame('2.9.8', \SqlcPhp\Version::VERSION);
+        // Regression: passing a backed enum object to PDO::bindValue() throws
+        // "Object of class X could not be converted to string".
+        // The generated code must use $param->value instead.
+        $schema = "CREATE TABLE facturantelog (id INT AUTO_INCREMENT PRIMARY KEY, supplier ENUM('afip','test') NOT NULL);";
+        $cat    = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $eGen   = new \SqlcPhp\Generator\EnumGenerator('App\\Enums');
+        $mapper = new \SqlcPhp\TypeMapper\MySQLTypeMapper([], $eGen);
+        $parser = new \SqlcPhp\Parser\QueryParser();
+        $pr     = new \SqlcPhp\Resolver\ParamResolver($cat, $mapper);
+        $er     = new \SqlcPhp\Resolver\ExpressionTypeResolver($cat, $mapper);
+        $cr     = new \SqlcPhp\Resolver\ColumnResolver($cat, $mapper, $pr, $er);
+        $az     = new \SqlcPhp\Analyzer\QueryAnalyzer($pr, $cr, $parser, new \SqlcPhp\Rewriter\SqlRewriter(), $cat);
+        $dg     = new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $mapper);
+        $qg     = new \SqlcPhp\Generator\QueryGenerator($cat, $mapper, $dg, 'App\\Repos');
+
+        $qs   = $az->analyze($parser->parse(
+            "-- @name ListBySupplier\n-- @class F\n-- @dto F\n-- @returns :many\n" .
+            "SELECT * FROM facturantelog WHERE supplier = :supplier;"
+        ));
+        $code = $qg->generate($qs)['FQuery']['code'];
+
+        // Must use ->value, not the object directly
+        $this->assertStringContainsString('$supplier->value', $code,
+            'Enum param must use ->value when bound to PDO');
+        $this->assertStringNotContainsString("'\$supplier,'", $code,
+            'Enum object must not be passed directly to bindValue');
+    }
+
+    public function test_nullable_enum_param_binding_uses_nullsafe_value(): void
+    {
+        $schema = "CREATE TABLE facturantelog (id INT AUTO_INCREMENT PRIMARY KEY, supplier ENUM('afip','test') NULL);";
+        $cat    = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $eGen   = new \SqlcPhp\Generator\EnumGenerator('App\\Enums');
+        $mapper = new \SqlcPhp\TypeMapper\MySQLTypeMapper([], $eGen);
+        $parser = new \SqlcPhp\Parser\QueryParser();
+        $pr     = new \SqlcPhp\Resolver\ParamResolver($cat, $mapper);
+        $er     = new \SqlcPhp\Resolver\ExpressionTypeResolver($cat, $mapper);
+        $cr     = new \SqlcPhp\Resolver\ColumnResolver($cat, $mapper, $pr, $er);
+        $az     = new \SqlcPhp\Analyzer\QueryAnalyzer($pr, $cr, $parser, new \SqlcPhp\Rewriter\SqlRewriter(), $cat);
+        $dg     = new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $mapper);
+        $qg     = new \SqlcPhp\Generator\QueryGenerator($cat, $mapper, $dg, 'App\\Repos');
+
+        $qs   = $az->analyze($parser->parse(
+            "-- @name ListBySupplier\n-- @class F\n-- @dto F\n-- @returns :many\n" .
+            "SELECT * FROM facturantelog WHERE supplier = :supplier;"
+        ));
+        $code = $qg->generate($qs)['FQuery']['code'];
+
+        // Nullable enum must use ?->value (nullsafe)
+        $this->assertStringContainsString('$supplier?->value', $code,
+            'Nullable enum param must use ?->value (nullsafe operator)');
+    }
+
+    public function test_enum_param_paginated_count_and_fetch_both_use_value(): void
+    {
+        $schema = "CREATE TABLE facturantelog (id INT AUTO_INCREMENT PRIMARY KEY, supplier ENUM('afip','test') NOT NULL);";
+        $cat    = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $eGen   = new \SqlcPhp\Generator\EnumGenerator('App\\Enums');
+        $mapper = new \SqlcPhp\TypeMapper\MySQLTypeMapper([], $eGen);
+        $parser = new \SqlcPhp\Parser\QueryParser();
+        $pr     = new \SqlcPhp\Resolver\ParamResolver($cat, $mapper);
+        $er     = new \SqlcPhp\Resolver\ExpressionTypeResolver($cat, $mapper);
+        $cr     = new \SqlcPhp\Resolver\ColumnResolver($cat, $mapper, $pr, $er);
+        $az     = new \SqlcPhp\Analyzer\QueryAnalyzer($pr, $cr, $parser, new \SqlcPhp\Rewriter\SqlRewriter(), $cat);
+        $dg     = new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $mapper);
+        $qg     = new \SqlcPhp\Generator\QueryGenerator($cat, $mapper, $dg, 'App\\Repos');
+
+        $qs   = $az->analyze($parser->parse(
+            "-- @name ListBySupplier\n-- @class F\n-- @dto F\n-- @returns :paginated\n" .
+            "SELECT * FROM facturantelog WHERE supplier = :supplier;"
+        ));
+        $code = $qg->generate($qs)['FQuery']['code'];
+
+        // Both the COUNT subquery binding and the paginated fetch binding must use ->value
+        $this->assertGreaterThanOrEqual(2, substr_count($code, '$supplier->value'),
+            'Both count and fetch bindValue calls must use ->value for enum');
+    }
+
+    public function test_non_enum_param_not_affected(): void
+    {
+        // Regular int/string params must NOT have ->value added
+        $qs   = $this->analyze(
+            "-- @name GetUser\n-- @returns :one\nSELECT * FROM users WHERE id = :id;"
+        );
+        $code = $this->qg->generate($qs)['UserQuery']['code'];
+
+        $this->assertStringContainsString('$id, PDO::PARAM_INT', $code,
+            'Int param must not use ->value');
+        $this->assertStringNotContainsString('$id->value', $code);
+    }
+
+    public function test_version_is_2_9_8(): void
+    {
+        $this->assertSame('2.10.0', \SqlcPhp\Version::VERSION);
     }
 }

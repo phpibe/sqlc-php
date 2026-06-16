@@ -53,9 +53,13 @@ class EnumGenerator
     /**
      * Generate a PHP backed enum file.
      *
-     * @return array{className: string, code: string}
+     * When $extGen is provided, the generated enum will include a
+     * `use XExtension;` statement and the scaffold will be returned
+     * in the result array under 'extension'.
+     *
+     * @return array{className: string, code: string, extension?: ExtensionData}
      */
-    public function generate(string $tableName, ColumnDefinition $col): array
+    public function generate(string $tableName, ColumnDefinition $col, ?ExtensionGenerator $extGen = null): array
     {
         $className = $this->enumClassName($tableName, $col->name);
         $cases     = $this->buildCases($col->enumValues);
@@ -76,6 +80,17 @@ enum {$className}: string
 {$cases}
 }
 PHP;
+
+        if ($extGen !== null) {
+            $hostFqcn = $this->namespace . '\\' . $className;
+            $caseDefs = array_map(
+                fn(string $v) => ['name' => $this->toCaseName($v), 'value' => $v],
+                $col->enumValues
+            );
+            $ext  = $extGen->forEnum($className, $caseDefs, 'string', $hostFqcn);
+            $code = $extGen->injectIntoEnum($code, $ext);
+            return ['className' => $className, 'code' => $code, 'extension' => $ext];
+        }
 
         return ['className' => $className, 'code' => $code];
     }

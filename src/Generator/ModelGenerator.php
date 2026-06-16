@@ -85,9 +85,11 @@ PHP;
             $propDefs = array_map(fn($col) => [
                 'name'    => $col->name,
                 'phpType' => $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $tableName, $col->name),
+                'fqcn'    => $this->typeMapper->toPhpFqcn($col->sqlType, $tableName, $col->name),
             ], $columns);
-            $ext  = $extGen->forModel($className, $propDefs);
-            $code = $extGen->injectIntoClass($code, $ext);
+            $hostFqcn = $this->namespace . '\\' . $className;
+            $ext      = $extGen->forModel($className, $propDefs, $hostFqcn);
+            $code     = $extGen->injectIntoClass($code, $ext);
             return ['className' => $className, 'code' => $code, 'extension' => $ext];
         }
 

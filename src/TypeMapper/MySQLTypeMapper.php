@@ -70,6 +70,32 @@ class MySQLTypeMapper implements TypeMapperInterface
     }
 
     /**
+     * Return the fully-qualified class name for types that are classes (enums,
+     * DateTimeImmutable, etc.), or null for scalars (int, string, float, bool, array).
+     *
+     * Used by ExtensionGenerator to build `use` statements in trait scaffolds.
+     */
+    public function toPhpFqcn(
+        string $sqlType,
+        string $tableName  = '',
+        string $columnName = '',
+    ): ?string {
+        $upper = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));
+
+        // ENUM → backed enum FQCN
+        if ($upper === 'ENUM' && $this->enumGen !== null && $tableName !== '' && $columnName !== '') {
+            return $this->enumGen->enumFqcn($tableName, $columnName);
+        }
+
+        // DATE / DATETIME / TIMESTAMP → DateTimeImmutable
+        if (in_array($upper, ['DATE', 'DATETIME', 'TIMESTAMP', 'TIME'], true)) {
+            return '\\DateTimeImmutable';
+        }
+
+        return null; // scalar — no use statement needed
+    }
+
+    /**
      * Maps a MySQL column type to the appropriate PDO::PARAM_* constant string.
      */
     public function toPdoParam(

@@ -43,6 +43,14 @@ class EnumGenerator
     }
 
     /**
+     * Return the fully-qualified class name for an enum column.
+     */
+    public function enumFqcn(string $tableName, string $columnName): string
+    {
+        return $this->namespace . '\\' . $this->enumClassName($tableName, $columnName);
+    }
+
+    /**
      * Generate a PHP backed enum file.
      *
      * @return array{className: string, code: string}

@@ -11,22 +11,30 @@ use SqlcPhp\Resolver\ResolvedColumn;
  *
  * Each generated model and DTO class includes a `use XExtension` statement
  * pointing to a trait that sqlc-php generates ONCE and never overwrites.
- * The user can add domain methods to these traits freely.
+ * The user adds domain methods to these traits freely.
+ *
+ * The scaffold uses two complementary docblock tags for full tooling support:
+ *
+ *   @mixin \Full\Class\Name
+ *     → PhpStorm, Intelephense and Psalm resolve $this as the host class.
+ *       Full autocomplete for all properties AND methods of the host.
+ *
+ *   @property type $name  (one per host property)
+ *     → PHPStan understands individual properties independently of @mixin.
+ *       Also serves as readable documentation of the available surface area.
  *
  * Directory structure:
  *   Extensions/
- *     Models/
- *       UserExtension.php           ← scaffold for User model
- *       BillingConfigExtension.php
- *     DTOs/
- *       BillingDetails/             (scoped_dtos: false → flat)
+ *     Models/                         ← table model extensions
+ *       UserExtension.php
+ *     DTOs/                           ← query DTO extensions
+ *       BillingDetails/               (scoped_dtos: false → flat)
  *         BillingDetailsExtension.php
- *       ReserveBilling/             (scoped_dtos: true → mirrored)
+ *       ReserveBilling/               (scoped_dtos: true → mirrored)
  *         GetByReserveId/
  *           ReserveBillingExtension.php
- *           ReserveBillingReserveExtension.php
  *
- * The extension is activated by declaring `extensions:` in the `out:` map:
+ * Activated by declaring `extensions:` in the `out:` map:
  *
  *   out:
  *     extensions: app/Database/Extensions
@@ -47,19 +55,21 @@ class ExtensionGenerator
     /**
      * Generate extension data for a model class.
      *
-     * @param  string              $className  e.g. 'User'
-     * @param  array               $columns    Column definitions with name + phpType
+     * @param  string  $className  e.g. 'User'
+     * @param  array   $columns    Column definitions — each item has 'name' and 'phpType'
+     * @param  string  $hostFqcn   FQCN of the host model, e.g. 'App\Database\Models\User'
      * @return ExtensionData
      */
-    public function forModel(string $className, array $columns): ExtensionData
+    public function forModel(string $className, array $columns, string $hostFqcn = ''): ExtensionData
     {
         $traitName = $className . 'Extension';
         $namespace = $this->nsModels;
         $relPath   = "{$traitName}.php";
 
         $props = array_map(fn($col) => [
-            'name' => $col->name ?? $col['name'],
-            'type' => is_string($col) ? 'mixed' : ($col->phpType ?? $col['phpType'] ?? 'mixed'),
+            'name'    => $col->name ?? $col['name'],
+            'type'    => is_string($col) ? 'mixed' : ($col->phpType ?? $col['phpType'] ?? 'mixed'),
+            'fqcn'    => is_array($col) ? ($col['fqcn'] ?? null) : null,
         ], $columns);
 
         return new ExtensionData(
@@ -67,7 +77,7 @@ class ExtensionGenerator
             namespace:    $namespace,
             fqcn:         $namespace . '\\' . $traitName,
             relPath:      $relPath,
-            scaffoldCode: $this->buildScaffold($traitName, $namespace, $className, $props, 'model'),
+            scaffoldCode: $this->buildScaffold($traitName, $namespace, $className, $props, 'model', $hostFqcn),
         );
     }
 
@@ -78,6 +88,7 @@ class ExtensionGenerator
      * @param  ResolvedColumn[]    $columns     Flat (non-embed) columns for the DTO
      * @param  array               $embeds      Embed definitions [{className, propertyName}]
      * @param  string|null         $scopeSubdir e.g. 'ReserveBilling/GetByReserveId'
+     * @param  string              $hostFqcn    FQCN of the host DTO
      * @return ExtensionData
      */
     public function forDto(
@@ -85,10 +96,10 @@ class ExtensionGenerator
         array   $columns,
         array   $embeds      = [],
         ?string $scopeSubdir = null,
+        string  $hostFqcn    = '',
     ): ExtensionData {
         $traitName = $className . 'Extension';
 
-        // Namespace mirrors the DTO scope: DTOs\ReserveBilling\GetByReserveId → Extensions\DTOs\ReserveBilling\GetByReserveId
         if ($scopeSubdir !== null) {
             $nsSuffix  = str_replace('/', '\\', $scopeSubdir);
             $namespace = $this->nsDtos . '\\' . $nsSuffix;
@@ -98,20 +109,40 @@ class ExtensionGenerator
             $relPath   = $traitName . '.php';
         }
 
-        // Build property list for docblock
         $props = [];
         foreach ($columns as $col) {
             if ($col instanceof ResolvedColumn) {
-                $props[] = ['name' => $col->alias, 'type' => $col->phpType];
+                $props[] = ['name' => $col->alias, 'type' => $col->phpType, 'fqcn' => null];
+            } elseif (is_array($col)) {
+                $props[] = ['name' => $col['name'], 'type' => $col['phpType'], 'fqcn' => $col['fqcn'] ?? null];
             }
         }
-        // Add embed properties
         foreach ($embeds as $embed) {
-            $embedClass = $embed->className ?? $embed['className'];
-            $propName   = method_exists($embed, 'propertyName')
-                ? $embed->propertyName()
-                : (isset($embed->propertyName) ? $embed->propertyName : lcfirst($embedClass));
-            $props[] = ['name' => $propName, 'type' => $embedClass];
+            if (is_array($embed)) {
+                // Enriched embed: ['className', 'propName', 'nullable', 'fqcn']
+                $embedClass = $embed['className'];
+                $propName   = $embed['propName'] ?? lcfirst($embedClass);
+                $nullable   = $embed['nullable'] ?? false;
+                $embedFqcn  = $embed['fqcn'] ?? null;
+            } else {
+                // Legacy EmbedDefinition object
+                $embedClass = $embed->className;
+                $propName   = method_exists($embed, 'propertyName')
+                    ? $embed->propertyName()
+                    : (isset($embed->propertyName) ? $embed->propertyName : lcfirst($embedClass));
+                $nullable   = false;
+                // Derive embed FQCN from host namespace
+                $hostDtoNs = $hostFqcn !== ''
+                    ? implode('\\', array_slice(explode('\\', $hostFqcn), 0, -1))
+                    : null;
+                $embedFqcn = $hostDtoNs !== null ? $hostDtoNs . '\\' . $embedClass : null;
+            }
+            $displayType = $nullable ? "?{$embedClass}" : $embedClass;
+            $props[] = [
+                'name' => $propName,
+                'type' => $displayType,
+                'fqcn' => $embedFqcn,
+            ];
         }
 
         return new ExtensionData(
@@ -119,21 +150,30 @@ class ExtensionGenerator
             namespace:    $namespace,
             fqcn:         $namespace . '\\' . $traitName,
             relPath:      $relPath,
-            scaffoldCode: $this->buildScaffold($traitName, $namespace, $className, $props, 'dto'),
+            scaffoldCode: $this->buildScaffold($traitName, $namespace, $className, $props, 'dto', $hostFqcn),
         );
     }
 
     // =========================================================================
-    // Code injection helpers (called by ModelGenerator and ResultDtoGenerator)
+    // Code injection — called by ModelGenerator and ResultDtoGenerator
     // =========================================================================
 
     /**
-     * Inject a `use TraitName;` statement inside the class body,
-     * a `@mixin TraitName` into the docblock, and a `use FQCN;` at the top.
+     * Inject into a generated class:
+     *   - `use FQCN;` after the namespace declaration
+     *   - `use TraitName;` as the first statement in the class body
+     *
+     * Note: we intentionally do NOT inject `@mixin TraitName` into the host class
+     * docblock. PHPStan rejects @mixin when the target is a trait (rule: mixin.trait)
+     * because PHPStan already resolves traits via the `use` statement — no annotation
+     * needed. PhpStorm and Intelephense also resolve traits via `use` directly.
+     *
+     * The @mixin tag lives in the scaffold (XExtension.php), pointing back at the
+     * host class — that gives the IDE full $this context inside the trait methods.
      */
     public function injectIntoClass(string $code, ExtensionData $ext): string
     {
-        // 1. Inject `use FQCN;` after the namespace declaration
+        // 1. `use FQCN;` after namespace
         $code = preg_replace(
             '/^(namespace [^;]+;)/m',
             "$1\n\nuse {$ext->fqcn};",
@@ -141,19 +181,7 @@ class ExtensionGenerator
             1
         ) ?? $code;
 
-        // 2. Inject `@mixin TraitName` at the end of the docblock
-        //    Target: "Generated by sqlc-php — do not edit manually."
-        $marker = ' * Generated by sqlc-php — do not edit manually.';
-        if (str_contains($code, $marker)) {
-            $code = str_replace(
-                $marker,
-                $marker . "\n *\n * @mixin {$ext->traitName}",
-                $code
-            );
-        }
-
-        // 3. Inject `use TraitName;` as first statement in the class body,
-        //    followed by a blank line before the constructor.
+        // 2. `use TraitName;` as first line inside the class body
         $className = substr($ext->traitName, 0, -strlen('Extension'));
         $code = preg_replace(
             '/^((?:readonly\s+)?class\s+' . preg_quote($className, '/') . '[^{]*\{)/m',
@@ -170,53 +198,101 @@ class ExtensionGenerator
     // =========================================================================
 
     /**
-     * Build the write-once trait scaffold.
+     * Build the write-once trait scaffold with @property + @mixin docblock.
      *
-     * Uses PHP 8.4 abstract properties to declare the contract between this
-     * trait and its host class. The abstract declarations:
-     *
-     *   - Give the IDE full type information for $this inside the trait
-     *   - Are enforced by PHP at compile time — if the host class removes
-     *     a column that the trait declares abstract, PHP throws a fatal error
-     *     immediately, making schema drift impossible to miss
-     *   - Work natively with PHPStan, Psalm, and Intelephense without extra
-     *     annotations or configuration
-     *
-     * When a new column is added to the schema, add a corresponding abstract
-     * property here to get type-safe access to it in your methods.
+     * @param string $traitName  e.g. 'UserExtension'
+     * @param string $namespace  PHP namespace for the trait
+     * @param string $className  Short name of the host class, e.g. 'User'
+     * @param array  $props      [{name, type}, ...] — all host properties
+     * @param string $kind       'model' | 'dto'
+     * @param string $hostFqcn   FQCN of the host class for @mixin
      */
     private function buildScaffold(
         string $traitName,
         string $namespace,
         string $className,
         array  $props,
-        string $kind,        // 'model' | 'dto'
+        string $kind,
+        string $hostFqcn,
     ): string {
-        // Build the abstract property declarations block
-        $abstractLines = '';
-        if (!empty($props)) {
-            $maxType = max(array_map(fn($p) => strlen($p['type']), $props));
-            foreach ($props as $p) {
-                // Sanitize type for PHP abstract property syntax.
-                // DateTimeImmutable needs backslash, nullable types use ?prefix.
-                $type = $this->toAbstractType($p['type']);
-                $pad  = str_repeat(' ', $maxType - strlen($p['type']));
-                $abstractLines .= "    abstract public {$type}{$pad} \${$p['name']};\n";
-            }
-        }
-
         $kindLabel  = $kind === 'model' ? 'model' : 'DTO';
         $sourceNote = $kind === 'model'
             ? "Extends the `{$className}` table model."
             : "Extends the `{$className}` result DTO.";
 
-        $exampleMethod = $kind === 'model'
-            ? " *   public function isActive(): bool\n *   {\n *       return \$this->active === 1;\n *   }"
-            : " *   public function toApiArray(): array\n *   {\n *       return ['id' => \$this->id];\n *   }";
+        // Collect FQCNs that need `use` statements in the trait file.
+        // These are class-type properties (enums, DateTimeImmutable, embeds)
+        // whose short name would be unresolvable without a use declaration.
+        $useStatements = [];
 
-        $abstractBlock = $abstractLines !== ''
-            ? "\n    // ── PHP 8.4 schema contract (enforced at compile time) ──────────────\n{$abstractLines}\n"
+        // Host class itself (for @mixin)
+        if ($hostFqcn !== '') {
+            $hostShort = basename(str_replace('\\', '/', $hostFqcn));
+            $useStatements[$hostShort] = $hostFqcn;
+        }
+
+        // Per-property FQCNs — provided when the type is a class (enum, DateTimeImmutable, etc.)
+        foreach ($props as $p) {
+            $fqcn = $p['fqcn'] ?? null;
+            if ($fqcn === null) continue;
+            // Strip leading backslash for use statements
+            $fqcn  = ltrim($fqcn, '\\');
+            $short = basename(str_replace('\\', '/', $fqcn));
+            if ($short !== '' && !isset($useStatements[$short])) {
+                $useStatements[$short] = $fqcn;
+            }
+        }
+
+        // Build `use` block — skip if FQCN is in the same namespace as the trait,
+        // or if it's a global PHP class (leading backslash / no namespace)
+        $globalClasses = ['DateTimeImmutable', 'DateTimeInterface', 'DateTime', 'DateInterval', 'Throwable', 'Exception'];
+        $useLines = '';
+        foreach ($useStatements as $short => $fqcn) {
+            $fqcnNs = implode('\\', array_slice(explode('\\', $fqcn), 0, -1));
+            if ($fqcnNs === $namespace) continue;       // same namespace — no use needed
+            if (in_array($short, $globalClasses, true)) continue; // global — use backslash prefix
+            $useLines .= "use {$fqcn};\n";
+        }
+        $useBlock = $useLines !== '' ? "\n{$useLines}" : '';
+
+        // @mixin line — points to the always-current generated host class
+        $mixinLine = $hostFqcn !== ''
+            ? " * @mixin " . basename(str_replace('\\', '/', $hostFqcn)) . "\n"
             : '';
+
+        // @property lines — one per property for PHPStan + human readability
+        $propertyLines = '';
+        if (!empty($props)) {
+            // Build display type — use short class name (covered by use statement above),
+            // or backslash-prefixed for global PHP classes (DateTimeImmutable, etc.)
+            $globalClasses = ['DateTimeImmutable', 'DateTimeInterface', 'DateTime', 'DateInterval', 'Throwable', 'Exception'];
+            $displayTypes = array_map(function ($p) use ($globalClasses): string {
+                $fqcn     = $p['fqcn'] ?? null;
+                $nullable = str_starts_with($p['type'], '?');
+                if ($fqcn === null) return $p['type'];
+                $short = basename(str_replace('\\', '/', ltrim($fqcn, '\\')));
+                // Global PHP classes: use \ClassName prefix instead of a use statement
+                if (in_array($short, $globalClasses, true)) {
+                    return $nullable ? "?\\{$short}" : "\\{$short}";
+                }
+                return $nullable ? "?{$short}" : $short;
+            }, $props);
+
+            $maxType = max(array_map('strlen', $displayTypes));
+            foreach ($props as $i => $p) {
+                $display        = $displayTypes[$i];
+                $pad            = str_repeat(' ', $maxType - strlen($display));
+                $propertyLines .= " * @property {$display}{$pad} \${$p['name']}\n";
+            }
+        }
+
+        $docExtras = $mixinLine !== '' || $propertyLines !== ''
+            ? " *\n{$mixinLine}{$propertyLines}"
+            : '';
+
+        $exampleMethod = $kind === 'model'
+            ? "    // public function isActive(): bool\n    // {\n    //     return \$this->active === 1;\n    // }"
+            : "    // public function toApiArray(): array\n    // {\n    //     return ['id' => \$this->id];\n    // }";
 
         return <<<PHP
 <?php
@@ -224,7 +300,7 @@ class ExtensionGenerator
 declare(strict_types=1);
 
 namespace {$namespace};
-
+{$useBlock}
 /**
  * Extension trait for the `{$className}` {$kindLabel}.
  * {$sourceNote}
@@ -233,43 +309,17 @@ namespace {$namespace};
  * ║  This file is yours — sqlc-php will NEVER overwrite it.  ║
  * ╚══════════════════════════════════════════════════════════╝
  *
- * The abstract properties below declare the contract between this trait
- * and the `{$className}` {$kindLabel}. PHP 8.4 enforces them at compile time:
- *
- *   ✓ Full IDE type inference for \$this inside your methods — no annotations needed.
- *   ✓ If the schema removes a column that is declared abstract here, PHP emits a
- *     fatal error at class load time — schema drift is impossible to miss.
- *   ✓ PHPStan, Psalm, and Intelephense understand abstract properties natively.
- *
- * When a new column is added to the schema, add an abstract property here
- * to get type-safe access to it in your domain methods.
- *
+ * Add domain methods that operate on `{$className}` properties.
+ * All properties of the {$kindLabel} are available via `\$this`.
+{$docExtras} *
  * Example:
 {$exampleMethod}
  */
 trait {$traitName}
-{{$abstractBlock}    // Your methods here
+{
+    // Your methods here
 }
 PHP;
-    }
-
-    /**
-     * Convert a PHP type string to a valid type for an abstract property declaration.
-     * Handles nullable (?type), DateTimeImmutable, arrays, and scalars.
-     */
-    private function toAbstractType(string $phpType): string
-    {
-        // Bare class names that need a leading backslash in property declarations
-        $needsBackslash = ['DateTimeImmutable', 'DateTimeInterface', 'DateTime', 'DateInterval'];
-
-        $nullable = str_starts_with($phpType, '?');
-        $base     = ltrim($phpType, '?');
-
-        if (in_array($base, $needsBackslash, true)) {
-            $base = '\\' . $base;
-        }
-
-        return $nullable ? "?{$base}" : $base;
     }
 }
 

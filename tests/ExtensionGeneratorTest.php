@@ -106,34 +106,31 @@ class ExtensionGeneratorTest extends TestCase
         $this->assertStringContainsString('namespace ' . self::NS_EXT_MODELS, $ext->scaffoldCode);
     }
 
-    public function test_for_model_scaffold_has_abstract_properties_for_columns(): void
+    public function test_for_model_scaffold_has_property_tags_for_columns(): void
     {
-        // PHP 8.4: abstract properties replace docblock @property annotations.
-        // The trait declares the contract; PHP enforces it at compile time.
         $cols = [
             ['name' => 'id',     'phpType' => 'int'],
             ['name' => 'email',  'phpType' => 'string'],
             ['name' => 'active', 'phpType' => 'int'],
         ];
         $ext = $this->extGen->forModel('User', $cols);
-        $this->assertStringContainsString('abstract public int    $id;',     $ext->scaffoldCode);
-        $this->assertStringContainsString('abstract public string $email;',  $ext->scaffoldCode);
-        $this->assertStringContainsString('abstract public int    $active;', $ext->scaffoldCode);
+        $this->assertStringContainsString('@property int    $id',     $ext->scaffoldCode);
+        $this->assertStringContainsString('@property string $email',  $ext->scaffoldCode);
+        $this->assertStringContainsString('@property int    $active',  $ext->scaffoldCode);
     }
 
-    public function test_for_model_scaffold_nullable_abstract_property(): void
+    public function test_for_model_scaffold_nullable_property_tag(): void
     {
         $cols = [['name' => 'bio', 'phpType' => '?string']];
         $ext  = $this->extGen->forModel('User', $cols);
-        $this->assertStringContainsString('abstract public ?string $bio;', $ext->scaffoldCode);
+        $this->assertStringContainsString('@property ?string $bio', $ext->scaffoldCode);
     }
 
-    public function test_for_model_scaffold_datetime_abstract_property(): void
+    public function test_for_model_scaffold_datetime_property_tag(): void
     {
-        $cols = [['name' => 'created_at', 'phpType' => 'DateTimeImmutable']];
+        $cols = [['name' => 'created_at', 'phpType' => '?DateTimeImmutable']];
         $ext  = $this->extGen->forModel('User', $cols);
-        // DateTimeImmutable needs a leading backslash in property declarations
-        $this->assertStringContainsString('abstract public \DateTimeImmutable $created_at;', $ext->scaffoldCode);
+        $this->assertStringContainsString('@property ?DateTimeImmutable $created_at', $ext->scaffoldCode);
     }
 
     public function test_for_model_scaffold_has_never_overwrite_notice(): void
@@ -142,28 +139,74 @@ class ExtensionGeneratorTest extends TestCase
         $this->assertStringContainsString('NEVER overwrite', $ext->scaffoldCode);
     }
 
-    public function test_for_model_scaffold_has_abstract_properties_php84(): void
+    public function test_for_model_scaffold_has_mixin_tag_with_host_fqcn(): void
     {
-        // PHP 8.4 abstract properties in traits are enforced by PHP at compile time.
-        // When the host class removes a column that is declared abstract here,
-        // PHP emits a fatal error at class load time — schema drift is immediately visible.
-        $cols = [
-            ['name' => 'id',     'phpType' => 'int'],
-            ['name' => 'email',  'phpType' => 'string'],
-            ['name' => 'active', 'phpType' => 'int'],
-        ];
-        $ext = $this->extGen->forModel('User', $cols);
-
-        $this->assertStringContainsString('abstract public int    $id;',     $ext->scaffoldCode);
-        $this->assertStringContainsString('abstract public string $email;',  $ext->scaffoldCode);
-        $this->assertStringContainsString('abstract public int    $active;', $ext->scaffoldCode);
+        $cols = [['name' => 'id', 'phpType' => 'int', 'fqcn' => null]];
+        $ext  = $this->extGen->forModel('User', $cols, self::NS_MODELS . '\\User');
+        // @mixin uses the short class name (backed by a use statement in the scaffold)
+        $this->assertStringContainsString('@mixin User', $ext->scaffoldCode);
+        $this->assertStringContainsString('use ' . self::NS_MODELS . '\\User;', $ext->scaffoldCode);
     }
 
-    public function test_for_model_scaffold_abstract_section_label(): void
+    public function test_for_model_scaffold_no_mixin_when_no_host_fqcn(): void
     {
-        $cols = [['name' => 'id', 'phpType' => 'int']];
-        $ext  = $this->extGen->forModel('User', $cols);
-        $this->assertStringContainsString('PHP 8.4 schema contract', $ext->scaffoldCode);
+        $ext = $this->extGen->forModel('User', []);
+        $this->assertStringNotContainsString('@mixin', $ext->scaffoldCode);
+    }
+
+    public function test_for_model_scaffold_enum_property_gets_use_statement(): void
+    {
+        // Enum columns have a class type (BillingConfigVoucherType) — the scaffold
+        // must include a `use` statement so PHPStan resolves the type correctly.
+        $cols = [
+            ['name' => 'id',           'phpType' => 'int',                           'fqcn' => null],
+            ['name' => 'voucher_type',  'phpType' => 'BillingConfigVoucherType',      'fqcn' => 'App\\Database\\Enums\\BillingConfigVoucherType'],
+            ['name' => 'provider',      'phpType' => 'BillingConfigProvider',         'fqcn' => 'App\\Database\\Enums\\BillingConfigProvider'],
+        ];
+        $ext = $this->extGen->forModel('BillingConfig', $cols, self::NS_MODELS . '\\BillingConfig');
+
+        $this->assertStringContainsString('use App\\Database\\Enums\\BillingConfigVoucherType;', $ext->scaffoldCode,
+            'Enum FQCN must appear as a use statement');
+        $this->assertStringContainsString('use App\\Database\\Enums\\BillingConfigProvider;', $ext->scaffoldCode,
+            'Second enum FQCN must also appear as a use statement');
+        $this->assertStringContainsString('@property BillingConfigVoucherType', $ext->scaffoldCode,
+            '@property must use short class name covered by the use statement');
+        $this->assertStringContainsString('@property BillingConfigProvider', $ext->scaffoldCode);
+    }
+
+    public function test_for_model_scaffold_datetime_uses_backslash_prefix_not_use(): void
+    {
+        // DateTimeImmutable is a global PHP class — no use statement, just \DateTimeImmutable
+        $cols = [
+            ['name' => 'created_at', 'phpType' => 'DateTimeImmutable', 'fqcn' => '\\DateTimeImmutable'],
+        ];
+        $ext = $this->extGen->forModel('User', $cols, self::NS_MODELS . '\\User');
+
+        $this->assertStringNotContainsString('use DateTimeImmutable;', $ext->scaffoldCode,
+            'DateTimeImmutable must NOT have a use statement — it is a global class');
+        $this->assertStringContainsString('@property \\DateTimeImmutable $created_at', $ext->scaffoldCode,
+            'DateTimeImmutable must use backslash prefix in @property tag');
+    }
+
+    public function test_for_model_scaffold_nullable_datetime_uses_backslash_prefix(): void
+    {
+        $cols = [
+            ['name' => 'deleted_at', 'phpType' => '?DateTimeImmutable', 'fqcn' => '\\DateTimeImmutable'],
+        ];
+        $ext = $this->extGen->forModel('User', $cols);
+        $this->assertStringContainsString('@property ?\\DateTimeImmutable $deleted_at', $ext->scaffoldCode);
+        $this->assertStringNotContainsString('use DateTimeImmutable;', $ext->scaffoldCode);
+    }
+
+    public function test_for_model_scaffold_property_types_aligned(): void
+    {
+        $cols = [
+            ['name' => 'id',    'phpType' => 'int',    'fqcn' => null],
+            ['name' => 'email', 'phpType' => 'string', 'fqcn' => null],
+        ];
+        $ext = $this->extGen->forModel('User', $cols);
+        $this->assertStringContainsString('@property int    $id',    $ext->scaffoldCode);
+        $this->assertStringContainsString('@property string $email', $ext->scaffoldCode);
     }
 
     // =========================================================================
@@ -223,14 +266,18 @@ class ExtensionGeneratorTest extends TestCase
         $this->assertStringContainsString('use App\\Ext\\UserExtension;', $result);
     }
 
-    public function test_inject_adds_mixin_in_docblock(): void
+    public function test_inject_does_not_add_mixin_in_host_class_docblock(): void
     {
+        // PHPStan rejects @mixin when the target is a trait (rule: mixin.trait).
+        // The host class must NOT have @mixin — PHPStan resolves the trait via `use`.
+        // The @mixin lives only in the scaffold (pointing back at the host class).
         $code = "<?php\n\ndeclare(strict_types=1);\n\nnamespace App\\Models;\n\n/**\n * DTO for users.\n * Generated by sqlc-php — do not edit manually.\n */\nreadonly class User\n{\n    public function __construct(public int \$id) {}\n}\n";
         $ext  = new ExtensionData('UserExtension', 'App\\Ext', 'App\\Ext\\UserExtension', 'UserExtension.php', '');
 
         $result = $this->extGen->injectIntoClass($code, $ext);
 
-        $this->assertStringContainsString('@mixin UserExtension', $result);
+        $this->assertStringNotContainsString('@mixin UserExtension', $result,
+            'Host class must NOT have @mixin — PHPStan rejects @mixin for trait targets');
     }
 
     public function test_inject_adds_use_trait_inside_class_body(): void
@@ -244,15 +291,16 @@ class ExtensionGeneratorTest extends TestCase
         $this->assertMatchesRegularExpression('/class User[^{]*\{[^}]*use UserExtension;/s', $result);
     }
 
-    public function test_inject_mixin_appears_exactly_once(): void
+    public function test_inject_no_mixin_in_host_regardless_of_calls(): void
     {
+        // Even if called multiple times, @mixin must never appear in the host class
         $code = "<?php\ndeclare(strict_types=1);\nnamespace App;\n/**\n * Generated by sqlc-php — do not edit manually.\n */\nreadonly class Foo\n{\npublic function __construct(public int \$id) {}\n}\n";
         $ext  = new ExtensionData('FooExtension', 'App\\Ext', 'App\\Ext\\FooExtension', 'FooExtension.php', '');
 
         $result = $this->extGen->injectIntoClass($code, $ext);
 
-        $this->assertSame(1, substr_count($result, '@mixin FooExtension'),
-            '@mixin must appear exactly once');
+        $this->assertStringNotContainsString('@mixin', $result,
+            '@mixin must never appear in the generated host class');
     }
 
     // =========================================================================
@@ -276,9 +324,13 @@ class ExtensionGeneratorTest extends TestCase
         $this->assertInstanceOf(ExtensionData::class, $m['extension']);
         $this->assertSame('UserExtension', $m['extension']->traitName);
 
+        // use FQCN at top of file
         $this->assertStringContainsString('use App\\Database\\Extensions\\Models\\UserExtension;', $m['code']);
-        $this->assertStringContainsString('@mixin UserExtension', $m['code']);
+        // use TraitName inside class body
         $this->assertStringContainsString('use UserExtension;', $m['code']);
+        // @mixin must NOT appear in the host class (PHPStan mixin.trait rule)
+        $this->assertStringNotContainsString('@mixin UserExtension', $m['code'],
+            'Host class must not have @mixin — PHPStan rejects @mixin for trait targets');
     }
 
     public function test_model_generate_extension_relpath(): void
@@ -316,8 +368,10 @@ class ExtensionGeneratorTest extends TestCase
 
         $this->assertNotEmpty($r['extensions']);
         $this->assertStringContainsString('use App\\Database\\Extensions\\DTOs\\OrderRowExtension;', $r['code']);
-        $this->assertStringContainsString('@mixin OrderRowExtension', $r['code']);
         $this->assertStringContainsString('use OrderRowExtension;', $r['code']);
+        // @mixin must NOT appear in the host class
+        $this->assertStringNotContainsString('@mixin OrderRowExtension', $r['code'],
+            'Host class must not have @mixin — PHPStan rejects @mixin for trait targets');
     }
 
     public function test_dto_generate_scoped_extension_mirrors_dto_path(): void
@@ -335,7 +389,7 @@ class ExtensionGeneratorTest extends TestCase
     {
         // Embed columns have prefixed aliases (user__email, user__active) in the result.
         // The embed DTO declares properties WITHOUT the prefix ($email, $active).
-        // The embed extension's abstract properties must match the DTO's property names.
+        // The embed extension's @property tags must match the DTO's property names.
         $q = $this->analyze(
             "-- @name GetOrderDetails\n-- @class Order\n-- @dto OrderDetails\n" .
             "-- @embed UserInfo user__\n-- @returns :one\n" .
@@ -354,8 +408,8 @@ class ExtensionGeneratorTest extends TestCase
         $scaffold = $r['extensions'][$embedExtKey]->scaffoldCode;
 
         // Must have stripped names (email, active) — not prefixed (user__email, user__active)
-        $this->assertStringContainsString('abstract public string $email;',  $scaffold);
-        $this->assertStringContainsString('abstract public int    $active;', $scaffold);
+        $this->assertStringContainsString('@property string $email',  $scaffold);
+        $this->assertStringContainsString('@property int    $active', $scaffold);
         $this->assertStringNotContainsString('user__email',  $scaffold);
         $this->assertStringNotContainsString('user__active', $scaffold);
     }
@@ -407,6 +461,102 @@ class ExtensionGeneratorTest extends TestCase
 
         $this->assertSame('App\\Database\\Extensions\\Models', $out->namespaceFor('extensions_models'));
         $this->assertSame('App\\Database\\Extensions\\DTOs',   $out->namespaceFor('extensions_dtos'));
+    }
+
+    public function test_dto_generate_with_enum_columns_has_use_statements(): void
+    {
+        // Regression: DTO extension scaffold was missing `use` for enum types because
+        // extractUseMap read the DTO code's use statements (empty for enums) instead
+        // of querying toPhpFqcn() directly from the type mapper.
+        $schema = "
+            CREATE TABLE billing_configs (
+                id           INT          AUTO_INCREMENT PRIMARY KEY,
+                voucher_type ENUM('A','B') NOT NULL,
+                provider     ENUM('afip','test') NOT NULL
+            );";
+        $enumNs  = 'App\\Database\\Enums';
+        $cat     = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $enumGen = new \SqlcPhp\Generator\EnumGenerator($enumNs);
+        $mapper  = new \SqlcPhp\TypeMapper\MySQLTypeMapper([], $enumGen);
+        $parser  = new \SqlcPhp\Parser\QueryParser();
+        $pr      = new \SqlcPhp\Resolver\ParamResolver($cat, $mapper);
+        $er      = new \SqlcPhp\Resolver\ExpressionTypeResolver($cat, $mapper);
+        $cr      = new \SqlcPhp\Resolver\ColumnResolver($cat, $mapper, $pr, $er);
+        $az      = new \SqlcPhp\Analyzer\QueryAnalyzer($pr, $cr, $parser, new \SqlcPhp\Rewriter\SqlRewriter(), $cat);
+        $dg      = new ResultDtoGenerator('App\\DTOs', $mapper);
+        $extGen  = new ExtensionGenerator('App\\Extensions\\Models', 'App\\Extensions\\DTOs');
+
+        $qs = $az->analyze($parser->parse(
+            "-- @name ListBilling\n-- @class Billing\n-- @dto BillingRow\n-- @returns :many\n" .
+            "SELECT * FROM billing_configs;"
+        ));
+        $r = $dg->generate($qs[0], scoped: true, extGen: $extGen);
+
+        $extKey   = array_key_first($r['extensions']);
+        $scaffold = $r['extensions'][$extKey]->scaffoldCode;
+
+        $this->assertStringContainsString(
+            "use {$enumNs}\\BillingConfigVoucherType;",
+            $scaffold,
+            'DTO extension must have use statement for enum BillingConfigVoucherType'
+        );
+        $this->assertStringContainsString(
+            "use {$enumNs}\\BillingConfigProvider;",
+            $scaffold,
+            'DTO extension must have use statement for enum BillingConfigProvider'
+        );
+        // @property must use short names (resolved by use statements)
+        $this->assertStringContainsString('@property BillingConfigVoucherType', $scaffold);
+        $this->assertStringContainsString('@property BillingConfigProvider', $scaffold);
+    }
+
+    public function test_dto_with_embeds_generates_use_statements_for_embed_types(): void
+    {
+        // Regression: embed DTO types (Product, Reserve) appeared in @property tags
+        // without a corresponding `use` statement — PHPStan/Psalm couldn't resolve them.
+        $q = $this->analyze(
+            "-- @name GetDetails\n-- @class Order\n-- @dto OrderDetails\n" .
+            "-- @embed UserData user__\n-- @returns :one\n" .
+            "SELECT orders.id, orders.total, orders.status,\n" .
+            "       users.email as user__email, users.active as user__active\n" .
+            "FROM orders INNER JOIN users ON orders.user_id = users.id WHERE orders.id = :id;"
+        );
+        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+
+        $extKey = null;
+        foreach (array_keys($r['extensions']) as $k) {
+            if (str_ends_with($k, 'OrderDetailsExtension.php')) { $extKey = $k; break; }
+        }
+        $this->assertNotNull($extKey, 'OrderDetailsExtension must be generated');
+        $scaffold = $r['extensions'][$extKey]->scaffoldCode;
+
+        // @property UserData must use the short name resolved by a use statement
+        // The property name comes from the embed prefix: user__ → $user
+        $this->assertStringContainsString('@property UserData $user', $scaffold);
+        $this->assertMatchesRegularExpression('/^use .*UserData;$/m', $scaffold,
+            'use statement for embed class UserData must be present');
+    }
+
+    public function test_dto_nullable_embed_generates_nullable_property_tag(): void
+    {
+        // Nullable embed (all cols @nillable) → @property ?EmbedClass
+        $q = $this->analyze(
+            "-- @name GetOrderOpt\n-- @class Order\n-- @dto OrderOpt\n" .
+            "-- @embed OptUser opt__\n-- @nillable opt__email\n-- @nillable opt__active\n-- @returns :opt\n" .
+            "SELECT orders.id, orders.total, users.email as opt__email, users.active as opt__active\n" .
+            "FROM orders LEFT JOIN users ON orders.user_id = users.id WHERE orders.id = :id;"
+        );
+        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+
+        $extKey = null;
+        foreach (array_keys($r['extensions']) as $k) {
+            if (str_ends_with($k, 'OrderOptExtension.php')) { $extKey = $k; break; }
+        }
+        $this->assertNotNull($extKey);
+        $scaffold = $r['extensions'][$extKey]->scaffoldCode;
+
+        $this->assertStringContainsString('@property ?OptUser $opt', $scaffold,
+            'Nullable embed must generate @property ?EmbedClass');
     }
 
     // =========================================================================

@@ -55,6 +55,31 @@ class ResultDtoGenerator
      * Derive the scoped subdirectory path (relative to the DTOs base dir).
      * Matches the namespace structure: {Group}/{MethodPascalCase}
      */
+    /**
+     * Attach an 'fqcn' key to each column by querying the type mapper.
+     * This resolves FQCNs for enums, DateTimeImmutable, and other class types
+     * directly from the column's SQL type — not from the generated code's use
+     * statements (which may be absent for enums in DTO files).
+     *
+     * @param  ResolvedColumn[] $columns
+     * @return array<int, array{name: string, phpType: string, fqcn: string|null}>
+     */
+    private function attachFqcns(array $columns): array
+    {
+        return array_map(function ($col): array {
+            $fqcn = $this->typeMapper?->toPhpFqcn(
+                $col->sqlType,
+                $col->tableName,
+                $col->columnName,
+            );
+            return [
+                'name'    => $col->alias,
+                'phpType' => $col->phpType,
+                'fqcn'    => $fqcn,
+            ];
+        }, $columns);
+    }
+
     private function scopeSubdirFor(QueryDefinition $query): string
     {
         return $query->group . '/' . ucfirst($query->name);
@@ -191,21 +216,34 @@ PHP;
         // ── Extension trait injection ────────────────────────────────────────
         $extensions = [];
         if ($extGen !== null) {
-            // Main DTO extension
-            $dtoExt = $extGen->forDto($className, $flatColumns, $embeds, $scopeSubdir);
-            $code   = $extGen->injectIntoClass($code, $dtoExt);
+            // Main DTO extension — build enriched embed list with nullable + FQCN
+            $hostFqcn   = $namespace . '\\' . $className;
+            $hostDtoNs  = implode('\\', array_slice(explode('\\', $hostFqcn), 0, -1));
+
+            $embedsForExt = [];
+            foreach ($embeds as $embed) {
+                $cols        = $embedColumns[$embed->className] ?? [];
+                $allNullable = !empty($cols) && count(array_filter($cols, fn($c) => !$c->nullable)) === 0;
+                $embedsForExt[] = [
+                    'className' => $embed->className,
+                    'propName'  => $embed->propertyName(),
+                    'nullable'  => $allNullable,
+                    'fqcn'      => $hostDtoNs . '\\' . $embed->className,
+                ];
+            }
+
+            $propsWithFqcn = $this->attachFqcns($flatColumns);
+            $dtoExt        = $extGen->forDto($className, $propsWithFqcn, $embedsForExt, $scopeSubdir, $hostFqcn);
+            $code          = $extGen->injectIntoClass($code, $dtoExt);
             $extensions[$dtoExt->relPath] = $dtoExt;
 
-            // Embed extensions — use prefix-stripped property names to match the embed DTO
+            // Embed extensions
             foreach ($embeds as $embed) {
                 $embedColSet = $embedColumns[$embed->className] ?? [];
                 if (empty($embedColSet)) continue;
-                // Strip the embed prefix from column aliases so the abstract properties
-                // match what the embed DTO actually declares (email, not user__email)
                 $strippedCols = array_map(function ($col) use ($embed) {
-                    $strippedAlias = $embed->stripPrefix($col->alias);
                     return new \SqlcPhp\Resolver\ResolvedColumn(
-                        alias:      $strippedAlias,
+                        alias:      $embed->stripPrefix($col->alias),
                         columnName: $col->columnName,
                         tableName:  $col->tableName,
                         sqlType:    $col->sqlType,
@@ -213,8 +251,9 @@ PHP;
                         phpType:    $col->phpType,
                     );
                 }, $embedColSet);
-                $embedExt = $extGen->forDto($embed->className, $strippedCols, [], $scopeSubdir);
-                // Inject into embed code
+                $embedHostFqcn      = $namespace . '\\' . $embed->className;
+                $embedPropsWithFqcn = $this->attachFqcns($strippedCols);
+                $embedExt           = $extGen->forDto($embed->className, $embedPropsWithFqcn, [], $scopeSubdir, $embedHostFqcn);
                 if (isset($embedFiles[$embed->className])) {
                     $embedFiles[$embed->className]['code'] = $extGen->injectIntoClass(
                         $embedFiles[$embed->className]['code'],

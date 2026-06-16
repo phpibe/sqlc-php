@@ -18,6 +18,18 @@ namespace SqlcPhp\TypeMapper;
 interface TypeMapperInterface
 {
     /**
+     * Return the fully-qualified class name for types that are classes (enums,
+     * DateTimeImmutable, etc.), or null for scalars (int, string, float, bool, array).
+     *
+     * Used by ExtensionGenerator to produce correct `use` statements in scaffolds.
+     */
+    public function toPhpFqcn(
+        string $sqlType,
+        string $tableName  = '',
+        string $columnName = '',
+    ): ?string;
+
+    /**
      * Map a SQL column type to a PHP native type string.
      *
      * @param string $sqlType     SQL column type, e.g. "INT", "VARCHAR", "JSONB"

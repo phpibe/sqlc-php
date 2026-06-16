@@ -347,6 +347,7 @@ function runGeneration(
             ? new \SqlcPhp\Generator\ExtensionGenerator(
                 $output->namespaceFor('extensions_models'),
                 $output->namespaceFor('extensions_dtos'),
+                $output->namespaceFor('extensions_enums'),
             )
             : null;
         $interfaceGen = $target->generateInterfaces ? new InterfaceGenerator($nsInterfaces) : null;
@@ -365,8 +366,19 @@ function runGeneration(
             if ($table->virtual) continue;
             foreach ($table->columns as $col) {
                 if (!$col->isEnum()) continue;
-                ['className' => $cls, 'code' => $code] = $enumGen->generate($table->name, $col);
-                $toWrite["{$cls}.php"] = ['type' => 'enums', 'label' => '[enum]   ', 'code' => $code];
+                $e = $enumGen->generate($table->name, $col, $extGen);
+                $toWrite["{$e['className']}.php"] = ['type' => 'enums', 'label' => '[enum]   ', 'code' => $e['code']];
+                if ($extGen !== null && isset($e['extension'])) {
+                    $relPath = $e['extension']->relPath;
+                    // Only add if not already collected (dedup — same enum on multiple queries)
+                    if (!isset($scaffoldWrite[$relPath])) {
+                        $scaffoldWrite[$relPath] = [
+                            'type'  => 'extensions_enums',
+                            'label' => '[ext-e]  ',
+                            'ext'   => $e['extension'],
+                        ];
+                    }
+                }
             }
         }
 
@@ -548,7 +560,10 @@ function runGeneration(
                 $fileDir  = dirname($fullPath);
 
                 // Skip if already exists — this is the core write-once guarantee
-                if (file_exists($fullPath)) continue;
+                if (file_exists($fullPath)) {
+                    if (!$silent) echo "  {$entry['label']}{$fullPath} (exists — not overwritten)\n";
+                    continue;
+                }
 
                 if (!is_dir($fileDir) && !mkdir($fileDir, 0755, true)) {
                     $result['error'] = "Cannot create output directory: {$fileDir}";

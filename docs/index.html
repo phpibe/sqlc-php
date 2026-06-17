@@ -81,6 +81,7 @@
     .rt-opt{background:rgba(167,139,250,.15);color:#c4b5fd}
     .rt-exec{background:rgba(63,185,80,.15);color:var(--accent-3)}
     .rt-paginated{background:rgba(56,189,248,.15);color:#7dd3fc}
+    .rt-cursor{background:rgba(52,211,153,.15);color:#6ee7b7}
     .file-tree{background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:1.25rem 1.5rem;font-family:var(--font-mono);font-size:.82rem;line-height:1.9}
     .file-tree .dir{color:var(--accent-2)}
     .file-tree .file{color:var(--text-primary)}
@@ -151,6 +152,7 @@
       <a class="sidebar-link" href="#ann-nillable"><i class="bi bi-question-circle"></i> @nillable</a>
       <a class="sidebar-link" href="#ann-type"><i class="bi bi-tag"></i> @type</a>
       <a class="sidebar-link" href="#ann-counted"><i class="bi bi-hash"></i> @counted</a>
+      <a class="sidebar-link" href="#ann-cursor"><i class="bi bi-cursor-text"></i> @cursor</a>
       <a class="sidebar-link" href="#ann-searchable"><i class="bi bi-funnel"></i> @searchable</a>
       <a class="sidebar-link" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
@@ -166,6 +168,7 @@
       <a class="sidebar-link" href="#rt-many"><i class="bi bi-collection"></i> :many</a>
       <a class="sidebar-link" href="#rt-many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
       <a class="sidebar-link" href="#rt-paginated"><i class="bi bi-grid-3x3-gap"></i> :paginated</a>
+      <a class="sidebar-link" href="#rt-cursor"><i class="bi bi-cursor"></i> :cursor</a>
       <a class="sidebar-link" href="#rt-one"><i class="bi bi-person"></i> :one</a>
       <a class="sidebar-link" href="#rt-opt"><i class="bi bi-question-diamond"></i> :opt</a>
       <a class="sidebar-link" href="#rt-exec"><i class="bi bi-pencil-square"></i> :exec</a>
@@ -520,6 +523,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable)</td></tr>
             <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
             <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method (only with <code>:many-paginated</code>)</td></tr>
+            <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.0</span></td></tr>
             <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE/ORDER BY (only with <code>:many</code> / <code>:many-paginated</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
@@ -572,6 +576,7 @@ SELECT country_id, COUNT(*) AS total FROM users GROUP BY country_id;</code></pre
       <pre><code class="language-sql">-- @returns :many            → array of rows
 -- @returns :many-paginated  → array of rows with optional LIMIT/OFFSET
 -- @returns :paginated        → PaginatedResult (items + total + pages + metadata)
+-- @returns :cursor          → CursorResult (items + hasMore + nextCursor token)
 -- @returns :one             → single row (throws if not found)
 -- @returns :opt             → single row or null
 -- @returns :exec            → void (INSERT / UPDATE / DELETE)
@@ -836,6 +841,37 @@ $all = $query->listUsers(active: 1, limit: null);</code></pre>
         <i class="bi bi-info-circle callout-icon"></i>
         <strong>Rule of thumb.</strong> Start with <code>:paginated</code>. Switch to <code>@counted</code> only if profiling shows the <code>COUNT(*)</code> is a bottleneck, or if your pagination UX is infinite scroll / load-more (where the total is irrelevant after page 1).
       </div>
+    </section>
+
+    <!-- ── @cursor -->
+    <section class="doc-section" id="ann-cursor">
+      <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
+      <p style="color:var(--text-muted)">Declares the cursor columns for keyset (cursor) pagination. Required when using <code>:cursor</code> as the return type. Accepts one or more column names with optional direction (<code>ASC</code> or <code>DESC</code>, defaulting to <code>ASC</code>).</p>
+
+      <h4>Syntax</h4>
+      <pre><code class="language-sql">-- @cursor col1 [ASC|DESC], col2 [ASC|DESC], ...</code></pre>
+
+      <h4>Examples</h4>
+      <pre><code class="language-sql">-- Single column, descending (most recent first)
+-- @cursor id DESC
+
+-- Two columns — always include a unique column (id) to break ties
+-- @cursor created_at DESC, id DESC
+
+-- Ascending order
+-- @cursor name ASC, id ASC</code></pre>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Must match ORDER BY.</strong> The columns in <code>@cursor</code> must exactly match the <code>ORDER BY</code> clause of your SQL, in the same order and direction. sqlc-php does not validate this at generation time — a mismatch causes incorrect results at runtime.
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Include a unique column.</strong> Always end the cursor column list with a unique column (typically <code>id</code>). If the first cursor column has duplicate values, rows with the same value could be skipped or repeated across pages.
+      </div>
+
+      <p style="color:var(--text-muted)">See the <a href="#rt-cursor"><code>:cursor</code> return type</a> and <a href="#cursor-pagination">Cursor pagination guide</a> for full usage examples.</p>
     </section>
 
     <!-- ── @searchable -->
@@ -1142,6 +1178,7 @@ public function patchActiveUsers(
             <tr><td><span class="return-type rt-many">:many</span></td><td><code>ModelClass[]</code></td><td>Array of rows — empty array if no rows</td></tr>
             <tr><td><span class="return-type rt-paginated">:many-paginated</span></td><td><code>ModelClass[]</code></td><td>Array with optional <code>?int $limit</code> / <code>int $offset</code>. <code>null</code> limit returns all rows.</td></tr>
             <tr><td><span class="return-type rt-paginated">:paginated</span></td><td><code>PaginatedResult&lt;ModelClass&gt;</code></td><td>One call returns items + total + pages + navigation metadata. Executes COUNT + SELECT internally. <code>limit</code> defaults to 10.</td></tr>
+            <tr><td><span class="return-type rt-cursor">:cursor</span></td><td><code>CursorResult&lt;ModelClass&gt;</code></td><td>Keyset pagination — O(1) at any depth. No COUNT query. Requires <code>@cursor</code>. <span class="badge bg-secondary">v2.11.0</span></td></tr>
             <tr><td><span class="return-type rt-one">:one</span></td><td><code>ModelClass</code></td><td>Single row — throws <code>RuntimeException</code> if not found</td></tr>
             <tr><td><span class="return-type rt-opt">:opt</span></td><td><code>ModelClass|null</code></td><td>Single row — returns <code>null</code> if not found</td></tr>
             <tr><td><span class="return-type rt-exec">:exec</span></td><td><code>void</code></td><td>INSERT / UPDATE / DELETE — no return value</td></tr>
@@ -1150,6 +1187,56 @@ public function patchActiveUsers(
           </tbody>
         </table>
       </div>
+    </section>
+
+    <!-- ── :cursor -->
+    <section class="doc-section" id="rt-cursor">
+      <h3><span class="return-type rt-cursor">:cursor</span> <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
+      <p style="color:var(--text-muted)">Keyset (cursor) pagination. Unlike offset pagination (<code>:paginated</code>), cursor pagination is O(1) regardless of page depth — it uses a <code>WHERE</code> clause anchored to the last seen values instead of scanning and discarding rows with <code>OFFSET</code>. Returns a <code>CursorResult</code> with the current page's items, a <code>hasMore</code> flag, and an opaque <code>nextCursor</code> token.</p>
+      <p style="color:var(--text-muted)">Requires <code>@cursor col [DIR], col [DIR]</code> to declare the cursor columns.</p>
+
+      <pre><code class="language-sql">-- @name ListOrders
+-- @class Order
+-- @cursor created_at DESC, id DESC
+-- @returns :cursor
+SELECT id, user_id, total, created_at
+FROM orders
+WHERE user_id = :userId
+ORDER BY created_at DESC, id DESC;</code></pre>
+
+      <pre><code class="language-php">// Generated signature
+public function listOrders(int $userId, ?string $after = null, int $limit = 20): CursorResult
+
+// Page 1 — no cursor
+$page1 = $repo->listOrders(userId: 42);
+
+// Page 2 — pass nextCursor from previous page
+$page2 = $repo->listOrders(userId: 42, after: $page1->nextCursor);
+
+// CursorResult properties
+$page1->items;       // Order[] — rows for this page
+$page1->hasMore;     // bool — true when more rows exist
+$page1->nextCursor;  // string|null — opaque token, null on last page
+
+// Debug: decode the cursor token
+CursorResult::decodeCursor($page1->nextCursor);
+// → ['created_at' => '2024-01-15 10:30:00', 'id' => 42]</code></pre>
+
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead><tr><th></th><th><code>:paginated</code></th><th><code>:cursor</code></th></tr></thead>
+          <tbody>
+            <tr><td>DB queries per page</td><td>2 (COUNT + SELECT)</td><td>1 (SELECT only)</td></tr>
+            <tr><td>Performance at depth</td><td>O(offset) — slows on deep pages</td><td>O(1) — always fast</td></tr>
+            <tr><td>Total count / page count</td><td>✅ always available</td><td>❌ not computed</td></tr>
+            <tr><td>Jump to arbitrary page</td><td>✅ via offset</td><td>❌ walk forward only</td></tr>
+            <tr><td>Consistent reads</td><td>Inserts may cause skips</td><td>✅ cursor anchors to data</td></tr>
+            <tr><td>Ideal for</td><td>Admin tables, numbered pages, reports</td><td>Feeds, infinite scroll, large tables</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="color:var(--text-muted)">See the <a href="#cursor-pagination">Cursor pagination guide</a> for parameter combinations, @optional, @searchable, and CursorResult details.</p>
     </section>
 
     <!-- ── :many -->
@@ -2031,6 +2118,113 @@ trait UserExtension
     <hr class="section-divider">
 
     <!-- ════════════════════════════════════ CHANGELOG -->
+    <!-- ── Cursor pagination guide -->
+    <section class="doc-section" id="cursor-pagination">
+      <h3><i class="bi bi-cursor me-2"></i>Cursor pagination guide <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
+      <p style="color:var(--text-muted)">This guide covers all cursor pagination use cases: basic usage, required params, optional params, @searchable criteria, and the CursorResult API.</p>
+
+      <h4>1 — Basic (no user params)</h4>
+      <pre><code class="language-sql">-- @name ListOrders
+-- @class Order
+-- @cursor created_at DESC, id DESC
+-- @returns :cursor
+SELECT id, user_id, total, created_at
+FROM orders
+ORDER BY created_at DESC, id DESC;</code></pre>
+      <pre><code class="language-php">public function listOrders(?string $after = null, int $limit = 20): CursorResult
+
+$page1 = $repo->listOrders();
+$page2 = $repo->listOrders(after: $page1->nextCursor);
+$page3 = $repo->listOrders(after: $page2->nextCursor);</code></pre>
+
+      <h4>2 — With required parameters</h4>
+      <p style="color:var(--text-muted)">Required params appear before <code>$after</code> and <code>$limit</code> in the signature. Pass the same values on every page — the cursor only encodes the position, not the filter context.</p>
+      <pre><code class="language-sql">-- @name ListOrdersByUser
+-- @class Order
+-- @cursor created_at DESC, id DESC
+-- @returns :cursor
+SELECT id, user_id, total, created_at
+FROM orders
+WHERE user_id = :userId
+ORDER BY created_at DESC, id DESC;</code></pre>
+      <pre><code class="language-php">public function listOrdersByUser(int $userId, ?string $after = null, int $limit = 20): CursorResult
+
+$page1 = $repo->listOrdersByUser(userId: 42);
+$page2 = $repo->listOrdersByUser(userId: 42, after: $page1->nextCursor);</code></pre>
+
+      <h4>3 — With optional parameters (@optional)</h4>
+      <p style="color:var(--text-muted)">Write the SQL naturally and let <code>@optional</code> handle the rewrite. Do not manually write the <code>(:param_chk IS NULL OR ...)</code> pattern — the rewriter handles it automatically, and combining both would double the condition.</p>
+      <pre><code class="language-sql">-- @name ListOrdersByStatus
+-- @class Order
+-- @cursor created_at DESC, id DESC
+-- @optional status
+-- @returns :cursor
+SELECT id, total, status, created_at
+FROM orders
+WHERE status = :status          ← natural form; @optional rewrites it
+ORDER BY created_at DESC, id DESC;</code></pre>
+      <pre><code class="language-php">public function listOrdersByStatus(?string $status = null, ?string $after = null, int $limit = 20): CursorResult
+
+// Filter applied
+$page1 = $repo->listOrdersByStatus(status: 'paid');
+$page2 = $repo->listOrdersByStatus(status: 'paid', after: $page1->nextCursor);
+
+// No filter — all orders
+$all = $repo->listOrdersByStatus();</code></pre>
+
+      <h4>4 — With @searchable (dynamic WHERE filters)</h4>
+      <p style="color:var(--text-muted)">When <code>@cursor</code> and <code>@searchable</code> are combined, the generated Criteria class exposes <code>where()</code> and <code>orGroup()</code> but <strong>not <code>orderBy()</code></strong>. The ORDER BY is fixed by <code>@cursor</code> — allowing dynamic ordering would invalidate the cursor between pages.</p>
+      <pre><code class="language-sql">-- @name ListOrders
+-- @class Order
+-- @searchable
+-- @cursor created_at DESC, id DESC
+-- @returns :cursor
+SELECT id, user_id, total, status, created_at
+FROM orders
+ORDER BY created_at DESC, id DESC;</code></pre>
+      <pre><code class="language-php">public function listOrders(?OrderCriteria $criteria = null, ?string $after = null, int $limit = 20): CursorResult
+
+$criteria = (new OrderCriteria)
+    ->whereStatus('=', 'paid')
+    ->whereUserId('=', 42);
+
+$page1 = $repo->listOrders($criteria);
+$page2 = $repo->listOrders($criteria, after: $page1->nextCursor);</code></pre>
+
+      <h4>CursorResult API</h4>
+      <pre><code class="language-php">readonly class CursorResult
+{
+    public array   $items;       // T[] — rows for this page
+    public bool    $hasMore;     // true when more rows exist
+    public ?string $nextCursor;  // opaque token — pass as $after on next call; null on last page
+}
+
+// Decode a cursor for debugging or testing
+CursorResult::decodeCursor($page1->nextCursor);
+// → ['created_at' => '2024-01-15 10:30:00', 'id' => 42]
+
+// Encode (used internally; available if needed in custom code)
+$token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);</code></pre>
+
+      <h4>How the generated SQL works</h4>
+      <p style="color:var(--text-muted)">For <code>@cursor created_at DESC, id DESC</code> the generator:</p>
+      <ol style="color:var(--text-muted); padding-left:1.5rem; line-height:1.9;">
+        <li>Injects <code>AND (:__cursor_created_at IS NULL OR (created_at, id) &lt; (:__cursor_created_at, :__cursor_id))</code> before <code>ORDER BY</code>. The <code>IS NULL</code> guard makes the condition a no-op on the first page.</li>
+        <li>Fetches <code>$limit + 1</code> rows ("probe row") to detect <code>hasMore</code> without running a COUNT query. If <code>limit + 1</code> rows arrive, <code>hasMore = true</code> and the probe row is discarded.</li>
+        <li>Serializes the last row's cursor column values as a base64-encoded JSON string for <code>nextCursor</code>.</li>
+      </ol>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Do not include LIMIT in your SQL.</strong> The generator manages <code>LIMIT</code> internally (as <code>LIMIT :__limit</code> = limit + 1). If you include <code>LIMIT :limit</code>, it will be stripped automatically.
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Include cursor columns in SELECT.</strong> The cursor columns (<code>created_at</code>, <code>id</code>) must appear in the <code>SELECT</code> list — their values are read from each row to build <code>nextCursor</code>. If they are not selected, the cursor token will be empty and pagination will break.
+      </div>
+    </section>
+
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
 

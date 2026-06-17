@@ -15,6 +15,7 @@ enum ReturnType: string
     case Many          = ':many';
     case ManyPaginated = ':many-paginated';
     case Paginated     = ':paginated';
+    case Cursor        = ':cursor';
     case One           = ':one';
     case Opt           = ':opt';
     case Exec          = ':exec';
@@ -130,6 +131,15 @@ class QueryDefinition
          * @var array<string, string>  alias → phpType
          */
         public readonly array      $typeOverrides = [],
+        /**
+         * Cursor columns for :cursor return type, declared via @cursor.
+         * Format: [{col: string, dir: 'ASC'|'DESC'}]
+         *
+         * -- @cursor created_at DESC, id DESC
+         *
+         * @var array<int, array{col: string, dir: string}>
+         */
+        public readonly array      $cursorColumns = [],
     ) {}
 }
 
@@ -194,6 +204,7 @@ class QueryParser
         $partial          = false;
         $returning        = false;        $columnAliases    = [];   // @column originalName alias
         $typeOverrides    = [];           // @type alias phpType
+        $cursorColumns    = [];           // @cursor col1 DIR, col2 DIR
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -243,11 +254,19 @@ class QueryParser
                     // @column originalName alias  — rename a result column in the DTO
                     $columnAliases[$m[1]] = $m[2];
                 } elseif (preg_match('/@type\s+(\w+)\s+(\S+)/i', $comment, $m)) {
-                    // @type alias phpType  — force PHP type on a result column
-                    // e.g. -- @type role string
-                    //      -- @type total ?float
-                    //      -- @type active bool
                     $typeOverrides[$m[1]] = $m[2];
+                } elseif (preg_match('/@cursor\s+(.+)/i', $comment, $m)) {
+                    // @cursor col1 [ASC|DESC], col2 [ASC|DESC], ...
+                    foreach (preg_split('/\s*,\s*/', trim($m[1])) as $part) {
+                        $part = trim($part);
+                        if ($part === '') continue;
+                        if (preg_match('/^(\w+)\s+(ASC|DESC)$/i', $part, $cm)) {
+                            $cursorColumns[] = ['col' => $cm[1], 'dir' => strtoupper($cm[2])];
+                        } elseif (preg_match('/^(\w+)$/i', $part, $cm)) {
+                            // Default direction: ASC
+                            $cursorColumns[] = ['col' => $cm[1], 'dir' => 'ASC'];
+                        }
+                    }
                 } elseif (preg_match('/@embed\s+(\w+)\s+(\S+)/i', $comment, $m)) {
                     // @embed ClassName prefix_  (trailing underscore optional, multiple allowed)
                     // Normalise: if user wrote "country" add one underscore → "country_"
@@ -329,6 +348,7 @@ class QueryParser
             returning:        $returning,
             isUnion:          $isUnion,
             typeOverrides:    $typeOverrides,
+            cursorColumns:    $cursorColumns,
         );
     }
     private function extractFromTable(string $sql): ?string

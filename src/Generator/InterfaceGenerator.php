@@ -50,7 +50,9 @@ class InterfaceGenerator
 
         $methodsStr = implode("\n\n", $methods);
 
-        // Add PaginatedResult import when the interface has :paginated methods
+        // Add CursorResult import when the interface has :cursor methods
+        $hasCursor = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Cursor));
+        $cursorImport = $hasCursor ? "\nuse SqlcPhp\\Query\\CursorResult;" : '';
         $hasPaginated = !empty(array_filter(
             $queries,
             fn($q) => $q->returns === ReturnType::Paginated
@@ -64,7 +66,7 @@ class InterfaceGenerator
 
 declare(strict_types=1);
 
-namespace {$this->namespace};{$paginatedImport}
+namespace {$this->namespace};{$paginatedImport}{$cursorImport}
 
 use PDO;
 
@@ -100,6 +102,7 @@ PHP;
         return match ($query->returns) {
             ReturnType::Paginated     => $this->renderPaginatedSignature($query, $queryGen),
             ReturnType::ManyPaginated => $this->renderManyPaginatedSignature($query, $queryGen),
+            ReturnType::Cursor        => $this->renderCursorSignature($query, $queryGen),
             ReturnType::Many          => $this->renderManySignature($query, $queryGen),
             ReturnType::One           => $this->renderOneSignature($query, $queryGen),
             ReturnType::Opt           => $this->renderOptSignature($query, $queryGen),
@@ -113,6 +116,30 @@ PHP;
     // =========================================================================
     // Renderers — one per return-type family
     // =========================================================================
+
+    /**
+     * :cursor — keyset pagination. Returns CursorResult<ModelClass>.
+     */
+    private function renderCursorSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+        $sep         = $paramList !== '' ? ', ' : '';
+
+        if ($query->searchable) {
+            $criteriaClass = $query->group . 'Criteria';
+            $paramList     = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?string \$after = null, int \$limit = 20";
+        } else {
+            $paramList = $paramList . $sep . '?string $after = null, int $limit = 20';
+        }
+
+        $docblock = $this->buildDocblock($query, $queryGen, "@return CursorResult<{$returnClass}>");
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): CursorResult;
+PHP;
+    }
 
     /**
      * @returning — INSERT that fetches and returns the created model.

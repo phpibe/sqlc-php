@@ -190,6 +190,36 @@ class QueryAnalyzer
                     "Got: {$query->returns->value}"
                 );
             }
+        }
+
+        // Validate :cursor + @cursor
+        if (!empty($query->cursorColumns)) {
+            if ($query->returns !== ReturnType::Cursor) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @cursor requires ':cursor' as the return type. " .
+                    "Got: {$query->returns->value}"
+                );
+            }
+            if ($query->isUnion) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @cursor cannot be used with UNION queries. " .
+                    "Cursor pagination requires a single SELECT with a stable ORDER BY."
+                );
+            }
+        }
+        if ($query->returns === ReturnType::Cursor && empty($query->cursorColumns)) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': :cursor requires @cursor to declare the cursor columns. " .
+                "Example: -- @cursor created_at DESC, id DESC"
+            );
+        }
+        if ($query->counted && $query->returns === ReturnType::Cursor) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @counted cannot be used with :cursor. " .
+                "Cursor pagination does not support total counts."
+            );
+        }
+        if ($query->returning) {
             $sqlUpper = strtoupper(trim($query->sql));
             if (!str_starts_with($sqlUpper, 'INSERT')) {
                 throw new \RuntimeException(
@@ -242,6 +272,7 @@ class QueryAnalyzer
             returning:            $query->returning,
             isUnion:              $query->isUnion,
             typeOverrides:        $query->typeOverrides,
+            cursorColumns:        $query->cursorColumns,
         );
     }
 

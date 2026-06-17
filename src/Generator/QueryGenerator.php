@@ -9,6 +9,7 @@ use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Parser\QueryParser;
 use SqlcPhp\Parser\ReturnType;
 use SqlcPhp\Query\PaginatedResult;
+use SqlcPhp\Query\CursorResult;
 use SqlcPhp\Query\QueryObject;
 use SqlcPhp\Resolver\QueryParam;
 use SqlcPhp\TypeMapper\TypeMapperInterface;
@@ -212,10 +213,14 @@ PHP;
 
         // PaginatedResult import only when the class has :paginated queries
         $hasPaginate     = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Paginated));
+        $hasCursor       = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Cursor));
         $prNs            = $this->paginatedResultNamespace();
         $prFqcn          = $prNs !== $this->namespace ? $prNs . '\\PaginatedResult' : null;
         $paginatedImport = $hasPaginate
             ? "\nuse " . ($prFqcn ?? 'SqlcPhp\\Query\\PaginatedResult') . ";"
+            : '';
+        $cursorImport    = $hasCursor
+            ? "\nuse SqlcPhp\\Query\\CursorResult;"
             : '';
 
         return <<<PHP
@@ -228,7 +233,7 @@ namespace {$this->namespace};
 use Closure;
 use PDO;
 use Psr\Log\LoggerInterface;
-use RuntimeException;{$paginatedImport}
+use RuntimeException;{$paginatedImport}{$cursorImport}
 use SqlcPhp\Query\QueryObject;
 
 /**
@@ -306,6 +311,13 @@ PHP;
             return $query->searchable
                 ? $this->renderSearchablePaginateMethod($query)
                 : $this->renderPaginateMethod($query);
+        }
+
+        // :cursor: keyset/cursor pagination — O(1) regardless of page depth
+        if ($query->returns === ReturnType::Cursor) {
+            return $query->searchable
+                ? $this->renderSearchableCursorMethod($query)
+                : $this->renderCursorMethod($query);
         }
 
         // @searchable queries get their own render path
@@ -706,12 +718,14 @@ PHP;
     private function buildBindingsExpr(QueryDefinition $query): string
     {
         $isPaginated    = $query->returns->value === ':many-paginated';
+        $isCursor       = $query->returns->value === ':cursor';
         $paginationKeys = ['limit', 'offset'];
 
         $parts = [];
         foreach ($query->params as $param) {
             if ($param->inList) continue;
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) continue;
+            if ($isCursor && $param->name === 'limit') continue;
 
             $value   = $this->bindValueExpr($param);
             $parts[] = "    ':{$param->name}' => [{$value}, {$param->pdoParam}]";
@@ -936,6 +950,236 @@ PHP;
         }
 
         return {$returnClass}::fromRow(\$__row);
+    }
+PHP;
+    }
+
+    // =========================================================================
+    // :cursor — keyset / cursor pagination
+    // =========================================================================
+
+    /**
+     * Build the SQL for a cursor page query.
+     * - Strips any trailing LIMIT/OFFSET from user SQL (cursor handles its own)
+     * - Injects the cursor WHERE clause before ORDER BY
+     * - Appends LIMIT :__limit (internal — fetches limit+1)
+     *
+     * @param  array<int,array{col:string,dir:string}> $cursorCols
+     */
+    private function buildCursorSql(string $sql, array $cursorCols): string
+    {
+        // Normalize and strip trailing semicolon
+        $sql = rtrim(preg_replace('/\s+/', ' ', trim($sql)), ';');
+
+        // Strip any LIMIT :limit or LIMIT n that the user may have written
+        // Cursor queries handle their own LIMIT internally via :__limit
+        $sql = preg_replace('/\s+LIMIT\s+:\w+\b/i', '', $sql);
+        $sql = preg_replace('/\s+LIMIT\s+\d+\b/i', '', $sql);
+        $sql = rtrim($sql);
+
+        // Build cursor condition
+        $dir = strtoupper($cursorCols[0]['dir']);
+        $op  = $dir === 'DESC' ? '<' : '>';
+
+        if (count($cursorCols) === 1) {
+            $col       = $cursorCols[0]['col'];
+            $condition = ":__cursor_{$col} IS NULL OR {$col} {$op} :__cursor_{$col}";
+        } else {
+            $cols      = implode(', ', array_column($cursorCols, 'col'));
+            $params    = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
+            $firstCol  = $cursorCols[0]['col'];
+            $condition = ":__cursor_{$firstCol} IS NULL OR ({$cols}) {$op} ({$params})";
+        }
+
+        // Inject before ORDER BY if present; if no WHERE yet use WHERE, else AND
+        $hasWhere = (bool) preg_match('/\bWHERE\b/i', $sql);
+
+        if (preg_match('/\bORDER\s+BY\b/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
+            $pos     = $m[0][1];
+            $before  = rtrim(substr($sql, 0, $pos));
+            $after   = substr($sql, $pos);
+            $glue    = $hasWhere ? ' AND ' : ' WHERE ';
+            $sql     = $before . $glue . "({$condition}) " . $after;
+        } else {
+            $glue = $hasWhere ? ' AND ' : ' WHERE ';
+            $sql .= $glue . "({$condition})";
+        }
+
+        // Append LIMIT :__limit
+        $sql .= ' LIMIT :__limit';
+
+        return $sql;
+    }
+
+    private function renderCursorMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $cursorCols   = $query->cursorColumns;
+        $userParams   = $this->buildParamList($query);
+        $allParams    = $userParams !== '' ? "{$userParams}, ?string \$after = null, int \$limit = 20" : "?string \$after = null, int \$limit = 20";
+        $docblock     = $this->buildDocblockWithExtra($query, "@return CursorResult<{$returnClass}>", [
+            '@param string|null $after  Cursor token from a previous CursorResult::$nextCursor (null = first page)',
+            '@param int         $limit  Rows per page',
+        ]);
+
+        $cursorSql    = $this->buildCursorSql($query->sql, $cursorCols);
+        $sqlLit       = $this->renderSqlLiteral($cursorSql);
+        $bindings     = $this->renderBindings($query);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+
+        // Build cursor decode block
+        $decodeLines = '';
+        foreach ($cursorCols as $cc) {
+            $col          = $cc['col'];
+            $decodeLines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
+        }
+
+        // Build cursor encode block (from last row's values)
+        $encodeFields = implode(', ', array_map(
+            fn($cc) => "'{$cc['col']}' => \$__lastRow['{$cc['col']}']",
+            $cursorCols
+        ));
+
+        // Cursor binding lines
+        $cursorBindings = '';
+        foreach ($cursorCols as $cc) {
+            $col             = $cc['col'];
+            $cursorBindings .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
+        }
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$allParams}): CursorResult
+    {
+        // Decode opaque cursor token → extract column values
+        \$__cursor = \$after !== null ? CursorResult::decodeCursor(\$after) : null;
+{$decodeLines}
+        \$stmt = \$this->pdo->prepare({$sqlLit});
+{$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);
+
+        \$this->lastQuery = new QueryObject({$sqlLit}, {$bindingsExpr}, '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        \$__rows    = \$stmt->fetchAll(PDO::FETCH_ASSOC);
+        \$__hasMore = count(\$__rows) > \$limit;
+        if (\$__hasMore) array_pop(\$__rows);
+
+        \$__items = array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$__rows,
+        );
+
+        // Build next cursor from the last returned row's cursor column values
+        \$__nextCursor = null;
+        if (\$__hasMore && !empty(\$__rows)) {
+            \$__lastRow    = end(\$__rows);
+            \$__nextCursor = CursorResult::encodeCursor([{$encodeFields}]);
+        }
+
+        return new CursorResult(
+            items:      \$__items,
+            hasMore:    \$__hasMore,
+            nextCursor: \$__nextCursor,
+        );
+    }
+PHP;
+    }
+
+    private function renderSearchableCursorMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $cursorCols   = $query->cursorColumns;
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams   = $this->buildParamList($query);
+        $criteriaParam = "?{$criteriaClass} \$criteria = null";
+        $allParams    = $userParams !== ''
+            ? "{$userParams}, {$criteriaParam}, ?string \$after = null, int \$limit = 20"
+            : "{$criteriaParam}, ?string \$after = null, int \$limit = 20";
+
+        $docblock     = $this->buildDocblockWithExtra($query, "@return CursorResult<{$returnClass}>", [
+            "@param ?{$criteriaClass} \$criteria  Dynamic WHERE filters. Note: orderBy() is not available on cursor queries.",
+            '@param string|null $after  Cursor token (null = first page)',
+            '@param int         $limit  Rows per page',
+        ]);
+
+        $cursorSql    = $this->buildCursorSql($query->sql, $cursorCols);
+        $sqlLit       = $this->renderSqlLiteral($cursorSql);
+        $bindings     = $this->renderBindings($query);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+
+        $decodeLines = '';
+        foreach ($cursorCols as $cc) {
+            $col          = $cc['col'];
+            $decodeLines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
+        }
+
+        $encodeFields = implode(', ', array_map(
+            fn($cc) => "'{$cc['col']}' => \$__lastRow['{$cc['col']}']",
+            $cursorCols
+        ));
+
+        $cursorBindings = '';
+        foreach ($cursorCols as $cc) {
+            $col             = $cc['col'];
+            $cursorBindings .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
+        }
+
+        $sqlBlock = <<<PHP
+        // Build dynamic SQL from criteria filters
+        \$__sql    = {$sqlLit};
+        \$__where  = \$criteria?->toSql() ?? '';
+        if (\$__where !== '') {
+            \$__sql = preg_replace('/\\bAND\\s+\\(:__cursor_/i', '__CURSOR_PLACEHOLDER__', \$__sql);
+            \$__sql = preg_replace('/\\bWHERE\\b/i', 'WHERE ' . \$__where . ' AND', \$__sql, 1);
+            \$__sql = str_replace('__CURSOR_PLACEHOLDER__', 'AND (:__cursor_', \$__sql);
+            if (!preg_match('/\\bWHERE\\b/i', preg_replace('/\\bAND\\s+\\(:__cursor_/i', '', \$__sql))) {
+                \$__sql = str_replace('AND (:__cursor_', 'WHERE (:__cursor_', \$__sql);
+            }
+        }
+PHP;
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$allParams}): CursorResult
+    {
+        // Decode opaque cursor token → extract column values
+        \$__cursor = \$after !== null ? CursorResult::decodeCursor(\$after) : null;
+{$decodeLines}
+{$sqlBlock}
+
+        \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);
+        if (\$criteria !== null) \$criteria->bindAll(\$stmt);
+
+        \$this->lastQuery = new QueryObject(\$__sql, {$bindingsExpr}, '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        \$__rows    = \$stmt->fetchAll(PDO::FETCH_ASSOC);
+        \$__hasMore = count(\$__rows) > \$limit;
+        if (\$__hasMore) array_pop(\$__rows);
+
+        \$__items = array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$__rows,
+        );
+
+        \$__nextCursor = null;
+        if (\$__hasMore && !empty(\$__rows)) {
+            \$__lastRow    = end(\$__rows);
+            \$__nextCursor = CursorResult::encodeCursor([{$encodeFields}]);
+        }
+
+        return new CursorResult(
+            items:      \$__items,
+            hasMore:    \$__hasMore,
+            nextCursor: \$__nextCursor,
+        );
     }
 PHP;
     }
@@ -1273,11 +1517,16 @@ PHP;
         $optional = [];
 
         // :limit and :offset are auto-injected for :many-paginated — skip them here
+        // :limit is also managed internally for :cursor (as :__limit) — skip it too
         $isPaginated    = $query->returns->value === ':many-paginated';
+        $isCursor       = $query->returns->value === ':cursor';
         $paginationKeys = ['limit', 'offset'];
 
         foreach ($query->params as $param) {
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
+                continue;
+            }
+            if ($isCursor && $param->name === 'limit') {
                 continue;
             }
             if ($param->inList) {
@@ -1399,10 +1648,15 @@ PHP;
             // main render method — skip them here so they don't double-bind and
             // so the count method doesn't bind them at all.
             $isPaginated    = $query->returns->value === ':many-paginated';
+            $isCursor       = $query->returns->value === ':cursor';
             $paginationKeys = ['limit', 'offset'];
 
             foreach ($regularParams as $param) {
                 if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
+                    continue;
+                }
+                // For cursor queries, :limit is managed internally (as :__limit)
+                if ($isCursor && $param->name === 'limit') {
                     continue;
                 }
                 $value = $this->bindValueExpr($param);

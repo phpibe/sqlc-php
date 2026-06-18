@@ -824,6 +824,6 @@ class ScopedDtosTest extends TestCase
 
     public function test_version_is_2_9_4(): void
     {
-        $this->assertSame('2.11.1', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
     }
 }

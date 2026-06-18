@@ -119,6 +119,7 @@ PHP;
 
     /**
      * :cursor — keyset pagination. Returns CursorResult<ModelClass>.
+     * Can be combined with @counted (adds a {name}Count() method).
      */
     private function renderCursorSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
@@ -135,9 +136,16 @@ PHP;
 
         $docblock = $this->buildDocblock($query, $queryGen, "@return CursorResult<{$returnClass}>");
 
+        $countMethod = '';
+        if ($query->counted) {
+            $countParams  = $queryGen->buildParamListPublic($query);
+            $countMethod  = "\n\n    /**\n     * @return int Total rows matching filters, independent of cursor position.\n     */\n";
+            $countMethod .= "    public function {$query->name}Count({$countParams}): int;";
+        }
+
         return <<<PHP
 {$docblock}
-    public function {$query->name}({$paramList}): CursorResult;
+    public function {$query->name}({$paramList}): CursorResult;{$countMethod}
 PHP;
     }
 

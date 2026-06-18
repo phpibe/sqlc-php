@@ -171,14 +171,101 @@ class CursorPaginationTest extends TestCase
         );
     }
 
-    public function test_analyzer_rejects_counted_with_cursor(): void
+    public function test_analyzer_rejects_counted_with_cursor_on_union(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/@counted/');
+        $this->expectExceptionMessageMatches('/UNION/');
         $this->analyze(
             "-- @name List\n-- @class Order\n-- @cursor id DESC\n-- @counted\n-- @returns :cursor\n" .
-            "SELECT * FROM orders ORDER BY id DESC;"
+            "SELECT id FROM orders ORDER BY id DESC\n" .
+            "UNION ALL SELECT id FROM users ORDER BY id DESC;"
         );
+    }
+
+    public function test_analyzer_accepts_counted_with_cursor(): void
+    {
+        $this->expectNotToPerformAssertions();
+        $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor id DESC\n-- @counted\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+    }
+
+    public function test_counted_cursor_generates_count_method(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('function listOrdersCount(): int', $code,
+            '@counted + :cursor must generate a listOrdersCount() method');
+    }
+
+    public function test_counted_cursor_count_sql_has_no_cursor_where(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+        // Extract the COUNT SQL literal
+        preg_match('/listOrdersCount.*?prepare\(\'(SELECT COUNT[^\']+)\'/s', $code, $m);
+        $countSql = $m[1] ?? '';
+        $this->assertNotEmpty($countSql, 'COUNT SQL must be present');
+        $this->assertStringNotContainsString('__cursor', $countSql,
+            'COUNT SQL must not contain cursor WHERE placeholders');
+        $this->assertStringNotContainsString('ORDER BY', $countSql,
+            'COUNT SQL must not contain ORDER BY');
+        $this->assertStringContainsString('_cursor_total', $countSql,
+            'COUNT SQL must wrap original SQL in a subquery');
+    }
+
+    public function test_counted_cursor_count_method_has_user_params_only(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListByUser\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders WHERE user_id = :userId ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+        // Count method signature has userId but not $after/$before/$limit
+        $this->assertStringContainsString('function listByUserCount(int $userId): int', $code);
+        $countStart = strpos($code, 'function listByUserCount');
+        $countMethod = substr($code, $countStart, 400);
+        $this->assertStringNotContainsString('$after', $countMethod);
+        $this->assertStringNotContainsString('$before', $countMethod);
+        $this->assertStringNotContainsString('$limit', $countMethod);
+    }
+
+    public function test_counted_cursor_count_sql_includes_user_where(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListByUser\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders WHERE user_id = :userId ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+        preg_match('/listByUserCount.*?prepare\(\'(SELECT COUNT[^\']+)\'/s', $code, $m);
+        $countSql = $m[1] ?? '';
+        $this->assertStringContainsString('WHERE user_id = :userId', $countSql,
+            'COUNT SQL must preserve user WHERE filters');
+    }
+
+    public function test_counted_cursor_count_sql_includes_optional_where(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListByStatus\n-- @class Order\n-- @cursor id DESC\n" .
+            "-- @counted\n-- @optional status\n-- @returns :cursor\n" .
+            "SELECT id, status FROM orders WHERE status = :status ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        preg_match('/listByStatusCount.*?prepare\(\'(SELECT COUNT[^\']+)\'/s', $code, $m);
+        $countSql = $m[1] ?? '';
+        $this->assertStringContainsString(':status_chk IS NULL', $countSql,
+            'COUNT SQL must preserve @optional conditions');
     }
 
     // =========================================================================
@@ -528,6 +615,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.11.1', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
     }
 }

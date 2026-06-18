@@ -113,7 +113,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.11.1</span>
+    <span class="badge-version">v2.11.2</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -522,8 +522,8 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@embed</span></td><td>No</td><td>Group prefixed columns into a nested readonly object</td></tr>
             <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable)</td></tr>
             <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
-            <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method (only with <code>:many-paginated</code>)</td></tr>
-            <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.1</span></td></tr>
+            <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method. Valid with <code>:many-paginated</code> and <code>:cursor</code>. For <code>:cursor</code>, counts total rows matching user filters (independent of cursor position).</td></tr>
+            <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.2</span></td></tr>
             <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE/ORDER BY (only with <code>:many</code> / <code>:many-paginated</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
@@ -845,7 +845,7 @@ $all = $query->listUsers(active: 1, limit: null);</code></pre>
 
     <!-- ── @cursor -->
     <section class="doc-section" id="ann-cursor">
-      <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
+      <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.2</span></h3>
       <p style="color:var(--text-muted)">Declares the cursor columns for keyset (cursor) pagination. Required when using <code>:cursor</code> as the return type. Accepts one or more column names with optional direction (<code>ASC</code> or <code>DESC</code>, defaulting to <code>ASC</code>).</p>
 
       <h4>Syntax</h4>
@@ -871,7 +871,7 @@ $all = $query->listUsers(active: 1, limit: null);</code></pre>
         <strong>Include a unique column.</strong> Always end the cursor column list with a unique column (typically <code>id</code>). If the first cursor column has duplicate values, rows with the same value could be skipped or repeated across pages.
       </div>
 
-      <p style="color:var(--text-muted)">See the <a href="#rt-cursor"><code>:cursor</code> return type</a> and <a href="#cursor-pagination">Cursor pagination guide</a> for full usage examples.</p>
+      <p style="color:var(--text-muted)">See the <a href="#rt-cursor"><code>:cursor</code> return type</a> and <a href="#cursor-pagination">Cursor pagination guide</a> for full usage examples, including <code>@counted</code> for total-count support.</p>
     </section>
 
     <!-- ── @searchable -->
@@ -1178,7 +1178,7 @@ public function patchActiveUsers(
             <tr><td><span class="return-type rt-many">:many</span></td><td><code>ModelClass[]</code></td><td>Array of rows — empty array if no rows</td></tr>
             <tr><td><span class="return-type rt-paginated">:many-paginated</span></td><td><code>ModelClass[]</code></td><td>Array with optional <code>?int $limit</code> / <code>int $offset</code>. <code>null</code> limit returns all rows.</td></tr>
             <tr><td><span class="return-type rt-paginated">:paginated</span></td><td><code>PaginatedResult&lt;ModelClass&gt;</code></td><td>One call returns items + total + pages + navigation metadata. Executes COUNT + SELECT internally. <code>limit</code> defaults to 10.</td></tr>
-            <tr><td><span class="return-type rt-cursor">:cursor</span></td><td><code>CursorResult&lt;ModelClass&gt;</code></td><td>Keyset pagination — O(1) at any depth. No COUNT query. Requires <code>@cursor</code>. <span class="badge bg-secondary">v2.11.1</span></td></tr>
+            <tr><td><span class="return-type rt-cursor">:cursor</span></td><td><code>CursorResult&lt;ModelClass&gt;</code></td><td>Keyset pagination — O(1) at any depth. No COUNT query. Requires <code>@cursor</code>. <span class="badge bg-secondary">v2.11.2</span></td></tr>
             <tr><td><span class="return-type rt-one">:one</span></td><td><code>ModelClass</code></td><td>Single row — throws <code>RuntimeException</code> if not found</td></tr>
             <tr><td><span class="return-type rt-opt">:opt</span></td><td><code>ModelClass|null</code></td><td>Single row — returns <code>null</code> if not found</td></tr>
             <tr><td><span class="return-type rt-exec">:exec</span></td><td><code>void</code></td><td>INSERT / UPDATE / DELETE — no return value</td></tr>
@@ -1191,7 +1191,7 @@ public function patchActiveUsers(
 
     <!-- ── :cursor -->
     <section class="doc-section" id="rt-cursor">
-      <h3><span class="return-type rt-cursor">:cursor</span> <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
+      <h3><span class="return-type rt-cursor">:cursor</span> <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.2</span></h3>
       <p style="color:var(--text-muted)">Keyset (cursor) pagination. Unlike offset pagination (<code>:paginated</code>), cursor pagination is O(1) regardless of page depth — it uses a <code>WHERE</code> clause anchored to the last seen values instead of scanning and discarding rows with <code>OFFSET</code>. Returns a <code>CursorResult</code> with <code>items</code>, <code>hasMore</code>/<code>hasPrev</code> flags, and opaque <code>nextCursor</code>/<code>prevCursor</code> tokens for bidirectional navigation.</p>
       <p style="color:var(--text-muted)">Requires <code>@cursor col [DIR], col [DIR]</code> to declare the cursor columns.</p>
 
@@ -1906,7 +1906,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.11.1'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.11.2'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -2125,7 +2125,7 @@ trait UserExtension
     <!-- ════════════════════════════════════ CHANGELOG -->
     <!-- ── Cursor pagination guide -->
     <section class="doc-section" id="cursor-pagination">
-      <h3><i class="bi bi-cursor me-2"></i>Cursor pagination guide <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
+      <h3><i class="bi bi-cursor me-2"></i>Cursor pagination guide <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.2</span></h3>
       <p style="color:var(--text-muted)">This guide covers all cursor pagination use cases: basic usage, required params, optional params, @searchable criteria, and the CursorResult API.</p>
 
       <h4>1 — Basic (no user params)</h4>
@@ -2209,6 +2209,41 @@ $page1 = $repo->listOrders($criteria);
 $page2 = $repo->listOrders($criteria, after: $page1->nextCursor);
 $back  = $repo->listOrders($criteria, before: $page2->prevCursor);</code></pre>
 
+      <h4>5 — With @counted (total row count)</h4>
+      <p style="color:var(--text-muted)">Add <code>@counted</code> to generate a companion <code>{name}Count()</code> method that returns the total number of rows matching the user filters, independent of cursor position. The count uses the original user SQL wrapped in a subquery — cursor <code>WHERE</code> conditions are excluded.</p>
+      <pre><code class="language-sql">-- @name ListOrders
+-- @class Order
+-- @cursor created_at DESC, id DESC
+-- @counted                              ← generates listOrdersCount()
+-- @returns :cursor
+SELECT id, user_id, total, created_at
+FROM orders
+WHERE user_id = :userId
+ORDER BY created_at DESC, id DESC;</code></pre>
+      <pre><code class="language-php">// Generated — two independent methods
+public function listOrders(int $userId, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult
+public function listOrdersCount(int $userId): int
+
+// Recommended usage: call Count() once on the first page load only
+$page1 = $repo->listOrders(userId: 42);
+$total = $repo->listOrdersCount(userId: 42);  // ← one extra query, called once
+
+// Subsequent pages — no COUNT needed
+$page2 = $repo->listOrders(userId: 42, after: $page1->nextCursor);
+$page3 = $repo->listOrders(userId: 42, after: $page2->nextCursor);</code></pre>
+
+      <p style="color:var(--text-muted)">The COUNT SQL wraps the original user query in a subquery, so it correctly handles <code>JOIN</code>s, <code>@optional</code> conditions, and subqueries in the original SQL:</p>
+      <pre><code class="language-sql">-- Generated COUNT SQL
+SELECT COUNT(*) AS _total
+FROM (
+    SELECT id, user_id, total, created_at FROM orders WHERE user_id = :userId
+) AS _cursor_total</code></pre>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Call Count() once, not on every page.</strong> The total doesn't change as you paginate (assuming no inserts/deletes between pages). Store the total in your UI state and reuse it across page navigations — avoid calling Count() on every <code>$after</code> / <code>$before</code> navigation.
+      </div>
+
       <h4>CursorResult API</h4>
       <pre><code class="language-php">readonly class CursorResult
 {
@@ -2253,6 +2288,16 @@ $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);
 
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.11.2 — @counted support for :cursor</div>
+          <ul>
+            <li><strong><code>@counted</code> now works with <code>:cursor</code></strong> — generates a companion <code>{name}Count(): int</code> method alongside the cursor pagination method. The count uses the original user SQL (without cursor WHERE injection) wrapped in a subquery, so it correctly handles JOINs, <code>@optional</code> conditions, and nested queries.</li>
+            <li>The <code>Count()</code> method signature mirrors the cursor method's user params (<code>userId</code>, <code>status</code>, etc.) but excludes <code>$after</code>, <code>$before</code>, and <code>$limit</code> — it always counts the full filtered dataset.</li>
+            <li>Intended usage: call once on the first page load, store total in UI state, reuse across page navigations.</li>
+            <li>6 new tests in <code>tests/CursorPaginationTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.11.1 — Bidirectional cursor navigation</div>

@@ -315,9 +315,18 @@ PHP;
 
         // :cursor: keyset/cursor pagination — O(1) regardless of page depth
         if ($query->returns === ReturnType::Cursor) {
-            return $query->searchable
+            $main = $query->searchable
                 ? $this->renderSearchableCursorMethod($query)
                 : $this->renderCursorMethod($query);
+
+            // @counted on :cursor — emit an additional {name}Count() method.
+            // The COUNT uses the original user SQL (without cursor WHERE injection),
+            // wrapped in a subquery: SELECT COUNT(*) FROM (...) AS _cursor_total
+            if ($query->counted) {
+                $main .= "\n\n" . $this->renderCursorCountMethod($query);
+            }
+
+            return $main;
         }
 
         // @searchable queries get their own render path
@@ -1444,6 +1453,73 @@ PHP;
     public function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // :cursor + @counted — separate Count() method
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render the {name}Count() method for a :cursor query with @counted.
+     *
+     * The COUNT wraps the original user SQL (before cursor-WHERE injection)
+     * in a subquery. This gives the total number of rows matching the user's
+     * filters regardless of cursor position:
+     *
+     *   SELECT COUNT(*) AS _total
+     *   FROM (SELECT ... FROM table WHERE user_filters) AS _cursor_total
+     *
+     * The cursor-WHERE conditions (:__cursor_*) are deliberately excluded —
+     * they are positional (they change per page) and must not affect the total.
+     *
+     * The signature is the same as the main cursor method but WITHOUT $after,
+     * $before, and $limit — the caller controls when to call Count() and
+     * typically does so only once (e.g. on the first page load).
+     */
+    private function renderCursorCountMethod(QueryDefinition $query): string
+    {
+        $userParams = $this->buildParamList($query);
+        $countName  = $query->name . 'Count';
+        $signature  = "{$countName}({$userParams}): int";
+
+        $docblock = $this->buildDocblock($query,
+            '@return int Total number of rows matching the filter conditions, ' .
+            'independent of cursor position. Call once (e.g. on the first page load); ' .
+            'the total does not change as you paginate.'
+        );
+
+        // Build COUNT SQL from the original user SQL.
+        // Strip trailing semicolons, ORDER BY, and any LIMIT the user may have written.
+        // The cursor WHERE was never in $query->sql — it is injected only at render time.
+        $innerSql = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
+        $innerSql = rtrim($innerSql, ';');
+        $innerSql = preg_replace('/\s+ORDER\s+BY\s+.+$/i', '', $innerSql);
+        $innerSql = preg_replace('/\s+LIMIT\s+:\w+\b/i', '', $innerSql);
+        $innerSql = preg_replace('/\s+LIMIT\s+\d+\b/i', '', $innerSql);
+        $innerSql = rtrim($innerSql);
+        $countSql   = "SELECT COUNT(*) AS _total FROM ({$innerSql}) AS _cursor_total";
+        $sqlLiteral = $this->renderSqlLiteral($countSql);
+
+        // Bindings: user params only — :limit excluded by buildParamList for :cursor
+        $bindings     = $this->renderBindings($query);
+        $bindingsExpr = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$countName}'");
+
+        return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+        \$stmt = \$this->pdo->prepare({$sqlLiteral});
+{$bindings}{$saveLastQuery}
         \$__t0 = hrtime(true);
         \$stmt->execute();
         \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);

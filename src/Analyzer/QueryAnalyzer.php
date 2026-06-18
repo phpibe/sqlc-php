@@ -112,17 +112,20 @@ class QueryAnalyzer
             }, $resultColumns);
         }
 
-        // Validate @counted: only valid on :many-paginated
-        if ($query->counted && $query->returns !== ReturnType::ManyPaginated) {
+        // Validate @counted: valid on :many-paginated and :cursor
+        if ($query->counted
+            && $query->returns !== ReturnType::ManyPaginated
+            && $query->returns !== ReturnType::Cursor
+        ) {
             if ($query->returns === ReturnType::Paginated) {
                 throw new \RuntimeException(
                     "Query '{$query->name}': :paginated and @counted cannot be combined. " .
                     ":paginated already includes an internal COUNT query. " .
-                    "Use :many-paginated with @counted for separate count method."
+                    "Use :many-paginated with @counted for a separate count method."
                 );
             }
             throw new \RuntimeException(
-                "Query '{$query->name}': @counted is only valid on :many-paginated queries. " .
+                "Query '{$query->name}': @counted is only valid on :many-paginated and :cursor queries. " .
                 "Got: {$query->returns->value}"
             );
         }
@@ -213,10 +216,9 @@ class QueryAnalyzer
                 "Example: -- @cursor created_at DESC, id DESC"
             );
         }
-        if ($query->counted && $query->returns === ReturnType::Cursor) {
+        if ($query->counted && $query->returns === ReturnType::Cursor && $query->isUnion) {
             throw new \RuntimeException(
-                "Query '{$query->name}': @counted cannot be used with :cursor. " .
-                "Cursor pagination does not support total counts."
+                "Query '{$query->name}': @counted cannot be combined with :cursor on UNION queries."
             );
         }
         if ($query->returning) {

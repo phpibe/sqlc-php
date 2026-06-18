@@ -5,16 +5,24 @@ declare(strict_types=1);
 namespace SqlcPhp\Query;
 
 /**
- * Result of a :cursor query — items for the current page plus an opaque
- * cursor token for fetching the next page.
+ * Result of a :cursor query — items for the current page plus opaque cursor
+ * tokens for forward and backward navigation.
  *
  * Unlike offset pagination (PaginatedResult), cursor pagination:
  *   - Does NOT run a COUNT(*) query — no total or page count
  *   - Is O(1) regardless of which page you are on (no OFFSET scan)
  *   - Guarantees consistent reads — inserted rows between pages don't
  *     cause items to be skipped or duplicated
- *   - Only supports forward iteration (nextCursor); the cursor is tied
- *     to the ORDER BY columns declared in @cursor
+ *   - Supports both forward ($after / nextCursor) and backward ($before / prevCursor)
+ *     navigation
+ *
+ * Navigation:
+ *
+ *   // Forward
+ *   $page2 = $repo->listOrders(after: $page1->nextCursor);
+ *
+ *   // Backward
+ *   $page1 = $repo->listOrders(before: $page2->prevCursor);
  *
  * PHPDoc generics (PhpStorm, Intelephense, Psalm, PHPStan):
  *
@@ -24,14 +32,25 @@ readonly class CursorResult
 {
     /**
      * @param array<T>    $items       The rows for the current page.
-     * @param bool        $hasMore     True when there are more rows after this page.
-     * @param string|null $nextCursor  Opaque token to pass as $after on the next call.
+     * @param bool        $hasMore     True when there are more rows after this page
+     *                                 (i.e. a next page exists).
+     * @param bool        $hasPrev     True when there are rows before this page
+     *                                 (i.e. a previous page exists).
+     *                                 Always false on the first page ($after was null
+     *                                 and $before was null).
+     * @param string|null $nextCursor  Opaque token — pass as $after to fetch the next page.
      *                                 Null on the last page.
+     * @param string|null $prevCursor  Opaque token — pass as $before to fetch the previous page.
+     *                                 Null on the first page.
+     *                                 Built from the cursor-column values of the FIRST row
+     *                                 of the current page.
      */
     public function __construct(
         public array   $items,
         public bool    $hasMore,
+        public bool    $hasPrev,
         public ?string $nextCursor,
+        public ?string $prevCursor,
     ) {}
 
     /**

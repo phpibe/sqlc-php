@@ -113,7 +113,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.11.0</span>
+    <span class="badge-version">v2.11.1</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -523,7 +523,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable)</td></tr>
             <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
             <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method (only with <code>:many-paginated</code>)</td></tr>
-            <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.0</span></td></tr>
+            <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.1</span></td></tr>
             <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE/ORDER BY (only with <code>:many</code> / <code>:many-paginated</code>)</td></tr>
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
@@ -845,7 +845,7 @@ $all = $query->listUsers(active: 1, limit: null);</code></pre>
 
     <!-- ── @cursor -->
     <section class="doc-section" id="ann-cursor">
-      <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
+      <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
       <p style="color:var(--text-muted)">Declares the cursor columns for keyset (cursor) pagination. Required when using <code>:cursor</code> as the return type. Accepts one or more column names with optional direction (<code>ASC</code> or <code>DESC</code>, defaulting to <code>ASC</code>).</p>
 
       <h4>Syntax</h4>
@@ -1178,7 +1178,7 @@ public function patchActiveUsers(
             <tr><td><span class="return-type rt-many">:many</span></td><td><code>ModelClass[]</code></td><td>Array of rows — empty array if no rows</td></tr>
             <tr><td><span class="return-type rt-paginated">:many-paginated</span></td><td><code>ModelClass[]</code></td><td>Array with optional <code>?int $limit</code> / <code>int $offset</code>. <code>null</code> limit returns all rows.</td></tr>
             <tr><td><span class="return-type rt-paginated">:paginated</span></td><td><code>PaginatedResult&lt;ModelClass&gt;</code></td><td>One call returns items + total + pages + navigation metadata. Executes COUNT + SELECT internally. <code>limit</code> defaults to 10.</td></tr>
-            <tr><td><span class="return-type rt-cursor">:cursor</span></td><td><code>CursorResult&lt;ModelClass&gt;</code></td><td>Keyset pagination — O(1) at any depth. No COUNT query. Requires <code>@cursor</code>. <span class="badge bg-secondary">v2.11.0</span></td></tr>
+            <tr><td><span class="return-type rt-cursor">:cursor</span></td><td><code>CursorResult&lt;ModelClass&gt;</code></td><td>Keyset pagination — O(1) at any depth. No COUNT query. Requires <code>@cursor</code>. <span class="badge bg-secondary">v2.11.1</span></td></tr>
             <tr><td><span class="return-type rt-one">:one</span></td><td><code>ModelClass</code></td><td>Single row — throws <code>RuntimeException</code> if not found</td></tr>
             <tr><td><span class="return-type rt-opt">:opt</span></td><td><code>ModelClass|null</code></td><td>Single row — returns <code>null</code> if not found</td></tr>
             <tr><td><span class="return-type rt-exec">:exec</span></td><td><code>void</code></td><td>INSERT / UPDATE / DELETE — no return value</td></tr>
@@ -1191,8 +1191,8 @@ public function patchActiveUsers(
 
     <!-- ── :cursor -->
     <section class="doc-section" id="rt-cursor">
-      <h3><span class="return-type rt-cursor">:cursor</span> <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
-      <p style="color:var(--text-muted)">Keyset (cursor) pagination. Unlike offset pagination (<code>:paginated</code>), cursor pagination is O(1) regardless of page depth — it uses a <code>WHERE</code> clause anchored to the last seen values instead of scanning and discarding rows with <code>OFFSET</code>. Returns a <code>CursorResult</code> with the current page's items, a <code>hasMore</code> flag, and an opaque <code>nextCursor</code> token.</p>
+      <h3><span class="return-type rt-cursor">:cursor</span> <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
+      <p style="color:var(--text-muted)">Keyset (cursor) pagination. Unlike offset pagination (<code>:paginated</code>), cursor pagination is O(1) regardless of page depth — it uses a <code>WHERE</code> clause anchored to the last seen values instead of scanning and discarding rows with <code>OFFSET</code>. Returns a <code>CursorResult</code> with <code>items</code>, <code>hasMore</code>/<code>hasPrev</code> flags, and opaque <code>nextCursor</code>/<code>prevCursor</code> tokens for bidirectional navigation.</p>
       <p style="color:var(--text-muted)">Requires <code>@cursor col [DIR], col [DIR]</code> to declare the cursor columns.</p>
 
       <pre><code class="language-sql">-- @name ListOrders
@@ -1215,8 +1215,13 @@ $page2 = $repo->listOrders(userId: 42, after: $page1->nextCursor);
 
 // CursorResult properties
 $page1->items;       // Order[] — rows for this page
-$page1->hasMore;     // bool — true when more rows exist
-$page1->nextCursor;  // string|null — opaque token, null on last page
+$page1->hasMore;     // bool — true when next page exists
+$page1->hasPrev;     // bool — true when previous page exists (false on first page)
+$page1->nextCursor;  // string|null — pass as $after; null on last page
+$page1->prevCursor;  // string|null — pass as $before; null on first page
+
+// Navigate backward
+$back = $repo->listOrders(userId: 42, before: $page2->prevCursor);
 
 // Debug: decode the cursor token
 CursorResult::decodeCursor($page1->nextCursor);
@@ -1901,7 +1906,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.11.0'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.11.1'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -2120,7 +2125,7 @@ trait UserExtension
     <!-- ════════════════════════════════════ CHANGELOG -->
     <!-- ── Cursor pagination guide -->
     <section class="doc-section" id="cursor-pagination">
-      <h3><i class="bi bi-cursor me-2"></i>Cursor pagination guide <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.0</span></h3>
+      <h3><i class="bi bi-cursor me-2"></i>Cursor pagination guide <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.11.1</span></h3>
       <p style="color:var(--text-muted)">This guide covers all cursor pagination use cases: basic usage, required params, optional params, @searchable criteria, and the CursorResult API.</p>
 
       <h4>1 — Basic (no user params)</h4>
@@ -2131,11 +2136,21 @@ trait UserExtension
 SELECT id, user_id, total, created_at
 FROM orders
 ORDER BY created_at DESC, id DESC;</code></pre>
-      <pre><code class="language-php">public function listOrders(?string $after = null, int $limit = 20): CursorResult
+      <pre><code class="language-php">public function listOrders(?string $after = null, ?string $before = null, int $limit = 20): CursorResult
 
+// Forward navigation
 $page1 = $repo->listOrders();
 $page2 = $repo->listOrders(after: $page1->nextCursor);
-$page3 = $repo->listOrders(after: $page2->nextCursor);</code></pre>
+$page3 = $repo->listOrders(after: $page2->nextCursor);
+
+// Backward navigation
+$back  = $repo->listOrders(before: $page2->prevCursor);  // returns page 1 items
+
+// CursorResult
+$page2->hasMore;     // true — page 3 exists
+$page2->hasPrev;     // true — page 1 exists
+$page2->nextCursor;  // pass as $after  → page 3
+$page2->prevCursor;  // pass as $before → page 1</code></pre>
 
       <h4>2 — With required parameters</h4>
       <p style="color:var(--text-muted)">Required params appear before <code>$after</code> and <code>$limit</code> in the signature. Pass the same values on every page — the cursor only encodes the position, not the filter context.</p>
@@ -2147,10 +2162,11 @@ SELECT id, user_id, total, created_at
 FROM orders
 WHERE user_id = :userId
 ORDER BY created_at DESC, id DESC;</code></pre>
-      <pre><code class="language-php">public function listOrdersByUser(int $userId, ?string $after = null, int $limit = 20): CursorResult
+      <pre><code class="language-php">public function listOrdersByUser(int $userId, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult
 
 $page1 = $repo->listOrdersByUser(userId: 42);
-$page2 = $repo->listOrdersByUser(userId: 42, after: $page1->nextCursor);</code></pre>
+$page2 = $repo->listOrdersByUser(userId: 42, after: $page1->nextCursor);
+$back  = $repo->listOrdersByUser(userId: 42, before: $page2->prevCursor);</code></pre>
 
       <h4>3 — With optional parameters (@optional)</h4>
       <p style="color:var(--text-muted)">Write the SQL naturally and let <code>@optional</code> handle the rewrite. Do not manually write the <code>(:param_chk IS NULL OR ...)</code> pattern — the rewriter handles it automatically, and combining both would double the condition.</p>
@@ -2163,13 +2179,14 @@ SELECT id, total, status, created_at
 FROM orders
 WHERE status = :status          ← natural form; @optional rewrites it
 ORDER BY created_at DESC, id DESC;</code></pre>
-      <pre><code class="language-php">public function listOrdersByStatus(?string $status = null, ?string $after = null, int $limit = 20): CursorResult
+      <pre><code class="language-php">public function listOrdersByStatus(?string $status = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult
 
-// Filter applied
+// Filter applied — forward and backward
 $page1 = $repo->listOrdersByStatus(status: 'paid');
 $page2 = $repo->listOrdersByStatus(status: 'paid', after: $page1->nextCursor);
+$back  = $repo->listOrdersByStatus(status: 'paid', before: $page2->prevCursor);
 
-// No filter — all orders
+// No filter
 $all = $repo->listOrdersByStatus();</code></pre>
 
       <h4>4 — With @searchable (dynamic WHERE filters)</h4>
@@ -2182,36 +2199,45 @@ $all = $repo->listOrdersByStatus();</code></pre>
 SELECT id, user_id, total, status, created_at
 FROM orders
 ORDER BY created_at DESC, id DESC;</code></pre>
-      <pre><code class="language-php">public function listOrders(?OrderCriteria $criteria = null, ?string $after = null, int $limit = 20): CursorResult
+      <pre><code class="language-php">public function listOrders(?OrderCriteria $criteria = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult
 
 $criteria = (new OrderCriteria)
     ->whereStatus('=', 'paid')
     ->whereUserId('=', 42);
 
 $page1 = $repo->listOrders($criteria);
-$page2 = $repo->listOrders($criteria, after: $page1->nextCursor);</code></pre>
+$page2 = $repo->listOrders($criteria, after: $page1->nextCursor);
+$back  = $repo->listOrders($criteria, before: $page2->prevCursor);</code></pre>
 
       <h4>CursorResult API</h4>
       <pre><code class="language-php">readonly class CursorResult
 {
-    public array   $items;       // T[] — rows for this page
-    public bool    $hasMore;     // true when more rows exist
-    public ?string $nextCursor;  // opaque token — pass as $after on next call; null on last page
+    public array   $items;       // T[] — rows for this page (always in original ORDER BY direction)
+    public bool    $hasMore;     // true when next page exists (forward)
+    public bool    $hasPrev;     // true when previous page exists; false on the very first page
+    public ?string $nextCursor;  // pass as $after to fetch next page; null on last page
+    public ?string $prevCursor;  // pass as $before to fetch previous page; null on first page
 }
 
 // Decode a cursor for debugging or testing
 CursorResult::decodeCursor($page1->nextCursor);
 // → ['created_at' => '2024-01-15 10:30:00', 'id' => 42]
 
-// Encode (used internally; available if needed in custom code)
+// Encode (used internally; available if needed)
 $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);</code></pre>
 
-      <h4>How the generated SQL works</h4>
-      <p style="color:var(--text-muted)">For <code>@cursor created_at DESC, id DESC</code> the generator:</p>
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>$after and $before are mutually exclusive.</strong> Passing both throws <code>InvalidArgumentException</code>. Pass one or neither.
+      </div>
+
+      <h4>How forward and backward navigation works</h4>
+      <p style="color:var(--text-muted)">For <code>@cursor created_at DESC, id DESC</code> the generator produces two SQL strings internally:</p>
       <ol style="color:var(--text-muted); padding-left:1.5rem; line-height:1.9;">
-        <li>Injects <code>AND (:__cursor_created_at IS NULL OR (created_at, id) &lt; (:__cursor_created_at, :__cursor_id))</code> before <code>ORDER BY</code>. The <code>IS NULL</code> guard makes the condition a no-op on the first page.</li>
-        <li>Fetches <code>$limit + 1</code> rows ("probe row") to detect <code>hasMore</code> without running a COUNT query. If <code>limit + 1</code> rows arrive, <code>hasMore = true</code> and the probe row is discarded.</li>
-        <li>Serializes the last row's cursor column values as a base64-encoded JSON string for <code>nextCursor</code>.</li>
+        <li><strong>Forward ($after):</strong> injects <code>AND (created_at, id) &lt; (:cursor)</code> before <code>ORDER BY created_at DESC, id DESC</code>. The <code>_chk IS NULL</code> guard makes the condition a no-op on the first page.</li>
+        <li><strong>Backward ($before):</strong> injects <code>AND (created_at, id) &gt; (:cursor)</code> before <code>ORDER BY created_at ASC, id ASC</code> (all directions inverted), then calls <code>array_reverse()</code> to restore the original DESC order.</li>
+        <li>Both directions fetch <code>$limit + 1</code> rows to detect whether another page exists, without a COUNT query.</li>
+        <li><code>nextCursor</code> is built from the <strong>last row</strong>'s cursor column values. <code>prevCursor</code> is built from the <strong>first row</strong>.</li>
       </ol>
 
       <div class="callout callout-info">
@@ -2227,6 +2253,18 @@ $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);
 
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.11.1 — Bidirectional cursor navigation</div>
+          <ul>
+            <li><strong>Backward pagination via <code>$before</code></strong> — all cursor methods now accept <code>?string $before = null</code> alongside <code>$after</code>. Pass <code>$before</code> with a <code>prevCursor</code> token to navigate to the previous page.</li>
+            <li><strong><code>CursorResult::$hasPrev</code></strong> — bool flag indicating whether a previous page exists. Always <code>false</code> on the first page (<code>$after</code> and <code>$before</code> both null).</li>
+            <li><strong><code>CursorResult::$prevCursor</code></strong> — opaque token built from the cursor-column values of the first row of the current page. Pass as <code>$before</code> to retrieve the previous page. <code>null</code> on the first page.</li>
+            <li>Backward query uses an inverted <code>ORDER BY</code> and comparison operator (<code>&gt;</code> instead of <code>&lt;</code> for DESC columns), then <code>array_reverse()</code> to restore the original order in the result.</li>
+            <li><code>$after</code> and <code>$before</code> are mutually exclusive — passing both throws <code>InvalidArgumentException</code>.</li>
+            <li>7 new tests in <code>tests/CursorPaginationTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.11.0 — Cursor pagination</div>

@@ -964,48 +964,75 @@ PHP;
      * - Injects the cursor WHERE clause before ORDER BY
      * - Appends LIMIT :__limit (internal — fetches limit+1)
      *
+     * $direction controls forward ('after') vs backward ('before') navigation:
+     *   'after'  → rows AFTER the cursor  → operator < for DESC, > for ASC
+     *   'before' → rows BEFORE the cursor → operator > for DESC, < for ASC
+     *              ORDER BY is inverted; caller must array_reverse() the result.
+     *
+     * Each cursor column needs TWO distinct placeholders:
+     *   :__cursor_col_chk  → used in the IS NULL guard (first column only)
+     *   :__cursor_col      → used in the comparison
+     *
+     * PDO with emulate_prepares=false (native prepared statements) does not
+     * allow the same named placeholder to appear more than once in a query.
+     *
      * @param  array<int,array{col:string,dir:string}> $cursorCols
+     * @param  'after'|'before'                        $direction
      */
-    private function buildCursorSql(string $sql, array $cursorCols): string
+    private function buildCursorSql(string $sql, array $cursorCols, string $direction = 'after'): string
     {
         // Normalize and strip trailing semicolon
         $sql = rtrim(preg_replace('/\s+/', ' ', trim($sql)), ';');
 
-        // Strip any LIMIT :limit or LIMIT n that the user may have written
-        // Cursor queries handle their own LIMIT internally via :__limit
+        // Strip any LIMIT :limit or LIMIT n the user may have written
         $sql = preg_replace('/\s+LIMIT\s+:\w+\b/i', '', $sql);
         $sql = preg_replace('/\s+LIMIT\s+\d+\b/i', '', $sql);
         $sql = rtrim($sql);
 
-        // Build cursor condition
-        $dir = strtoupper($cursorCols[0]['dir']);
-        $op  = $dir === 'DESC' ? '<' : '>';
-
-        if (count($cursorCols) === 1) {
-            $col       = $cursorCols[0]['col'];
-            $condition = ":__cursor_{$col} IS NULL OR {$col} {$op} :__cursor_{$col}";
+        // Determine comparison operator:
+        //   forward  (after):  DESC → <   ASC → >
+        //   backward (before): DESC → >   ASC → <   (inverted)
+        $naturalDir = strtoupper($cursorCols[0]['dir']);
+        if ($direction === 'after') {
+            $op = $naturalDir === 'DESC' ? '<' : '>';
         } else {
-            $cols      = implode(', ', array_column($cursorCols, 'col'));
-            $params    = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
-            $firstCol  = $cursorCols[0]['col'];
-            $condition = ":__cursor_{$firstCol} IS NULL OR ({$cols}) {$op} ({$params})";
+            $op = $naturalDir === 'DESC' ? '>' : '<';
         }
 
-        // Inject before ORDER BY if present; if no WHERE yet use WHERE, else AND
+        // Build cursor condition (first column gets _chk for IS NULL guard)
+        if (count($cursorCols) === 1) {
+            $col       = $cursorCols[0]['col'];
+            $condition = ":__cursor_{$col}_chk IS NULL OR {$col} {$op} :__cursor_{$col}";
+        } else {
+            $firstCol  = $cursorCols[0]['col'];
+            $cols      = implode(', ', array_column($cursorCols, 'col'));
+            $params    = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
+            $condition = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$op} ({$params})";
+        }
+
         $hasWhere = (bool) preg_match('/\bWHERE\b/i', $sql);
 
         if (preg_match('/\bORDER\s+BY\b/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
-            $pos     = $m[0][1];
-            $before  = rtrim(substr($sql, 0, $pos));
-            $after   = substr($sql, $pos);
-            $glue    = $hasWhere ? ' AND ' : ' WHERE ';
-            $sql     = $before . $glue . "({$condition}) " . $after;
+            $pos    = $m[0][1];
+            $before = rtrim(substr($sql, 0, $pos));
+            $orderByClause = substr($sql, $pos); // "ORDER BY col1 DESC, col2 DESC"
+
+            if ($direction === 'before') {
+                // Invert all ASC↔DESC in ORDER BY for backward traversal
+                $orderByClause = preg_replace_callback(
+                    '/\b(ASC|DESC)\b/i',
+                    fn($m) => strtoupper($m[1]) === 'ASC' ? 'DESC' : 'ASC',
+                    $orderByClause
+                );
+            }
+
+            $glue = $hasWhere ? ' AND ' : ' WHERE ';
+            $sql  = $before . $glue . "({$condition}) " . $orderByClause;
         } else {
             $glue = $hasWhere ? ' AND ' : ' WHERE ';
             $sql .= $glue . "({$condition})";
         }
 
-        // Append LIMIT :__limit
         $sql .= ' LIMIT :__limit';
 
         return $sql;
@@ -1016,143 +1043,41 @@ PHP;
         $returnClass  = $this->resolveReturnClass($query);
         $cursorCols   = $query->cursorColumns;
         $userParams   = $this->buildParamList($query);
-        $allParams    = $userParams !== '' ? "{$userParams}, ?string \$after = null, int \$limit = 20" : "?string \$after = null, int \$limit = 20";
+        $sep          = $userParams !== '' ? ', ' : '';
+        $allParams    = "{$userParams}{$sep}?string \$after = null, ?string \$before = null, int \$limit = 20";
         $docblock     = $this->buildDocblockWithExtra($query, "@return CursorResult<{$returnClass}>", [
-            '@param string|null $after  Cursor token from a previous CursorResult::$nextCursor (null = first page)',
-            '@param int         $limit  Rows per page',
+            '@param string|null $after   Cursor from CursorResult::$nextCursor — fetch next page',
+            '@param string|null $before  Cursor from CursorResult::$prevCursor — fetch previous page',
+            '@param int         $limit   Rows per page',
         ]);
 
-        $cursorSql    = $this->buildCursorSql($query->sql, $cursorCols);
-        $sqlLit       = $this->renderSqlLiteral($cursorSql);
+        $afterSqlLit  = $this->renderSqlLiteral($this->buildCursorSql($query->sql, $cursorCols, 'after'));
+        $beforeSqlLit = $this->renderSqlLiteral($this->buildCursorSql($query->sql, $cursorCols, 'before'));
         $bindings     = $this->renderBindings($query);
         $bindingsExpr = $this->buildBindingsExpr($query);
-
-        // Build cursor decode block
-        $decodeLines = '';
-        foreach ($cursorCols as $cc) {
-            $col          = $cc['col'];
-            $decodeLines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
-        }
-
-        // Build cursor encode block (from last row's values)
-        $encodeFields = implode(', ', array_map(
-            fn($cc) => "'{$cc['col']}' => \$__lastRow['{$cc['col']}']",
-            $cursorCols
-        ));
-
-        // Cursor binding lines
-        $cursorBindings = '';
-        foreach ($cursorCols as $cc) {
-            $col             = $cc['col'];
-            $cursorBindings .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
-        }
+        $decodeLines  = $this->buildCursorDecodeLines($cursorCols);
+        $cursorBindings = $this->buildCursorBindings($cursorCols);
+        $encodeNext   = $this->buildCursorEncodeExpr($cursorCols, '$__lastRow');
+        $encodePrev   = $this->buildCursorEncodeExpr($cursorCols, '$__firstRow');
 
         return <<<PHP
 {$docblock}
     public function {$query->name}({$allParams}): CursorResult
     {
-        // Decode opaque cursor token → extract column values
-        \$__cursor = \$after !== null ? CursorResult::decodeCursor(\$after) : null;
+        if (\$after !== null && \$before !== null) {
+            throw new \InvalidArgumentException('{$query->name}: \$after and \$before are mutually exclusive.');
+        }
+
+        // Decode cursor token → extract column values
+        \$__cursorToken = \$after ?? \$before;
+        \$__cursor      = \$__cursorToken !== null ? CursorResult::decodeCursor(\$__cursorToken) : null;
 {$decodeLines}
-        \$stmt = \$this->pdo->prepare({$sqlLit});
-{$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);
-
-        \$this->lastQuery = new QueryObject({$sqlLit}, {$bindingsExpr}, '{$query->name}');
-        \$__t0 = hrtime(true);
-        \$stmt->execute();
-        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
-        \$this->logLastQuery();
-
-        \$__rows    = \$stmt->fetchAll(PDO::FETCH_ASSOC);
-        \$__hasMore = count(\$__rows) > \$limit;
-        if (\$__hasMore) array_pop(\$__rows);
-
-        \$__items = array_map(
-            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
-            \$__rows,
-        );
-
-        // Build next cursor from the last returned row's cursor column values
-        \$__nextCursor = null;
-        if (\$__hasMore && !empty(\$__rows)) {
-            \$__lastRow    = end(\$__rows);
-            \$__nextCursor = CursorResult::encodeCursor([{$encodeFields}]);
-        }
-
-        return new CursorResult(
-            items:      \$__items,
-            hasMore:    \$__hasMore,
-            nextCursor: \$__nextCursor,
-        );
-    }
-PHP;
-    }
-
-    private function renderSearchableCursorMethod(QueryDefinition $query): string
-    {
-        $returnClass  = $this->resolveReturnClass($query);
-        $cursorCols   = $query->cursorColumns;
-        $criteriaClass = $this->criteriaClass($query);
-        $userParams   = $this->buildParamList($query);
-        $criteriaParam = "?{$criteriaClass} \$criteria = null";
-        $allParams    = $userParams !== ''
-            ? "{$userParams}, {$criteriaParam}, ?string \$after = null, int \$limit = 20"
-            : "{$criteriaParam}, ?string \$after = null, int \$limit = 20";
-
-        $docblock     = $this->buildDocblockWithExtra($query, "@return CursorResult<{$returnClass}>", [
-            "@param ?{$criteriaClass} \$criteria  Dynamic WHERE filters. Note: orderBy() is not available on cursor queries.",
-            '@param string|null $after  Cursor token (null = first page)',
-            '@param int         $limit  Rows per page',
-        ]);
-
-        $cursorSql    = $this->buildCursorSql($query->sql, $cursorCols);
-        $sqlLit       = $this->renderSqlLiteral($cursorSql);
-        $bindings     = $this->renderBindings($query);
-        $bindingsExpr = $this->buildBindingsExpr($query);
-
-        $decodeLines = '';
-        foreach ($cursorCols as $cc) {
-            $col          = $cc['col'];
-            $decodeLines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
-        }
-
-        $encodeFields = implode(', ', array_map(
-            fn($cc) => "'{$cc['col']}' => \$__lastRow['{$cc['col']}']",
-            $cursorCols
-        ));
-
-        $cursorBindings = '';
-        foreach ($cursorCols as $cc) {
-            $col             = $cc['col'];
-            $cursorBindings .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
-        }
-
-        $sqlBlock = <<<PHP
-        // Build dynamic SQL from criteria filters
-        \$__sql    = {$sqlLit};
-        \$__where  = \$criteria?->toSql() ?? '';
-        if (\$__where !== '') {
-            \$__sql = preg_replace('/\\bAND\\s+\\(:__cursor_/i', '__CURSOR_PLACEHOLDER__', \$__sql);
-            \$__sql = preg_replace('/\\bWHERE\\b/i', 'WHERE ' . \$__where . ' AND', \$__sql, 1);
-            \$__sql = str_replace('__CURSOR_PLACEHOLDER__', 'AND (:__cursor_', \$__sql);
-            if (!preg_match('/\\bWHERE\\b/i', preg_replace('/\\bAND\\s+\\(:__cursor_/i', '', \$__sql))) {
-                \$__sql = str_replace('AND (:__cursor_', 'WHERE (:__cursor_', \$__sql);
-            }
-        }
-PHP;
-
-        return <<<PHP
-{$docblock}
-    public function {$query->name}({$allParams}): CursorResult
-    {
-        // Decode opaque cursor token → extract column values
-        \$__cursor = \$after !== null ? CursorResult::decodeCursor(\$after) : null;
-{$decodeLines}
-{$sqlBlock}
+        // Forward query (after): natural ORDER BY + operator
+        // Backward query (before): inverted ORDER BY + inverted operator, then array_reverse()
+        \$__sql = \$before !== null ? {$beforeSqlLit} : {$afterSqlLit};
 
         \$stmt = \$this->pdo->prepare(\$__sql);
 {$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);
-        if (\$criteria !== null) \$criteria->bindAll(\$stmt);
 
         \$this->lastQuery = new QueryObject(\$__sql, {$bindingsExpr}, '{$query->name}');
         \$__t0 = hrtime(true);
@@ -1164,24 +1089,200 @@ PHP;
         \$__hasMore = count(\$__rows) > \$limit;
         if (\$__hasMore) array_pop(\$__rows);
 
+        // Backward traversal returns rows in inverted order — restore original direction
+        if (\$before !== null) \$__rows = array_reverse(\$__rows);
+
+        \$__items = array_map(
+            static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
+            \$__rows,
+        );
+
+        // nextCursor — cursor of the LAST row; exists when more rows are available forward
+        // Cases: (1) first page with hasMore, (2) \$after with hasMore, (3) any \$before call
+        \$__nextCursor = null;
+        if (!empty(\$__rows)) {
+            \$__lastRow = end(\$__rows);
+            if (\$before === null && \$__hasMore) {
+                // Forward direction (first page or \$after): more rows exist → encode last row
+                \$__nextCursor = CursorResult::encodeCursor({$encodeNext});
+            } elseif (\$before !== null) {
+                // Backward direction: last row (after reverse) is the furthest-forward row;
+                // always provide nextCursor so caller can resume forward navigation
+                \$__nextCursor = CursorResult::encodeCursor({$encodeNext});
+            }
+        }
+
+        // prevCursor — cursor of the FIRST row; exists when rows exist before current page
+        \$__prevCursor = null;
+        \$__hasPrev    = false;
+        if (!empty(\$__rows)) {
+            \$__firstRow = \$__rows[0];
+            if (\$after !== null) {
+                // Arrived via forward navigation — by definition a previous page exists
+                \$__hasPrev    = true;
+                \$__prevCursor = CursorResult::encodeCursor({$encodePrev});
+            } elseif (\$before !== null && \$__hasMore) {
+                // Arrived via backward navigation and probe row found — more rows exist further back
+                \$__hasPrev    = true;
+                \$__prevCursor = CursorResult::encodeCursor({$encodePrev});
+            }
+        }
+
+        return new CursorResult(
+            items:      \$__items,
+            hasMore:    \$before === null ? \$__hasMore : !\$__hasPrev,
+            hasPrev:    \$__hasPrev,
+            nextCursor: \$__nextCursor,
+            prevCursor: \$__prevCursor,
+        );
+    }
+PHP;
+    }
+
+    private function renderSearchableCursorMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $cursorCols    = $query->cursorColumns;
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams    = $this->buildParamList($query);
+        $sep           = $userParams !== '' ? ', ' : '';
+        $allParams     = "{$userParams}{$sep}?{$criteriaClass} \$criteria = null, ?string \$after = null, ?string \$before = null, int \$limit = 20";
+        $docblock      = $this->buildDocblockWithExtra($query, "@return CursorResult<{$returnClass}>", [
+            "@param ?{$criteriaClass} \$criteria  Dynamic WHERE filters (orderBy() not available on cursor queries)",
+            '@param string|null $after   Cursor from CursorResult::$nextCursor — fetch next page',
+            '@param string|null $before  Cursor from CursorResult::$prevCursor — fetch previous page',
+            '@param int         $limit   Rows per page',
+        ]);
+
+        $afterSqlLit    = $this->renderSqlLiteral($this->buildCursorSql($query->sql, $cursorCols, 'after'));
+        $beforeSqlLit   = $this->renderSqlLiteral($this->buildCursorSql($query->sql, $cursorCols, 'before'));
+        $bindings       = $this->renderBindings($query);
+        $bindingsExpr   = $this->buildBindingsExpr($query);
+        $decodeLines    = $this->buildCursorDecodeLines($cursorCols);
+        $cursorBindings = $this->buildCursorBindings($cursorCols);
+        $encodeNext     = $this->buildCursorEncodeExpr($cursorCols, '$__lastRow');
+        $encodePrev     = $this->buildCursorEncodeExpr($cursorCols, '$__firstRow');
+
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$allParams}): CursorResult
+    {
+        if (\$after !== null && \$before !== null) {
+            throw new \InvalidArgumentException('{$query->name}: \$after and \$before are mutually exclusive.');
+        }
+
+        \$__cursorToken = \$after ?? \$before;
+        \$__cursor      = \$__cursorToken !== null ? CursorResult::decodeCursor(\$__cursorToken) : null;
+{$decodeLines}
+        \$__baseSql = \$before !== null ? {$beforeSqlLit} : {$afterSqlLit};
+        \$__where   = \$criteria?->toSql() ?? '';
+        if (\$__where !== '') {
+            \$__baseSql = preg_replace('/\\bAND\\s+\\(:__cursor_/i', '__CURSOR__', \$__baseSql);
+            \$__baseSql = preg_replace('/\\bWHERE\\b/i', 'WHERE ' . \$__where . ' AND', \$__baseSql, 1);
+            \$__baseSql = str_replace('__CURSOR__', 'AND (:__cursor_', \$__baseSql);
+            if (!preg_match('/\\bWHERE\\b/i', preg_replace('/\\bAND\\s+\\(:__cursor_/i', '', \$__baseSql))) {
+                \$__baseSql = str_replace('AND (:__cursor_', 'WHERE (:__cursor_', \$__baseSql);
+            }
+        }
+
+        \$stmt = \$this->pdo->prepare(\$__baseSql);
+{$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);
+        if (\$criteria !== null) \$criteria->bindAll(\$stmt);
+
+        \$this->lastQuery = new QueryObject(\$__baseSql, {$bindingsExpr}, '{$query->name}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+
+        \$__rows    = \$stmt->fetchAll(PDO::FETCH_ASSOC);
+        \$__hasMore = count(\$__rows) > \$limit;
+        if (\$__hasMore) array_pop(\$__rows);
+
+        if (\$before !== null) \$__rows = array_reverse(\$__rows);
+
         \$__items = array_map(
             static fn(array \$row): {$returnClass} => {$returnClass}::fromRow(\$row),
             \$__rows,
         );
 
         \$__nextCursor = null;
-        if (\$__hasMore && !empty(\$__rows)) {
-            \$__lastRow    = end(\$__rows);
-            \$__nextCursor = CursorResult::encodeCursor([{$encodeFields}]);
+        if (!empty(\$__rows)) {
+            \$__lastRow = end(\$__rows);
+            if (\$before === null && \$__hasMore) {
+                \$__nextCursor = CursorResult::encodeCursor({$encodeNext});
+            } elseif (\$before !== null) {
+                \$__nextCursor = CursorResult::encodeCursor({$encodeNext});
+            }
+        }
+
+        \$__prevCursor = null;
+        \$__hasPrev    = false;
+        if (!empty(\$__rows)) {
+            \$__firstRow = \$__rows[0];
+            if (\$after !== null) {
+                \$__hasPrev    = true;
+                \$__prevCursor = CursorResult::encodeCursor({$encodePrev});
+            } elseif (\$before !== null && \$__hasMore) {
+                \$__hasPrev    = true;
+                \$__prevCursor = CursorResult::encodeCursor({$encodePrev});
+            }
         }
 
         return new CursorResult(
             items:      \$__items,
-            hasMore:    \$__hasMore,
+            hasMore:    \$before === null ? \$__hasMore : !\$__hasPrev,
+            hasPrev:    \$__hasPrev,
             nextCursor: \$__nextCursor,
+            prevCursor: \$__prevCursor,
         );
     }
 PHP;
+    }
+
+    /**
+     * Build the decode lines: $__cursor_col = $__cursor['col'] ?? null;
+     * @param array<int,array{col:string,dir:string}> $cursorCols
+     */
+    private function buildCursorDecodeLines(array $cursorCols): string
+    {
+        $lines = '';
+        foreach ($cursorCols as $cc) {
+            $col    = $cc['col'];
+            $lines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
+        }
+        return $lines;
+    }
+
+    /**
+     * Build cursor bindValue lines.
+     * Only the FIRST column gets a _chk binding (IS NULL guard in SQL).
+     * @param array<int,array{col:string,dir:string}> $cursorCols
+     */
+    private function buildCursorBindings(array $cursorCols): string
+    {
+        $lines = '';
+        foreach ($cursorCols as $i => $cc) {
+            $col = $cc['col'];
+            if ($i === 0) {
+                $lines .= "        \$stmt->bindValue(':__cursor_{$col}_chk', \$__cursor_{$col});\n";
+            }
+            $lines .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
+        }
+        return $lines;
+    }
+
+    /**
+     * Build the CursorResult::encodeCursor([...]) argument expression.
+     * @param array<int,array{col:string,dir:string}> $cursorCols
+     */
+    private function buildCursorEncodeExpr(array $cursorCols, string $rowVar): string
+    {
+        $fields = implode(', ', array_map(
+            fn($cc) => "'{$cc['col']}' => {$rowVar}['{$cc['col']}']",
+            $cursorCols
+        ));
+        return "[{$fields}]";
     }
 
     // =========================================================================

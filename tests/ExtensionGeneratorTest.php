@@ -716,6 +716,6 @@ class ExtensionGeneratorTest extends TestCase
 
     public function test_version_is_2_10_0(): void
     {
-        $this->assertSame('2.11.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.11.1', \SqlcPhp\Version::VERSION);
     }
 }

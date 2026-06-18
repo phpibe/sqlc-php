@@ -128,9 +128,9 @@ PHP;
 
         if ($query->searchable) {
             $criteriaClass = $query->group . 'Criteria';
-            $paramList     = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?string \$after = null, int \$limit = 20";
+            $paramList     = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?string \$after = null, ?string \$before = null, int \$limit = 20";
         } else {
-            $paramList = $paramList . $sep . '?string $after = null, int $limit = 20';
+            $paramList = $paramList . $sep . '?string $after = null, ?string $before = null, int $limit = 20';
         }
 
         $docblock = $this->buildDocblock($query, $queryGen, "@return CursorResult<{$returnClass}>");

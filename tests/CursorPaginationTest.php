@@ -193,7 +193,7 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString(
-            'function listOrders(?string $after = null, int $limit = 20): CursorResult',
+            'function listOrders(?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
             $code
         );
     }
@@ -205,7 +205,8 @@ class CursorPaginationTest extends TestCase
             "SELECT id, user_id, total, created_at FROM orders ORDER BY created_at DESC, id DESC;"
         );
         $code = $this->code($q);
-        $this->assertStringContainsString(':__cursor_created_at IS NULL', $code);
+        $this->assertStringContainsString(':__cursor_created_at_chk IS NULL', $code);
+        $this->assertStringContainsString(':__cursor_created_at', $code);
         $this->assertStringContainsString(':__cursor_id', $code);
         $this->assertStringContainsString('LIMIT :__limit', $code);
     }
@@ -239,7 +240,7 @@ class CursorPaginationTest extends TestCase
             "SELECT id FROM orders ORDER BY id DESC;"
         );
         $code = $this->code($q);
-        $this->assertStringContainsString('CursorResult::decodeCursor($after)', $code);
+        $this->assertStringContainsString('CursorResult::decodeCursor(', $code);
         $this->assertStringContainsString('$__cursor[\'id\'] ?? null', $code);
     }
 
@@ -284,8 +285,10 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString('return new CursorResult(', $code);
-        $this->assertStringContainsString('hasMore:    $__hasMore', $code);
-        $this->assertStringContainsString('nextCursor: $__nextCursor', $code);
+        $this->assertStringContainsString('hasMore:', $code);
+        $this->assertStringContainsString('hasPrev:', $code);
+        $this->assertStringContainsString('nextCursor:', $code);
+        $this->assertStringContainsString('prevCursor:', $code);
     }
 
     public function test_class_imports_cursor_result(): void
@@ -311,7 +314,7 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString(
-            'function listByUser(int $userId, ?string $after = null, int $limit = 20): CursorResult',
+            'function listByUser(int $userId, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
             $code
         );
     }
@@ -345,7 +348,7 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString(
-            'function listByStatus(?string $status = null, ?string $after = null, int $limit = 20): CursorResult',
+            'function listByStatus(?string $status = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
             $code
         );
     }
@@ -360,7 +363,7 @@ class CursorPaginationTest extends TestCase
         $code = $this->code($q);
         // Both the optional condition and cursor condition must be in WHERE
         $this->assertStringContainsString(':status_chk IS NULL OR status = :status', $code);
-        $this->assertStringContainsString(':__cursor_id IS NULL OR id < :__cursor_id', $code);
+        $this->assertStringContainsString(':__cursor_id_chk IS NULL OR id < :__cursor_id', $code);
     }
 
     // =========================================================================
@@ -414,26 +417,117 @@ class CursorPaginationTest extends TestCase
         $result = new CursorResult(
             items:      [['id' => 1], ['id' => 2]],
             hasMore:    true,
+            hasPrev:    false,
             nextCursor: 'abc123',
+            prevCursor: null,
         );
         $this->assertTrue($result->hasMore);
+        $this->assertFalse($result->hasPrev);
         $this->assertSame('abc123', $result->nextCursor);
+        $this->assertNull($result->prevCursor);
         $this->assertCount(2, $result->items);
     }
 
     public function test_cursor_result_last_page_has_null_next_cursor(): void
     {
-        $result = new CursorResult(items: [], hasMore: false, nextCursor: null);
+        $result = new CursorResult(items: [], hasMore: false, hasPrev: true, nextCursor: null, prevCursor: 'prev123');
         $this->assertFalse($result->hasMore);
+        $this->assertTrue($result->hasPrev);
         $this->assertNull($result->nextCursor);
+        $this->assertSame('prev123', $result->prevCursor);
     }
 
     // =========================================================================
+    public function test_generated_method_has_before_param(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('?string $before = null', $code);
+        $this->assertStringContainsString('$after and $before are mutually exclusive', $code);
+    }
+
+    public function test_backward_sql_inverts_operator_and_order(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('(created_at, id) < (', $code);
+        $this->assertStringContainsString('ORDER BY created_at DESC, id DESC', $code);
+        $this->assertStringContainsString('(created_at, id) > (', $code);
+        $this->assertStringContainsString('ORDER BY created_at ASC, id ASC', $code);
+    }
+
+    public function test_backward_query_reverses_rows(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('if ($before !== null) $__rows = array_reverse($__rows)', $code);
+    }
+
+    public function test_generated_method_sets_prev_cursor_and_has_prev(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('$__prevCursor', $code);
+        $this->assertStringContainsString('$__hasPrev', $code);
+        $this->assertStringContainsString('prevCursor: $__prevCursor', $code);
+        $this->assertStringContainsString('hasPrev:    $__hasPrev', $code);
+    }
+
+    public function test_prev_cursor_built_from_first_row(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString("\$__firstRow['id']", $code);
+    }
+
+    public function test_cursor_result_first_page_has_null_prev_cursor(): void
+    {
+        $result = new CursorResult(
+            items:      [['id' => 1]],
+            hasMore:    true,
+            hasPrev:    false,
+            nextCursor: 'next',
+            prevCursor: null,
+        );
+        $this->assertFalse($result->hasPrev);
+        $this->assertNull($result->prevCursor);
+    }
+
+    public function test_cursor_result_middle_page_has_both_cursors(): void
+    {
+        $result = new CursorResult(
+            items:      [['id' => 3], ['id' => 2]],
+            hasMore:    true,
+            hasPrev:    true,
+            nextCursor: 'next_token',
+            prevCursor: 'prev_token',
+        );
+        $this->assertTrue($result->hasMore);
+        $this->assertTrue($result->hasPrev);
+        $this->assertSame('next_token', $result->nextCursor);
+        $this->assertSame('prev_token', $result->prevCursor);
+    }
+
     // Version
     // =========================================================================
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.11.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.11.1', \SqlcPhp\Version::VERSION);
     }
 }

@@ -159,6 +159,7 @@
       <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
       <a class="sidebar-link" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
       <a class="sidebar-link" href="#extensions"><i class="bi bi-puzzle"></i> Extensions</a>
+      <a class="sidebar-link" href="#criteria-from-array"><i class="bi bi-table"></i> Criteria::fromArray()</a>
       <a class="sidebar-link" href="#cursor-pagination"><i class="bi bi-cursor"></i> Cursor pagination</a>
       <a class="sidebar-link" href="#union-queries"><i class="bi bi-collection"></i> UNION queries</a>
     </div>
@@ -524,7 +525,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
             <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method. Valid with <code>:many-paginated</code> and <code>:cursor</code>. For <code>:cursor</code>, counts total rows matching user filters (independent of cursor position).</td></tr>
             <tr><td><span class="annotation ann-optional">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination — required with <code>:cursor</code>. Syntax: <code>col1 [ASC|DESC], col2 [ASC|DESC]</code>. <span class="badge bg-secondary">v2.11.2</span></td></tr>
-            <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE/ORDER BY (only with <code>:many</code> / <code>:many-paginated</code>)</td></tr>
+            <tr><td><span class="annotation ann-optional">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE filters. Valid with <code>:many</code>, <code>:many-paginated</code>, <code>:paginated</code>, and <code>:cursor</code>. For <code>:cursor</code>, <code>orderBy()</code> methods are omitted — ORDER BY is fixed by <code>@cursor</code>. <span class="badge bg-secondary">:cursor support v2.11.3</span></td></tr>
             <tr><td><span class="annotation ann-optional">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the method docblock</td></tr>
             <tr><td><span class="annotation ann-optional">@param</span></td><td>No</td><td>Explicit type for a named parameter</td></tr>
             <tr><td><span class="annotation ann-optional">@calls</span></td><td>No</td><td>Methods to call in sequence (used with <code>:transaction</code>)</td></tr>
@@ -871,7 +872,7 @@ $all = $query->listUsers(active: 1, limit: null);</code></pre>
         <strong>Include a unique column.</strong> Always end the cursor column list with a unique column (typically <code>id</code>). If the first cursor column has duplicate values, rows with the same value could be skipped or repeated across pages.
       </div>
 
-      <p style="color:var(--text-muted)">See the <a href="#rt-cursor"><code>:cursor</code> return type</a> and <a href="#cursor-pagination">Cursor pagination guide</a> for full usage examples, including <code>@counted</code> for total-count support.</p>
+      <p style="color:var(--text-muted)">See the <a href="#rt-cursor"><code>:cursor</code> return type</a> and <a href="#cursor-pagination">Cursor pagination guide</a> for full usage examples, including <code>@counted</code> and <code>@searchable</code>.</p>
     </section>
 
     <!-- ── @searchable -->
@@ -1906,7 +1907,7 @@ public function register(): void
         <div>&nbsp;&nbsp;<span class="dir">Rewriter/</span>     <span class="comment">← SqlRewriter (@optional param rewriting)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">SchemaExtractor/</span> <span class="comment">← MySQLSchemaExtractor (--generate-schema)</span></div>
         <div>&nbsp;&nbsp;<span class="dir">TypeMapper/</span>   <span class="comment">← MySQLTypeMapper, TypeMapperInterface</span></div>
-        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.11.2'</span></div>
+        <div>&nbsp;&nbsp;<span class="file">Version.php</span>  <span class="comment">← Version::VERSION = '2.12.0'</span></div>
         <div>&nbsp;&nbsp;<span class="file">Watcher.php</span>  <span class="comment">← File watcher for --watch mode</span></div>
         <div><span class="dir">bin/</span></div>
         <div>&nbsp;&nbsp;<span class="file">sqlc-php</span>    <span class="comment">← CLI entry point</span></div>
@@ -2286,6 +2287,82 @@ $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);
       </div>
     </section>
 
+
+    <!-- ── Criteria::fromArray() -->
+    <section class="doc-section" id="criteria-from-array">
+      <h3><i class="bi bi-table me-2"></i>Criteria::fromArray() <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.12.0</span></h3>
+      <p style="color:var(--text-muted)">Build a Criteria instance from a plain array of positional filter tuples. Useful when filters come from an external source (HTTP request, session, database) or when you want to construct criteria programmatically without method chaining.</p>
+
+      <h4>Syntax</h4>
+      <pre><code class="language-php">SomeCriteria::fromArray([
+    [column, operator, value],   // most operators
+    [column, operator],          // IS NULL / IS NOT NULL (no value needed)
+    [column, 'in',      [...]],  // IN: value is an array
+    [column, 'not_in',  [...]],  // NOT IN: value is an array
+    [column, 'between', [from, to]], // BETWEEN: value is [from, to]
+]);</code></pre>
+
+      <h4>Full example</h4>
+      <pre><code class="language-php">$criteria = OrderCriteria::fromArray([
+    ['user_id',    '=',         42],
+    ['status',     '!=',        'cancelled'],
+    ['total',      '>=',        100.0],
+    ['name',       'like',      'john'],         // → LIKE '%john%'
+    ['name',       'starts_with', 'jo'],         // → LIKE 'jo%'
+    ['tag',        'in',        ['vip', 'gold']], // → IN (:tag_0, :tag_1)
+    ['deleted_at', 'is_null'],                   // no value — 2-element tuple
+    ['created_at', 'between',   ['2024-01-01', '2024-12-31']],
+]);
+
+$results = $repo->listOrders($criteria);</code></pre>
+
+      <h4>Supported operators</h4>
+      <div class="doc-table-wrap">
+        <table class="doc-table">
+          <thead><tr><th>Operator string(s)</th><th>Meaning</th><th>Value</th></tr></thead>
+          <tbody>
+            <tr><td><code>=</code> <code>eq</code></td><td>Equal</td><td>scalar</td></tr>
+            <tr><td><code>!=</code> <code>&lt;&gt;</code> <code>neq</code></td><td>Not equal</td><td>scalar</td></tr>
+            <tr><td><code>&gt;</code> <code>gt</code></td><td>Greater than</td><td>scalar</td></tr>
+            <tr><td><code>&lt;</code> <code>lt</code></td><td>Less than</td><td>scalar</td></tr>
+            <tr><td><code>&gt;=</code> <code>gte</code></td><td>Greater or equal</td><td>scalar</td></tr>
+            <tr><td><code>&lt;=</code> <code>lte</code></td><td>Less or equal</td><td>scalar</td></tr>
+            <tr><td><code>like</code></td><td>LIKE <code>%value%</code></td><td>string</td></tr>
+            <tr><td><code>starts_with</code></td><td>LIKE <code>value%</code></td><td>string</td></tr>
+            <tr><td><code>ends_with</code></td><td>LIKE <code>%value</code></td><td>string</td></tr>
+            <tr><td><code>in</code></td><td>IN (...)</td><td>array</td></tr>
+            <tr><td><code>not_in</code></td><td>NOT IN (...)</td><td>array</td></tr>
+            <tr><td><code>is_null</code> <code>null</code></td><td>IS NULL</td><td>none — 2-element tuple</td></tr>
+            <tr><td><code>is_not_null</code> <code>not_null</code></td><td>IS NOT NULL</td><td>none — 2-element tuple</td></tr>
+            <tr><td><code>between</code></td><td>BETWEEN from AND to</td><td><code>[from, to]</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4>Column validation</h4>
+      <p style="color:var(--text-muted)"><code>fromArray()</code> validates column names against the same <code>$allowedColumns</code> list used by <code>orderBy()</code>. An unknown column throws <code>InvalidArgumentException</code> immediately — before any SQL is constructed.</p>
+      <pre><code class="language-php">// Throws: "column 'nonexistent' is not allowed. Allowed: id, user_id, status, ..."
+OrderCriteria::fromArray([['nonexistent', '=', 1]]);</code></pre>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Value types.</strong> <code>fromArray()</code> accepts any scalar value — type validation is the caller's responsibility. For strict type checking, prefer the fluent API (<code>->whereUserIdEq(int $value)</code>) which is validated by PHP's type system. <code>fromArray()</code> is most useful when filters come from external sources like HTTP requests, where values are always strings anyway.
+      </div>
+
+      <div class="callout callout-info">
+        <i class="bi bi-info-circle callout-icon"></i>
+        <strong>Filters are combined with AND.</strong> All tuples in the array are joined with <code>AND</code>. To combine with <code>OR</code>, mix <code>fromArray()</code> with <code>orGroup()</code>:
+        <pre style="margin-top:.5rem"><code class="language-php">$base = OrderCriteria::fromArray([['user_id', '=', 42]]);
+$with_or = $base->orGroup(fn($c) => $c->whereStatusEq('vip'));</code></pre>
+      </div>
+
+      <h4>Combining fromArray() with the fluent API</h4>
+      <p style="color:var(--text-muted)"><code>fromArray()</code> returns the same immutable Criteria instance — you can chain fluent methods on the result:</p>
+      <pre><code class="language-php">$criteria = OrderCriteria::fromArray($request->input('filters', []))
+    ->whereDeletedAtIsNull()       // always exclude deleted
+    ->orderByCreatedAt('DESC');    // always sort newest first</code></pre>
+    </section>
+
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
 
@@ -2296,6 +2373,38 @@ $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);
             <li>The <code>Count()</code> method signature mirrors the cursor method's user params (<code>userId</code>, <code>status</code>, etc.) but excludes <code>$after</code>, <code>$before</code>, and <code>$limit</code> — it always counts the full filtered dataset.</li>
             <li>Intended usage: call once on the first page load, store total in UI state, reuse across page navigations.</li>
             <li>6 new tests in <code>tests/CursorPaginationTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.12.0 — Criteria::fromArray()</div>
+          <ul>
+            <li><strong><code>Criteria::fromArray(array $filters): static</code></strong> — new static method on the base <code>Criteria</code> class, inherited by all generated <code>*Criteria</code> classes. Builds a Criteria instance from positional filter tuples: <code>[column, operator, value]</code>.</li>
+            <li>Supports all 14 operators: <code>= != &gt; &lt; &gt;= &lt;=</code> (and word aliases <code>eq neq gt lt gte lte</code>), <code>like starts_with ends_with in not_in is_null is_not_null between</code>.</li>
+            <li>Column names are validated against <code>$allowedColumns</code> — same list used by <code>orderBy()</code>. An unknown column throws <code>InvalidArgumentException</code> before any SQL is built.</li>
+            <li>Special cases: <code>is_null</code> / <code>is_not_null</code> accept 2-element tuples (no value); <code>in</code> / <code>not_in</code> expect an array value; <code>between</code> expects <code>[from, to]</code>.</li>
+            <li>Returns the same immutable Criteria instance — chainable with the fluent API.</li>
+            <li>33 new tests in <code>tests/CriteriaFromArrayTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.11.3 — @searchable support for :cursor</div>
+          <ul>
+            <li><strong><code>@searchable</code> now works with <code>:cursor</code></strong> — generates a typed Criteria class with <code>where*()</code> filter methods for dynamic WHERE conditions on cursor-paginated queries.</li>
+            <li><strong><code>orderBy*()</code> methods are omitted</strong> from Criteria generated for <code>:cursor</code> queries. The ORDER BY is fixed by <code>@cursor</code> and must not change between pages — changing it would invalidate cursor tokens. The class docblock explains this explicitly.</li>
+            <li><strong>Bugfix: <code>toSql()</code> → <code>toFilterClause()</code></strong> — the internal <code>renderSearchableCursorMethod</code> was calling a non-existent <code>$criteria->toSql()</code>. Fixed to use the correct <code>toFilterClause(bool $appendMode)</code> method. This bug was hidden because the analyzer previously rejected the combination.</li>
+            <li>7 new tests in <code>tests/CursorPaginationTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.11.2 — @counted for :cursor + scoped Criteria fix</div>
+          <ul>
+            <li><strong><code>@counted</code> now works with <code>:cursor</code></strong> — generates a companion <code>{name}Count(): int</code> method alongside the cursor pagination method. The count uses the original user SQL (without cursor WHERE injection) wrapped in a subquery, so it correctly handles JOINs, <code>@optional</code> conditions, and nested queries.</li>
+            <li><strong>Scoped Criteria fix</strong> — when <code>scoped_dtos: true</code>, <code>@searchable</code> Criteria classes are now placed in <code>Criterias/{QueryName}/ClassName.php</code> mirroring the DTO directory structure. Previously they were always written flat. The namespace is also scoped: <code>App\Database\Criterias\GetByFilter\FacturantelogCriteria</code>.</li>
+            <li>The <code>Count()</code> method signature mirrors the cursor method's user params but excludes <code>$after</code>, <code>$before</code>, and <code>$limit</code>. Call once on the first page load; the total does not change as you paginate.</li>
+            <li>6 new tests in <code>tests/CursorPaginationTest.php</code>, 3 new tests in <code>tests/ScopedDtosTest.php</code>.</li>
           </ul>
         </div>
 
@@ -2360,21 +2469,23 @@ $token = CursorResult::encodeCursor(['created_at' => '2024-01-15', 'id' => 42]);
           <div class="changelog-version">v2.9.2-2.9.3 — scoped_dtos &amp; embed collision detection</div>
           <ul>
             <li><strong>Embed collision detection</strong> — when two queries declare <code>@embed</code> with the same class name but different columns, generation now aborts with a clear error listing the conflicting queries and three resolution options.</li>
-            <li><strong><code>scoped_dtos: true</code></strong> — new target-level config option. When enabled, each query method's DTOs and embed classes are placed in a subdirectory named after the method (<code>DTOs/GetBillingDetails/BillingReserve.php</code>). The namespace is adjusted accordingly (<code>App\DTOs\GetBillingDetails</code>), making collisions structurally impossible.</li>
+            <li><strong><code>scoped_dtos: true</code></strong> — new target-level config option. When enabled, each query method's DTOs, embed classes, and <code>@searchable</code> Criteria are placed in a subdirectory named after the method (<code>DTOs/GetBillingDetails/BillingReserve.php</code>, <code>Criterias/GetByFilter/BillingCriteria.php</code>). The namespace is adjusted accordingly, making collisions structurally impossible.</li>
             <li>Backward compatible: <code>scoped_dtos: false</code> by default. Existing projects work unchanged until a collision is detected.</li>
             <li>16 new tests in <code>tests/ScopedDtosTest.php</code>.</li>
           </ul>
           <h4>Configuration</h4>
           <pre><code class="language-yaml">targets:
   - namespace: "App\\Database"
-    scoped_dtos: true   # ← isolates DTOs per query method
+    scoped_dtos: true   # ← isolates DTOs and Criteria per query method
     out:
       queries:    app/Database/Repositories
       dtos:       app/Database/DTOs
-      # DTOs/GetBillingDetails/BillingDetails.php    (namespace: App\Database\DTOs\GetBillingDetails)
-      # DTOs/GetBillingDetails/BillingReserve.php    (namespace: App\Database\DTOs\GetBillingDetails)
-      # DTOs/GetBillingWithDate/BillingWithDate.php  (namespace: App\Database\DTOs\GetBillingWithDate)
-      # DTOs/GetBillingWithDate/BillingReserve.php   (namespace: App\Database\DTOs\GetBillingWithDate)</code></pre>
+      criterias:  app/Database/Criterias
+      # DTOs/GetBillingDetails/BillingDetails.php       (namespace: App\Database\DTOs\GetBillingDetails)
+      # DTOs/GetBillingDetails/BillingReserve.php       (namespace: App\Database\DTOs\GetBillingDetails)
+      # DTOs/GetBillingWithDate/BillingWithDate.php     (namespace: App\Database\DTOs\GetBillingWithDate)
+      # Criterias/GetByFilter/BillingCriteria.php       (namespace: App\Database\Criterias\GetByFilter)
+      # Criterias/ListBySupplier/BillingCriteria.php    (namespace: App\Database\Criterias\ListBySupplier)</code></pre>
           <h4>Collision error (scoped_dtos: false)</h4>
           <pre><code class="language-text">Error: @embed class 'BillingReserve' is declared in multiple queries with different column shapes.
 

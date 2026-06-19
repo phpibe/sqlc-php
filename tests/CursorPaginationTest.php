@@ -610,11 +610,191 @@ class CursorPaginationTest extends TestCase
         $this->assertSame('prev_token', $result->prevCursor);
     }
 
+    // =========================================================================
+    // @searchable + :cursor (v2.11.3)
+    // =========================================================================
+
+    public function test_searchable_cursor_is_accepted_by_analyzer(): void
+    {
+        $this->expectNotToPerformAssertions();
+        $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+    }
+
+    public function test_searchable_cursor_generates_criteria_class(): void
+    {
+        $q     = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $files = $this->qg->generate($q);
+
+        $criteria = null;
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+        }
+        $this->assertNotNull($criteria, 'OrderCriteria must be generated');
+    }
+
+    public function test_searchable_cursor_criteria_has_no_order_by_methods(): void
+    {
+        // orderBy* methods must be absent — ORDER BY is fixed by @cursor
+        $q     = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $files = $this->qg->generate($q);
+
+        $criteria = null;
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+        }
+
+        $this->assertStringNotContainsString('function orderBy', $criteria['code'],
+            'Cursor Criteria must NOT expose orderBy() — ORDER BY is fixed by @cursor');
+    }
+
+    public function test_searchable_cursor_criteria_has_where_methods(): void
+    {
+        $q     = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY id DESC;"
+        );
+        $files = $this->qg->generate($q);
+
+        $criteria = null;
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+        }
+
+        $this->assertStringContainsString('function where', $criteria['code'],
+            'Cursor Criteria must still have where() filter methods');
+    }
+
+    public function test_searchable_cursor_criteria_has_cursor_note_in_docblock(): void
+    {
+        $q     = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $files = $this->qg->generate($q);
+
+        $criteria = null;
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+        }
+
+        $this->assertStringContainsString('fixed by @cursor', $criteria['code'],
+            'Cursor Criteria docblock must explain why orderBy() is absent');
+    }
+
+    public function test_searchable_cursor_method_uses_filter_clause_not_to_sql(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+
+        $this->assertStringContainsString('toFilterClause', $code,
+            'Searchable cursor method must use toFilterClause() not toSql()');
+        $this->assertStringNotContainsString('toSql()', $code,
+            'toSql() does not exist on Criteria — must not be called');
+        $this->assertStringNotContainsString('toOrderClause', $code,
+            'Cursor ORDER BY is fixed — toOrderClause() must not be called');
+    }
+
+    public function test_searchable_cursor_method_signature_has_criteria_before_after(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+
+        $this->assertStringContainsString(
+            'function listOrders(?OrderCriteria $criteria = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
+            $code
+        );
+    }
+
+    public function test_searchable_cursor_no_user_where_sql_is_valid(): void
+    {
+        // Regression: when the original SQL has no WHERE clause, criteria filters
+        // were being inserted incorrectly causing MySQL syntax errors.
+        // The generated SQL must be: SELECT ... WHERE criteria AND (cursor) ORDER BY ...
+        $q    = $this->analyze(
+            "-- @name ListByCriteria\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, user_id, total, created_at FROM orders\n" .
+            "ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+
+        // The generated SQL assembly must not contain regex-patching of the cursor WHERE
+        $this->assertStringNotContainsString('toSql()', $code);
+        $this->assertStringNotContainsString('preg_replace', $code,
+            'SQL assembly must not use regex — it should be built in layers');
+
+        // Must use toFilterClause for criteria injection
+        $this->assertStringContainsString('toFilterClause', $code);
+
+        // The base SQL part must be separable from cursor condition and ORDER BY
+        $this->assertStringContainsString('$__baseSql', $code);
+    }
+
+    public function test_searchable_cursor_with_user_where_sql_is_valid(): void
+    {
+        // When original SQL already has WHERE, criteria must append with AND
+        $q    = $this->analyze(
+            "-- @name ListByUser\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor created_at DESC, id DESC\n-- @returns :cursor\n" .
+            "SELECT id, user_id, total, created_at FROM orders\n" .
+            "WHERE user_id = :userId ORDER BY created_at DESC, id DESC;"
+        );
+        $code = $this->code($q);
+
+        $this->assertStringContainsString('toFilterClause', $code);
+        $this->assertStringNotContainsString('preg_replace', $code);
+    }
+
+    public function test_searchable_cursor_criteria_has_allowed_columns_for_validation(): void
+    {
+        // Regression: cursor Criteria was missing $allowedColumns, which disabled
+        // fromArray() column validation — allowing invalid column names through.
+        $q     = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n" .
+            "-- @cursor id DESC\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY id DESC;"
+        );
+        $files = $this->qg->generate($q);
+
+        $criteria = null;
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+        }
+
+        $this->assertStringContainsString(
+            'protected array $allowedColumns',
+            $criteria['code'],
+            'Cursor Criteria must have $allowedColumns to enable fromArray() column validation'
+        );
+    }
+
     // Version
     // =========================================================================
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.12.0', \SqlcPhp\Version::VERSION);
     }
 }

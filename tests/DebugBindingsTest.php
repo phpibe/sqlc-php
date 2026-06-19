@@ -272,6 +272,6 @@ class DebugBindingsTest extends TestCase
 
     public function test_version_is_2_7_7(): void
     {
-        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.12.0', \SqlcPhp\Version::VERSION);
     }
 }

@@ -130,7 +130,7 @@ class QueryAnalyzer
             );
         }
 
-        // Validate @searchable: valid on :many, :many-paginated, and :paginated
+        // Validate @searchable: valid on :many, :many-paginated, :paginated, and :cursor
         // but NOT on UNION queries (WHERE would only apply to the last branch)
         if ($query->searchable) {
             if ($query->isUnion) {
@@ -144,10 +144,11 @@ class QueryAnalyzer
             if ($query->returns !== ReturnType::Many
                 && $query->returns !== ReturnType::ManyPaginated
                 && $query->returns !== ReturnType::Paginated
+                && $query->returns !== ReturnType::Cursor
             ) {
                 throw new \RuntimeException(
                     "Query '{$query->name}': @searchable is only valid on :many, :many-paginated, " .
-                    "and :paginated queries. Got: {$query->returns->value}"
+                    ":paginated, and :cursor queries. Got: {$query->returns->value}"
                 );
             }
         }

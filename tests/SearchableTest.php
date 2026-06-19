@@ -75,6 +75,19 @@ class SearchableTest extends TestCase
         return $this->makeQG($interfaces)->generate($q)['UserQuery']['code'];
     }
 
+    /**
+     * Find a generated file by its className (relPath key may be className.php or scoped/path.php).
+     */
+    private function findByClassName(array $files, string $className): ?array
+    {
+        foreach ($files as $entry) {
+            if (($entry['className'] ?? '') === $className) {
+                return $entry;
+            }
+        }
+        return null;
+    }
+
     // =========================================================================
     // Criteria — FilterOperator enum
     // =========================================================================
@@ -373,20 +386,20 @@ class SearchableTest extends TestCase
     {
         $q     = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
         $files = $this->makeQG()->generate($q);
-        $this->assertArrayHasKey('UserCriteria', $files);
+        $this->assertNotNull($this->findByClassName($files, 'UserCriteria'), 'UserCriteria must exist');
     }
 
     public function test_criteria_class_not_generated_without_searchable(): void
     {
         $q     = $this->analyze("-- @name ListUsers\n-- @returns :many\nSELECT * FROM users;");
         $files = $this->makeQG()->generate($q);
-        $this->assertArrayNotHasKey('UserCriteria', $files);
+        $this->assertNull($this->findByClassName($files, 'UserCriteria'), 'UserCriteria must not exist');
     }
 
     public function test_criteria_class_extends_base_criteria(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('extends Criteria', $code);
         $this->assertStringContainsString('use SqlcPhp\\Criteria\\Criteria', $code);
     }
@@ -394,7 +407,7 @@ class SearchableTest extends TestCase
     public function test_criteria_class_has_column_constants(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('COLUMN_ID', $code);
         $this->assertStringContainsString('COLUMN_EMAIL', $code);
         $this->assertStringContainsString("'id'", $code);
@@ -403,28 +416,28 @@ class SearchableTest extends TestCase
     public function test_criteria_int_column_generates_eq_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function whereIdEq(int $value)', $code);
     }
 
     public function test_criteria_int_column_generates_in_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function whereIdIn(int ...$values)', $code);
     }
 
     public function test_criteria_int_column_generates_not_in_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function whereIdNotIn(int ...$values)', $code);
     }
 
     public function test_criteria_string_column_generates_like_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function whereEmailLike(string $value)', $code);
         $this->assertStringContainsString('function whereEmailStartsWith(string $value)', $code);
         $this->assertStringContainsString('function whereEmailEndsWith(string $value)', $code);
@@ -433,7 +446,7 @@ class SearchableTest extends TestCase
     public function test_criteria_nullable_column_generates_is_null_methods(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         // name is nullable VARCHAR → should have IsNull/IsNotNull
         $this->assertStringContainsString('function whereNameIsNull()', $code);
         $this->assertStringContainsString('function whereNameIsNotNull()', $code);
@@ -442,7 +455,7 @@ class SearchableTest extends TestCase
     public function test_criteria_non_nullable_int_has_no_is_null_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT id, active FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         // active is TINYINT NOT NULL → no IsNull/IsNotNull
         $this->assertStringNotContainsString('whereActiveIsNull', $code);
     }
@@ -450,7 +463,7 @@ class SearchableTest extends TestCase
     public function test_criteria_all_columns_have_order_by_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT id, email FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function orderById(', $code);
         $this->assertStringContainsString('function orderByEmail(', $code);
     }
@@ -458,14 +471,14 @@ class SearchableTest extends TestCase
     public function test_criteria_date_column_generates_between_method(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT created_at FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString('function whereCreatedAtBetween(\\DateTimeImmutable $from, \\DateTimeImmutable $to)', $code);
     }
 
     public function test_criteria_allowed_columns_whitelist_includes_all_columns(): void
     {
         $q    = $this->analyze("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT id, email FROM users;");
-        $code = $this->makeQG()->generate($q)['UserCriteria']['code'];
+        $code = $this->findByClassName($this->makeQG()->generate($q), 'UserCriteria')['code'];
         $this->assertStringContainsString("'id', 'email'", $code);
     }
 
@@ -676,7 +689,7 @@ class SearchableTest extends TestCase
         $files = $this->makeQG()->generate($q);
 
         $this->assertArrayHasKey('UserQuery',    $files);
-        $this->assertArrayHasKey('UserCriteria', $files);
+        $this->assertNotNull($this->findByClassName($files, 'UserCriteria'), 'UserCriteria must exist');
 
         $qCode = $files['UserQuery']['code'];
         $this->assertStringContainsString('function getUser(int $id)', $qCode);

@@ -822,8 +822,92 @@ class ScopedDtosTest extends TestCase
         $this->assertStringContainsString('use Mod\\DTOs\\FooResult;', $injected);
     }
 
+    public function test_scoped_criteria_placed_in_query_name_subdir(): void
+    {
+        $qg = new QueryGenerator(
+            $this->catalog, $this->mapper, $this->dtoGen, 'App\\Repos',
+            criteriasNamespace: 'App\\Criterias',
+            scopedCriterias: true,
+        );
+        $qs = $this->analyze(
+            "-- @name GetByFilter\n-- @class Billing\n-- @searchable\n-- @returns :many\n" .
+            "SELECT * FROM billing WHERE id = :id;"
+        );
+        $files = $qg->generate($qs);
+
+        $criteriaEntry = null;
+        foreach ($files as $entry) {
+            if (($entry['className'] ?? '') === 'BillingCriteria') {
+                $criteriaEntry = $entry;
+                break;
+            }
+        }
+
+        $this->assertNotNull($criteriaEntry, 'BillingCriteria must be generated');
+        $this->assertSame('GetByFilter/BillingCriteria.php', $criteriaEntry['relPath'],
+            'Scoped criteria must be in QueryName/ subdir');
+        $this->assertStringContainsString(
+            'namespace App\\Criterias\\GetByFilter;',
+            $criteriaEntry['code'],
+            'Scoped criteria must have scoped namespace'
+        );
+    }
+
+    public function test_flat_criteria_not_scoped_when_scoped_dtos_false(): void
+    {
+        $qg = new QueryGenerator(
+            $this->catalog, $this->mapper, $this->dtoGen, 'App\\Repos',
+            criteriasNamespace: 'App\\Criterias',
+            scopedCriterias: false,
+        );
+        $qs = $this->analyze(
+            "-- @name GetByFilter\n-- @class Billing\n-- @searchable\n-- @returns :many\n" .
+            "SELECT * FROM billing WHERE id = :id;"
+        );
+        $files = $qg->generate($qs);
+
+        $criteriaEntry = null;
+        foreach ($files as $entry) {
+            if (($entry['className'] ?? '') === 'BillingCriteria') {
+                $criteriaEntry = $entry;
+                break;
+            }
+        }
+
+        $this->assertNotNull($criteriaEntry);
+        $this->assertSame('BillingCriteria.php', $criteriaEntry['relPath'],
+            'Flat criteria must not be in a subdir');
+        $this->assertStringContainsString(
+            'namespace App\\Criterias;',
+            $criteriaEntry['code'],
+            'Flat criteria must have unscoped namespace'
+        );
+    }
+
+    public function test_scoped_criteria_each_query_gets_own_subdir(): void
+    {
+        $qg = new QueryGenerator(
+            $this->catalog, $this->mapper, $this->dtoGen, 'App\\Repos',
+            criteriasNamespace: 'App\\Criterias',
+            scopedCriterias: true,
+        );
+        $qs = $this->analyze(
+            "-- @name ListHighAmount\n-- @class Billing\n-- @searchable\n-- @returns :many\n" .
+            "SELECT * FROM billing WHERE amount > 100;\n\n" .
+            "-- @name ListLowAmount\n-- @class Billing\n-- @searchable\n-- @returns :many\n" .
+            "SELECT * FROM billing WHERE amount < 100;"
+        );
+        $files = $qg->generate($qs);
+
+        $relPaths = array_column(array_values($files), 'relPath');
+        $this->assertContains('ListHighAmount/BillingCriteria.php', $relPaths,
+            'First query must have its own scoped dir');
+        $this->assertContains('ListLowAmount/BillingCriteria.php', $relPaths,
+            'Second query must have its own scoped dir');
+    }
+
     public function test_version_is_2_9_4(): void
     {
-        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.12.0', \SqlcPhp\Version::VERSION);
     }
 }

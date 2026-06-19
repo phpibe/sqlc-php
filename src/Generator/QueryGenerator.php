@@ -38,8 +38,11 @@ class QueryGenerator
         private readonly bool                   $preparedStatementCache = false,
         private readonly string                 $classSuffix            = 'Query',
         private readonly string                 $dtosNamespace          = '',
+        private readonly string                 $criteriasNamespace     = '',
+        private readonly bool                   $scopedCriterias        = false,
     ) {
-        $this->criteriaGen = new CriteriaGenerator($namespace);
+        $criteriaBaseNs    = $this->criteriasNamespace !== '' ? $this->criteriasNamespace : $namespace;
+        $this->criteriaGen = new CriteriaGenerator($criteriaBaseNs);
         $this->parser      = new QueryParser();
     }
 
@@ -154,13 +157,20 @@ PHP;
         foreach ($groups as $group => $groupQueries) {
             $className = $group . $this->classSuffix;
             $code = $this->renderClass($className, $groupQueries);
-            $files[$className] = ['className' => $className, 'code' => $code];
+            $files[$className] = ['className' => $className, 'code' => $code, 'relPath' => "{$className}.php"];
 
             // Generate Criteria classes for @searchable queries
             foreach ($groupQueries as $query) {
                 if ($query->searchable && !empty($query->resultColumns)) {
-                    $criteriaResult = $this->criteriaGen->generate($query, $query->resultColumns);
-                    $files[$criteriaResult['className']] = $criteriaResult;
+                    $scopeName       = $this->scopedCriterias ? ucfirst($query->name) : '';
+                    $suppressOrderBy = ($query->returns === \SqlcPhp\Parser\ReturnType::Cursor);
+                    $criteriaResult  = $this->criteriaGen->generate(
+                        $query,
+                        $query->resultColumns,
+                        $scopeName,
+                        $suppressOrderBy,
+                    );
+                    $files[$criteriaResult['relPath']] = $criteriaResult;
                 }
             }
         }
@@ -1172,6 +1182,94 @@ PHP;
         $encodeNext     = $this->buildCursorEncodeExpr($cursorCols, '$__lastRow');
         $encodePrev     = $this->buildCursorEncodeExpr($cursorCols, '$__firstRow');
 
+        // Detect whether the user SQL already has a WHERE clause (after @optional rewriting)
+        $normalizedSql = preg_replace('/\s+/', ' ', trim($query->sql));
+        $hasWhere      = (bool) preg_match('/\bWHERE\b/i', $normalizedSql);
+        $hasWhereLit   = $hasWhere ? 'true' : 'false';
+
+        // Build the cursor-condition strings for runtime SQL assembly.
+        // The cursor condition is built at render time (PHP string literals),
+        // and inserted into the SQL at runtime after criteria filters are prepended.
+        // This avoids regex-patching a SQL string that already has the cursor WHERE injected.
+        $dir      = strtoupper($cursorCols[0]['dir']);
+        $firstCol = $cursorCols[0]['col'];
+
+        // Forward condition (after): DESC→<  ASC→>
+        $opAfter  = $dir === 'DESC' ? '<' : '>';
+        // Backward condition (before): DESC→>  ASC→<
+        $opBefore = $dir === 'DESC' ? '>' : '<';
+
+        if (count($cursorCols) === 1) {
+            $col = $cursorCols[0]['col'];
+            $cursorCondAfter  = ":__cursor_{$col}_chk IS NULL OR {$col} {$opAfter} :__cursor_{$col}";
+            $cursorCondBefore = ":__cursor_{$col}_chk IS NULL OR {$col} {$opBefore} :__cursor_{$col}";
+        } else {
+            $cols   = implode(', ', array_column($cursorCols, 'col'));
+            $params = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
+            $cursorCondAfter  = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$opAfter} ({$params})";
+            $cursorCondBefore = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$opBefore} ({$params})";
+        }
+
+        // Extract ORDER BY from the user SQL for runtime re-use
+        $userSqlNorm = rtrim(preg_replace('/\s+/', ' ', trim($query->sql)), ';');
+        $userSqlNorm = preg_replace('/\s+LIMIT\s+:\w+\b/i', '', $userSqlNorm);
+        $userSqlNorm = rtrim($userSqlNorm);
+
+        // Split into base (before ORDER BY) and ORDER BY clause
+        if (preg_match('/^(.*?)(\s+ORDER\s+BY\s+.+)$/is', $userSqlNorm, $sm)) {
+            $baseSqlPart  = rtrim($sm[1]);
+            $orderByPart  = trim($sm[2]);
+        } else {
+            $baseSqlPart  = $userSqlNorm;
+            $orderByPart  = '';
+        }
+
+        // Inverted ORDER BY for backward traversal
+        $orderByPartBefore = $orderByPart !== ''
+            ? preg_replace_callback('/\b(ASC|DESC)\b/i',
+                fn($m) => strtoupper($m[1]) === 'ASC' ? 'DESC' : 'ASC',
+                $orderByPart)
+            : '';
+
+        $baseSqlLit       = $this->renderSqlLiteral($baseSqlPart);
+        $orderByLit       = $this->renderSqlLiteral($orderByPart);
+        $orderByBeforeLit = $this->renderSqlLiteral($orderByPartBefore);
+        $cursorCondAfterLit  = $this->renderSqlLiteral("({$cursorCondAfter})");
+        $cursorCondBeforeLit = $this->renderSqlLiteral("({$cursorCondBefore})");
+
+        // The SQL is assembled at runtime in three layers:
+        //   1. Base SQL (user filters already applied via @optional rewriting)
+        //   2. + Criteria filters (dynamic WHERE from $criteria->toFilterClause())
+        //   3. + Cursor condition (AND or WHERE depending on what came before)
+        //   4. + ORDER BY (forward or backward)
+        //   5. + LIMIT :__limit
+        $sqlBlock = <<<'PHPBLOCK'
+        // Assemble SQL in layers: base → criteria filters → cursor condition → ORDER BY → LIMIT
+        $__basePart   = BASE_SQL_LIT;
+        $__cursorCond = $before !== null ? CURSOR_COND_BEFORE_LIT : CURSOR_COND_AFTER_LIT;
+        $__orderBy    = $before !== null ? ORDER_BY_BEFORE_LIT : ORDER_BY_LIT;
+        $__hasWhere   = HASWHERE_LIT;
+
+        // Layer 2: criteria filters
+        if ($criteria !== null && $criteria->hasFilters()) {
+            $__basePart .= $criteria->toFilterClause($__hasWhere);
+            $__hasWhere  = true;
+        }
+
+        // Layer 3: cursor condition
+        $__basePart .= ($__hasWhere ? ' AND ' : ' WHERE ') . $__cursorCond;
+
+        // Layer 4+5: ORDER BY + LIMIT
+        $__baseSql = $__basePart . ($__orderBy !== '' ? ' ' . $__orderBy : '') . ' LIMIT :__limit';
+PHPBLOCK;
+
+        $sqlBlock = str_replace('BASE_SQL_LIT',         $baseSqlLit,          $sqlBlock);
+        $sqlBlock = str_replace('CURSOR_COND_AFTER_LIT', $cursorCondAfterLit,  $sqlBlock);
+        $sqlBlock = str_replace('CURSOR_COND_BEFORE_LIT',$cursorCondBeforeLit, $sqlBlock);
+        $sqlBlock = str_replace('ORDER_BY_LIT',          $orderByLit,          $sqlBlock);
+        $sqlBlock = str_replace('ORDER_BY_BEFORE_LIT',   $orderByBeforeLit,    $sqlBlock);
+        $sqlBlock = str_replace('HASWHERE_LIT',          $hasWhereLit,         $sqlBlock);
+
         return <<<PHP
 {$docblock}
     public function {$query->name}({$allParams}): CursorResult
@@ -1183,16 +1281,7 @@ PHP;
         \$__cursorToken = \$after ?? \$before;
         \$__cursor      = \$__cursorToken !== null ? CursorResult::decodeCursor(\$__cursorToken) : null;
 {$decodeLines}
-        \$__baseSql = \$before !== null ? {$beforeSqlLit} : {$afterSqlLit};
-        \$__where   = \$criteria?->toSql() ?? '';
-        if (\$__where !== '') {
-            \$__baseSql = preg_replace('/\\bAND\\s+\\(:__cursor_/i', '__CURSOR__', \$__baseSql);
-            \$__baseSql = preg_replace('/\\bWHERE\\b/i', 'WHERE ' . \$__where . ' AND', \$__baseSql, 1);
-            \$__baseSql = str_replace('__CURSOR__', 'AND (:__cursor_', \$__baseSql);
-            if (!preg_match('/\\bWHERE\\b/i', preg_replace('/\\bAND\\s+\\(:__cursor_/i', '', \$__baseSql))) {
-                \$__baseSql = str_replace('AND (:__cursor_', 'WHERE (:__cursor_', \$__baseSql);
-            }
-        }
+{$sqlBlock}
 
         \$stmt = \$this->pdo->prepare(\$__baseSql);
 {$bindings}{$cursorBindings}        \$stmt->bindValue(':__limit', \$limit + 1, PDO::PARAM_INT);

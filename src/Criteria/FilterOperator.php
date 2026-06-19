@@ -56,4 +56,43 @@ enum FilterOperator: string
             default                          => false,
         };
     }
+
+    /**
+     * Resolve a human-readable operator string to a FilterOperator case.
+     *
+     * Accepted strings (case-insensitive):
+     *   Equality:    '='  'eq'
+     *   Inequality:  '!=' 'neq' '<>'
+     *   Comparison:  '>'  'gt'  '<'  'lt'  '>=' 'gte'  '<=' 'lte'
+     *   Pattern:     'like'  'starts_with'  'ends_with'
+     *   Set:         'in'  'not_in'
+     *   Null:        'is_null'  'null'  'is_not_null'  'not_null'
+     *   Range:       'between'
+     *
+     * @throws \InvalidArgumentException for unknown operator strings
+     */
+    public static function fromString(string $op): self
+    {
+        return match (strtolower(trim($op))) {
+            '=',  'eq'                  => self::EQ,
+            '!=', 'neq', '<>'           => self::NEQ,
+            '>',  'gt'                  => self::GT,
+            '<',  'lt'                  => self::LT,
+            '>=', 'gte'                 => self::GTE,
+            '<=', 'lte'                 => self::LTE,
+            'like'                      => self::LIKE,
+            'starts_with', 'starts'     => self::STARTS,
+            'ends_with',   'ends'       => self::ENDS,
+            'in'                        => self::IN,
+            'not_in'                    => self::NOT_IN,
+            'is_null',  'null'          => self::IS_NULL,
+            'is_not_null', 'not_null'   => self::IS_NOT_NULL,
+            'between'                   => self::BETWEEN,
+            default => throw new \InvalidArgumentException(
+                "Unknown filter operator: '{$op}'. " .
+                "Accepted: =, !=, >, <, >=, <=, like, starts_with, ends_with, " .
+                "in, not_in, is_null, is_not_null, between"
+            ),
+        };
+    }
 }

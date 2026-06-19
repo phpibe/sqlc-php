@@ -338,4 +338,117 @@ class Criteria
             default         => \PDO::PARAM_STR,
         };
     }
+
+    // -------------------------------------------------------------------------
+    // Bulk construction
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build a Criteria instance from a positional filter array.
+     *
+     * Each element must be a tuple in one of these forms:
+     *
+     *   [column, operator]              — for IS NULL / IS NOT NULL (no value needed)
+     *   [column, operator, value]       — for all other operators
+     *   [column, 'in',     [...]]       — IN: value must be an array
+     *   [column, 'not_in', [...]]       — NOT IN: value must be an array
+     *   [column, 'between', [from, to]] — BETWEEN: value must be [from, to]
+     *
+     * Supported operators (case-insensitive):
+     *   Equality:   '='  '!='  '<>'
+     *   Aliases:    'eq' 'neq' 'gt' 'lt' 'gte' 'lte'
+     *   Comparison: '>'  '<'  '>='  '<='
+     *   Pattern:    'like'  'starts_with'  'ends_with'
+     *   Set:        'in'  'not_in'
+     *   Null:       'is_null'  'null'  'is_not_null'  'not_null'
+     *   Range:      'between'
+     *
+     * Column names are validated against the subclass's $allowedColumns list
+     * (the same list used by orderBy()). An empty list means all columns pass.
+     *
+     * Example:
+     *   OrderCriteria::fromArray([
+     *       ['user_id',    '=',         42],
+     *       ['status',     '!=',        'cancelled'],
+     *       ['total',      '>=',        100.0],
+     *       ['name',       'like',      'john'],
+     *       ['tag',        'in',        ['vip', 'premium']],
+     *       ['deleted_at', 'is_null'],
+     *       ['created_at', 'between',   ['2024-01-01', '2024-12-31']],
+     *   ]);
+     *
+     * @param  array<int, array{0: string, 1: string, 2?: mixed}> $filters
+     * @throws \InvalidArgumentException on unknown column, unknown operator, or malformed tuple
+     */
+    public static function fromArray(array $filters): static
+    {
+        $instance = new static();
+
+        foreach ($filters as $i => $tuple) {
+            if (!is_array($tuple) || count($tuple) < 2) {
+                throw new \InvalidArgumentException(
+                    "fromArray: filter at index {$i} must be [column, operator] or [column, operator, value]. " .
+                    "Got: " . json_encode($tuple)
+                );
+            }
+
+            [$column, $rawOp] = $tuple;
+            $value = $tuple[2] ?? null;
+
+            if (!is_string($column) || $column === '') {
+                throw new \InvalidArgumentException(
+                    "fromArray: filter at index {$i} — column must be a non-empty string. " .
+                    "Got: " . json_encode($column)
+                );
+            }
+
+            // Validate column against allowed list (same check as orderBy())
+            if (!empty($instance->allowedColumns) && !in_array($column, $instance->allowedColumns, true)) {
+                throw new \InvalidArgumentException(
+                    "fromArray: column '{$column}' is not allowed. " .
+                    "Allowed: " . implode(', ', $instance->allowedColumns)
+                );
+            }
+
+            // Resolve operator string → FilterOperator enum
+            try {
+                $op = FilterOperator::fromString((string) $rawOp);
+            } catch (\InvalidArgumentException) {
+                throw new \InvalidArgumentException(
+                    "fromArray: unknown operator '{$rawOp}' for column '{$column}'. " .
+                    "Supported: = != <> > < >= <= eq neq gt lt gte lte " .
+                    "like starts_with ends_with in not_in is_null is_not_null null not_null between"
+                );
+            }
+
+            // Build the Filter
+            $filter = match ($op) {
+                FilterOperator::IS_NULL     => Filter::isNull($column),
+                FilterOperator::IS_NOT_NULL => Filter::isNotNull($column),
+
+                FilterOperator::IN      => Filter::in($column, (array) $value),
+                FilterOperator::NOT_IN  => Filter::notIn($column, (array) $value),
+
+                FilterOperator::BETWEEN => (function () use ($column, $value, $i): Filter {
+                    if (!is_array($value) || count($value) !== 2) {
+                        throw new \InvalidArgumentException(
+                            "fromArray: 'between' at index {$i} requires value [from, to]. " .
+                            "Got: " . json_encode($value)
+                        );
+                    }
+                    return Filter::between($column, $value[0], $value[1]);
+                })(),
+
+                FilterOperator::LIKE   => Filter::like($column, (string) $value),
+                FilterOperator::STARTS => Filter::starts($column, (string) $value),
+                FilterOperator::ENDS   => Filter::ends($column, (string) $value),
+
+                default => new Filter($column, $op, $value),
+            };
+
+            $instance = $instance->add($filter);
+        }
+
+        return $instance;
+    }
 }

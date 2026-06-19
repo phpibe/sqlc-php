@@ -401,7 +401,8 @@ class PaginateReturningTest extends TestCase
             "SELECT * FROM users;"
         );
         $files = $this->qg->generate($q);
-        $this->assertArrayHasKey('UserCriteria', $files);
+        $hasCriteria = array_filter($files, fn($f) => ($f['className'] ?? '') === 'UserCriteria');
+        $this->assertNotEmpty($hasCriteria, 'UserCriteria must be generated');
     }
 
     public function test_paginated_with_searchable_applies_criteria_to_count(): void
@@ -678,6 +679,6 @@ class PaginateReturningTest extends TestCase
 
     public function test_version_is_2_8_0(): void
     {
-        $this->assertSame('2.11.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.12.0', \SqlcPhp\Version::VERSION);
     }
 }

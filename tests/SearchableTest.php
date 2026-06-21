@@ -744,4 +744,116 @@ class SearchableTest extends TestCase
         );
         $c->bindAll($stmt);
     }
+
+    // =========================================================================
+    // Enum column criteria methods (v2.12.1)
+    // =========================================================================
+
+    private function enumCriteriaCode(): string
+    {
+        $schema = <<<SQL
+            CREATE TABLE orders (
+                id       INT AUTO_INCREMENT PRIMARY KEY,
+                status   ENUM('pending','paid','failed') NOT NULL,
+                priority ENUM('low','high')              NULL,
+                total    DECIMAL(10,2)                   NOT NULL
+            );
+        SQL;
+        $cat    = new SchemaCatalog((new SchemaParser())->parse($schema));
+        $mapper = new MySQLTypeMapper([], new EnumGenerator('App\\Enums'));
+        $pr     = new ParamResolver($cat, $mapper);
+        $er     = new ExpressionTypeResolver($cat, $mapper);
+        $cr     = new ColumnResolver($cat, $mapper, $pr, $er);
+        $az     = new QueryAnalyzer($pr, $cr, $this->parser, new SqlRewriter(), $cat);
+        $dg     = new ResultDtoGenerator('App\\DTOs', $mapper);
+        $qg     = new QueryGenerator($cat, $mapper, $dg, 'App\\Repos');
+        $qs     = $az->analyze($this->parser->parse(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n-- @returns :many\n" .
+            "SELECT id, status, priority, total FROM orders;"
+        ));
+        $files  = $qg->generate($qs);
+        foreach ($files as $f) {
+            if (($f['className'] ?? '') === 'OrderCriteria') return $f['code'];
+        }
+        return '';
+    }
+
+    public function test_enum_column_generates_eq_method_with_enum_type(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('function whereStatusEq(OrderStatus $value)', $code);
+    }
+
+    public function test_enum_column_generates_neq_method(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('function whereStatusNeq(OrderStatus $value)', $code);
+    }
+
+    public function test_enum_column_generates_in_method_variadic(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('function whereStatusIn(OrderStatus ...$values)', $code);
+    }
+
+    public function test_enum_column_generates_not_in_method(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('function whereStatusNotIn(OrderStatus ...$values)', $code);
+    }
+
+    public function test_nullable_enum_generates_is_null_methods(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('function wherePriorityIsNull()', $code);
+        $this->assertStringContainsString('function wherePriorityIsNotNull()', $code);
+    }
+
+    public function test_non_nullable_enum_has_no_is_null_method(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringNotContainsString('whereStatusIsNull', $code);
+    }
+
+    public function test_enum_methods_use_value_extraction(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('$value->value', $code);
+    }
+
+    public function test_enum_methods_use_array_map_for_in(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('array_map(fn($v) => $v->value, $values)', $code);
+    }
+
+    public function test_enum_criteria_imports_enum_class(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('use App\\Enums\\OrderStatus;', $code);
+    }
+
+    public function test_enum_criteria_no_duplicate_use_statements(): void
+    {
+        $code = $this->enumCriteriaCode();
+        preg_match_all('/^use .+;$/m', $code, $m);
+        $uses   = $m[0];
+        $unique = array_unique($uses);
+        $this->assertSame(count($unique), count($uses),
+            'Duplicate uses: ' . implode(', ', array_diff_assoc($uses, $unique)));
+    }
+
+    public function test_enum_criteria_no_string_methods_for_enum_col(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringNotContainsString('whereStatusLike', $code);
+        $this->assertStringNotContainsString('whereStatusStartsWith', $code);
+    }
+
+    public function test_multiple_enum_columns_each_import_their_enum(): void
+    {
+        $code = $this->enumCriteriaCode();
+        $this->assertStringContainsString('use App\\Enums\\OrderStatus;', $code);
+        $this->assertStringContainsString('use App\\Enums\\OrderPriority;', $code);
+    }
 }

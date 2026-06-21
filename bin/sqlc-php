@@ -712,6 +712,15 @@ function injectUseStatements(
 
     if (empty($needed)) return $code;
 
+    // Remove any FQCNs that are already imported in the file.
+    // CriteriaGenerator writes enum use statements itself; injectUseStatements
+    // must not add a second copy.
+    preg_match_all('/^use\s+([\w\\\\]+);/m', $code, $alreadyImported);
+    $existingFqcns = array_flip($alreadyImported[1]);
+    $needed = array_filter($needed, fn($_, $fqcn) => !isset($existingFqcns[$fqcn]), ARRAY_FILTER_USE_BOTH);
+
+    if (empty($needed)) return $code;
+
     // Build use statements block
     $uses = implode("\n", array_map(fn($fqcn) => "use {$fqcn};", array_keys($needed)));
 

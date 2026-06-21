@@ -42,7 +42,7 @@ class QueryGenerator
         private readonly bool                   $scopedCriterias        = false,
     ) {
         $criteriaBaseNs    = $this->criteriasNamespace !== '' ? $this->criteriasNamespace : $namespace;
-        $this->criteriaGen = new CriteriaGenerator($criteriaBaseNs);
+        $this->criteriaGen = new CriteriaGenerator($criteriaBaseNs, $this->typeMapper);
         $this->parser      = new QueryParser();
     }
 

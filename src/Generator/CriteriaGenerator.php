@@ -9,6 +9,7 @@ use SqlcPhp\Criteria\Filter;
 use SqlcPhp\Criteria\FilterOperator;
 use SqlcPhp\Parser\QueryDefinition;
 use SqlcPhp\Resolver\ResolvedColumn;
+use SqlcPhp\TypeMapper\TypeMapperInterface;
 
 /**
  * Generates a typed {Group}Criteria class for queries annotated with @searchable.
@@ -17,6 +18,7 @@ use SqlcPhp\Resolver\ResolvedColumn;
  *   - ALLOWED_COLUMNS constant — whitelist for orderBy() validation
  *   - Per-column typed where methods (inferred from the query result columns)
  *   - Per-column orderBy methods
+ *   - Per-column enum where methods for ENUM columns (Eq, Neq, In, NotIn + nullable IsNull/IsNotNull)
  *
  * Column→method mapping by PHP type:
  *   int / ?int        → Eq, Neq, Gt, Lt, Gte, Lte, In, NotIn, IsNull, IsNotNull
@@ -24,12 +26,14 @@ use SqlcPhp\Resolver\ResolvedColumn;
  *   string / ?string  → Eq, Neq, Like, StartsWith, EndsWith, In, NotIn, IsNull, IsNotNull
  *   bool              → Eq
  *   DateTimeImmutable → Eq, Neq, Gt, Lt, Gte, Lte, Between, IsNull, IsNotNull
+ *   BackedEnum        → Eq, Neq, In, NotIn, IsNull, IsNotNull (using typed enum class)
  *   array (JSON)      → (no filter methods — JSON comparison is not supported)
  */
 class CriteriaGenerator
 {
     public function __construct(
-        private readonly string $namespace,
+        private readonly string                $namespace,
+        private readonly ?TypeMapperInterface  $typeMapper = null,
     ) {}
 
     /**
@@ -81,6 +85,7 @@ class CriteriaGenerator
         $methods         = [];
         $allowedCols     = [];
         $columnConstants = [];
+        $enumUses        = []; // short name → FQCN, deduplicated
 
         foreach ($uniqueColumns as $col) {
             $alias   = $col->alias;
@@ -95,14 +100,30 @@ class CriteriaGenerator
             // Generate methods based on PHP type
             $titleAlias = $this->titleCase($alias);
 
-            $methods = array_merge($methods, match (true) {
-                $phpType === 'int'                     => $this->intMethods($titleAlias, $alias, $nullable),
-                $phpType === 'float'                   => $this->floatMethods($titleAlias, $alias, $nullable),
-                $phpType === 'string'                  => $this->stringMethods($titleAlias, $alias, $nullable),
-                $phpType === 'bool'                    => $this->boolMethods($titleAlias, $alias),
-                str_ends_with($phpType, 'DateTimeImmutable') => $this->dateMethods($titleAlias, $alias, $nullable),
-                default                                => [],
-            });
+            // Enum columns: generate typed enum methods using the backed enum class
+            if ($this->isEnumColumn($col)) {
+                $enumFqcn = $this->typeMapper->toPhpFqcn($col->sqlType, $col->tableName, $col->columnName);
+                if ($enumFqcn !== null) {
+                    $short = ltrim(substr($enumFqcn, strrpos($enumFqcn, '\\') + 1), '\\');
+                    // Deduplicate: track by short name, verify no FQCN collision
+                    if (!isset($enumUses[$short])) {
+                        $enumUses[$short] = $enumFqcn;
+                    }
+                    $methods = array_merge($methods, $this->enumMethods($titleAlias, $alias, $short, $nullable));
+                } else {
+                    // Fallback to string methods if FQCN not resolvable
+                    $methods = array_merge($methods, $this->stringMethods($titleAlias, $alias, $nullable));
+                }
+            } else {
+                $methods = array_merge($methods, match (true) {
+                    $phpType === 'int'                     => $this->intMethods($titleAlias, $alias, $nullable),
+                    $phpType === 'float'                   => $this->floatMethods($titleAlias, $alias, $nullable),
+                    $phpType === 'string'                  => $this->stringMethods($titleAlias, $alias, $nullable),
+                    $phpType === 'bool'                    => $this->boolMethods($titleAlias, $alias),
+                    str_ends_with($phpType, 'DateTimeImmutable') => $this->dateMethods($titleAlias, $alias, $nullable),
+                    default                                => [],
+                });
+            }
 
             // orderBy methods: omitted for :cursor queries (ORDER BY is fixed by @cursor)
             if (!$suppressOrderBy) {
@@ -158,6 +179,19 @@ PHP;
             ? "\n * Note: orderBy() is not available — ORDER BY is fixed by \@cursor."
             : '';
 
+        // Build deduped use block for enum classes.
+        // Skip any FQCN whose namespace matches the criteria namespace (same-namespace imports are redundant).
+        $useBlock = '';
+        foreach ($enumUses as $short => $fqcn) {
+            $fqcnNs = implode('\\', array_slice(explode('\\', $fqcn), 0, -1));
+            if ($fqcnNs !== $namespace) {
+                $useBlock .= "use {$fqcn};\n";
+            }
+        }
+        if ($useBlock !== '') {
+            $useBlock = "\n" . $useBlock;
+        }
+
         $code = <<<PHP
 <?php
 
@@ -167,7 +201,7 @@ namespace {$namespace};
 
 use SqlcPhp\Criteria\Criteria;
 use SqlcPhp\Criteria\Filter;
-use SqlcPhp\Criteria\FilterOperator;
+use SqlcPhp\Criteria\FilterOperator;{$useBlock}
 
 /**
  * Typed criteria for {@see {$query->group}Query::{$query->name}()}.
@@ -346,6 +380,90 @@ PHP;
         return \$this->orderBy('{$col}', \$direction);
     }
 PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // Enum column detection and method generation
+    // -------------------------------------------------------------------------
+
+    /**
+     * Returns true when the column's SQL type is ENUM (with or without values list).
+     * Requires a typeMapper to be present — without it, enum columns fall back to string.
+     */
+    private function isEnumColumn(ResolvedColumn $col): bool
+    {
+        if ($this->typeMapper === null) return false;
+        $normalized = strtoupper(trim(preg_replace('/\(.*\)/s', '', $col->sqlType) ?? $col->sqlType));
+        return $normalized === 'ENUM';
+    }
+
+    /**
+     * Generate typed where methods for a backed-enum column.
+     * The short class name (e.g. FacturantelogSupplier) must already be imported via `use`.
+     *
+     * Generated methods:
+     *   whereXxxEq(EnumClass $value): static
+     *   whereXxxNeq(EnumClass $value): static
+     *   whereXxxIn(EnumClass ...$values): static
+     *   whereXxxNotIn(EnumClass ...$values): static
+     *   whereXxxIsNull(): static           (only when nullable)
+     *   whereXxxIsNotNull(): static        (only when nullable)
+     *
+     * The enum ->value is extracted before passing to Filter — PDO cannot bind enum objects.
+     *
+     * @return string[]
+     */
+    private function enumMethods(string $title, string $col, string $enumClass, bool $nullable): array
+    {
+        $m = [];
+
+        $m[] = <<<PHP
+    public function where{$title}Eq({$enumClass} \$value): static
+    {
+        return \$this->add(Filter::eq('{$col}', \$value->value));
+    }
+PHP;
+
+        $m[] = <<<PHP
+    public function where{$title}Neq({$enumClass} \$value): static
+    {
+        return \$this->add(Filter::neq('{$col}', \$value->value));
+    }
+PHP;
+
+        $m[] = <<<PHP
+    /** @param {$enumClass}[] \$values */
+    public function where{$title}In({$enumClass} ...\$values): static
+    {
+        return \$this->add(Filter::in('{$col}', array_map(fn(\$v) => \$v->value, \$values)));
+    }
+PHP;
+
+        $m[] = <<<PHP
+    /** @param {$enumClass}[] \$values */
+    public function where{$title}NotIn({$enumClass} ...\$values): static
+    {
+        return \$this->add(Filter::notIn('{$col}', array_map(fn(\$v) => \$v->value, \$values)));
+    }
+PHP;
+
+        if ($nullable) {
+            $m[] = <<<PHP
+    public function where{$title}IsNull(): static
+    {
+        return \$this->add(Filter::isNull('{$col}'));
+    }
+PHP;
+
+            $m[] = <<<PHP
+    public function where{$title}IsNotNull(): static
+    {
+        return \$this->add(Filter::isNotNull('{$col}'));
+    }
+PHP;
+        }
+
+        return $m;
     }
 
     // -------------------------------------------------------------------------

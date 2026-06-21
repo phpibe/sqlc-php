@@ -138,8 +138,13 @@ PHP;
 
         $countMethod = '';
         if ($query->counted) {
-            $countParams  = $queryGen->buildParamListPublic($query);
-            $countMethod  = "\n\n    /**\n     * @return int Total rows matching filters, independent of cursor position.\n     */\n";
+            $countParams = $queryGen->buildParamListPublic($query);
+            $countSep    = $countParams !== '' ? ', ' : '';
+            if ($query->searchable) {
+                $criteriaClass = $query->group . 'Criteria';
+                $countParams  .= "{$countSep}?{$criteriaClass} \$criteria = null";
+            }
+            $countMethod  = "\n\n    /**\n     * @return int Total rows matching filters (criteria + fixed params), independent of cursor position.\n     */\n";
             $countMethod .= "    public function {$query->name}Count({$countParams}): int;";
         }
 

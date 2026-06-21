@@ -193,6 +193,7 @@ class CursorPaginationTest extends TestCase
 
     public function test_counted_cursor_generates_count_method(): void
     {
+        // @counted without @searchable — no $criteria param
         $q    = $this->analyze(
             "-- @name ListOrders\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
             "-- @counted\n-- @returns :cursor\n" .
@@ -200,7 +201,7 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString('function listOrdersCount(): int', $code,
-            '@counted + :cursor must generate a listOrdersCount() method');
+            '@counted + :cursor (no @searchable) must generate listOrdersCount() with no $criteria');
     }
 
     public function test_counted_cursor_count_sql_has_no_cursor_where(): void
@@ -225,19 +226,75 @@ class CursorPaginationTest extends TestCase
 
     public function test_counted_cursor_count_method_has_user_params_only(): void
     {
+        // @counted without @searchable — signature has user params but no $criteria/$after/$before/$limit
         $q    = $this->analyze(
             "-- @name ListByUser\n-- @class Order\n-- @cursor created_at DESC, id DESC\n" .
             "-- @counted\n-- @returns :cursor\n" .
             "SELECT id, created_at FROM orders WHERE user_id = :userId ORDER BY created_at DESC, id DESC;"
         );
         $code = $this->code($q);
-        // Count method signature has userId but not $after/$before/$limit
         $this->assertStringContainsString('function listByUserCount(int $userId): int', $code);
-        $countStart = strpos($code, 'function listByUserCount');
+        $countStart  = strpos($code, 'function listByUserCount');
         $countMethod = substr($code, $countStart, 400);
+        $this->assertStringNotContainsString('$criteria', $countMethod);
         $this->assertStringNotContainsString('$after', $countMethod);
         $this->assertStringNotContainsString('$before', $countMethod);
         $this->assertStringNotContainsString('$limit', $countMethod);
+    }
+
+    public function test_searchable_counted_cursor_count_accepts_criteria(): void
+    {
+        // @counted + @searchable: Count method must accept $criteria
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n-- @cursor id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY id DESC;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString(
+            'function listOrdersCount(?OrderCriteria $criteria = null): int',
+            $code,
+            '@counted + @searchable must add ?OrderCriteria $criteria to Count method'
+        );
+    }
+
+    public function test_searchable_counted_cursor_count_uses_filter_clause(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Order\n-- @searchable\n-- @cursor id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders ORDER BY id DESC;"
+        );
+        $code        = $this->code($q);
+        $countStart  = strpos($code, 'function listOrdersCount');
+        $countMethod = substr($code, $countStart, 800);
+
+        $this->assertStringContainsString('toFilterClause', $countMethod,
+            'Searchable count must apply criteria filters via toFilterClause()');
+        $this->assertStringContainsString('criteria->bindAll', $countMethod,
+            'Searchable count must bind criteria params');
+        $this->assertStringNotContainsString('__cursor', $countMethod,
+            'Count method must not contain cursor placeholders');
+    }
+
+    public function test_searchable_counted_cursor_count_with_user_where(): void
+    {
+        // @searchable + @counted with existing user WHERE — hasWhere starts true
+        $q    = $this->analyze(
+            "-- @name ListByUser\n-- @class Order\n-- @searchable\n-- @cursor id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, created_at FROM orders WHERE user_id = :userId ORDER BY id DESC;"
+        );
+        $code        = $this->code($q);
+        $countStart  = strpos($code, 'function listByUserCount');
+        $countMethod = substr($code, $countStart, 600);
+
+        $this->assertStringContainsString(
+            'function listByUserCount(int $userId, ?OrderCriteria $criteria = null): int',
+            $code
+        );
+        $this->assertStringContainsString('hasWhere = true', $countMethod,
+            'When user SQL has WHERE, hasWhere must start as true');
     }
 
     public function test_counted_cursor_count_sql_includes_user_where(): void

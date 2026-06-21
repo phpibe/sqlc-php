@@ -1576,31 +1576,74 @@ PHP;
      */
     private function renderCursorCountMethod(QueryDefinition $query): string
     {
-        $userParams = $this->buildParamList($query);
-        $countName  = $query->name . 'Count';
-        $signature  = "{$countName}({$userParams}): int";
-
-        $docblock = $this->buildDocblock($query,
-            '@return int Total number of rows matching the filter conditions, ' .
-            'independent of cursor position. Call once (e.g. on the first page load); ' .
-            'the total does not change as you paginate.'
-        );
+        $userParams   = $this->buildParamList($query);
+        $countName    = $query->name . 'Count';
+        $sep          = $userParams !== '' ? ', ' : '';
 
         // Build COUNT SQL from the original user SQL.
-        // Strip trailing semicolons, ORDER BY, and any LIMIT the user may have written.
-        // The cursor WHERE was never in $query->sql — it is injected only at render time.
+        // Strip ORDER BY and LIMIT — cursor conditions are never present in $query->sql.
         $innerSql = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
         $innerSql = rtrim($innerSql, ';');
         $innerSql = preg_replace('/\s+ORDER\s+BY\s+.+$/i', '', $innerSql);
         $innerSql = preg_replace('/\s+LIMIT\s+:\w+\b/i', '', $innerSql);
         $innerSql = preg_replace('/\s+LIMIT\s+\d+\b/i', '', $innerSql);
         $innerSql = rtrim($innerSql);
-        $countSql   = "SELECT COUNT(*) AS _total FROM ({$innerSql}) AS _cursor_total";
-        $sqlLiteral = $this->renderSqlLiteral($countSql);
 
-        // Bindings: user params only — :limit excluded by buildParamList for :cursor
         $bindings     = $this->renderBindings($query);
         $bindingsExpr = $this->buildBindingsExpr($query);
+
+        if ($query->searchable) {
+            // @counted + @searchable: accept $criteria and apply its WHERE filters
+            // to the COUNT query so the total matches the filtered dataset.
+            $criteriaClass = $query->group . 'Criteria';
+            $signature     = "{$countName}({$userParams}{$sep}?{$criteriaClass} \$criteria = null): int";
+            $docblock       = $this->buildDocblock($query,
+                '@return int Total rows matching the filter conditions (criteria + fixed params). ' .
+                'Pass the same Criteria instance used for the paginated query. ' .
+                'Call once (e.g. on the first page load); the total does not change as you paginate.'
+            );
+
+            // Detect whether the user SQL already has a WHERE clause
+            $hasWhere    = (bool) preg_match('/\bWHERE\b/i', $innerSql);
+            $hasWhereLit = $hasWhere ? 'true' : 'false';
+            $baseSqlLit  = $this->renderSqlLiteral($innerSql);
+            $saveLastQuery = $this->renderSaveLastQuery('$__countSql', $bindingsExpr, "'{$countName}'");
+
+            return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+        // Build COUNT SQL: base query + criteria filters (no cursor WHERE, no ORDER BY, no LIMIT)
+        \$__basePart = {$baseSqlLit};
+        \$__hasWhere = {$hasWhereLit};
+        if (\$criteria !== null && \$criteria->hasFilters()) {
+            \$__basePart .= \$criteria->toFilterClause(\$__hasWhere);
+        }
+        \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__basePart . ') AS _cursor_total';
+
+        \$stmt = \$this->pdo->prepare(\$__countSql);
+{$bindings}        if (\$criteria !== null) \$criteria->bindAll(\$stmt);
+{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
+    }
+PHP;
+        }
+
+        // @counted without @searchable: static COUNT SQL, no criteria
+        $countSql      = "SELECT COUNT(*) AS _total FROM ({$innerSql}) AS _cursor_total";
+        $sqlLiteral    = $this->renderSqlLiteral($countSql);
+        $signature     = "{$countName}({$userParams}): int";
+        $docblock      = $this->buildDocblock($query,
+            '@return int Total number of rows matching the filter conditions, ' .
+            'independent of cursor position. Call once (e.g. on the first page load); ' .
+            'the total does not change as you paginate.'
+        );
         $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$countName}'");
 
         return <<<PHP

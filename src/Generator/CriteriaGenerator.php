@@ -92,6 +92,21 @@ class CriteriaGenerator
             $phpType = ltrim($col->phpType, '?');
             $nullable = str_starts_with($col->phpType, '?');
 
+            // Resolve the SQL column reference used inside Filter (WHERE clause).
+            //
+            // When the column comes from a real table (tableName is set), always qualify
+            // it as `table.column` to avoid MySQL "Column is ambiguous" errors on JOINs
+            // where multiple tables share the same column name (e.g. reserve_id).
+            //
+            // Alias-only columns (expressions, aggregates, computed columns) have no
+            // tableName — those cannot be qualified and must use the alias as-is.
+            // Note: aliases from SELECT are NOT valid in WHERE in standard SQL, but for
+            // expression columns (SUM, COUNT, JSON_ARRAYAGG…) there is no alternative
+            // and the user is responsible for query correctness.
+            $filterColumn = ($col->tableName !== '' && $col->columnName !== '')
+                ? "{$col->tableName}.{$col->columnName}"
+                : $alias;
+
             // Build COLUMN_ constants and allowed list for ORDER BY
             $constName         = strtoupper(preg_replace('/[^a-zA-Z0-9]/', '_', $alias));
             $columnConstants[] = "    public const COLUMN_{$constName} = '{$alias}';";
@@ -109,18 +124,18 @@ class CriteriaGenerator
                     if (!isset($enumUses[$short])) {
                         $enumUses[$short] = $enumFqcn;
                     }
-                    $methods = array_merge($methods, $this->enumMethods($titleAlias, $alias, $short, $nullable));
+                    $methods = array_merge($methods, $this->enumMethods($titleAlias, $filterColumn, $short, $nullable));
                 } else {
                     // Fallback to string methods if FQCN not resolvable
-                    $methods = array_merge($methods, $this->stringMethods($titleAlias, $alias, $nullable));
+                    $methods = array_merge($methods, $this->stringMethods($titleAlias, $filterColumn, $nullable));
                 }
             } else {
                 $methods = array_merge($methods, match (true) {
-                    $phpType === 'int'                     => $this->intMethods($titleAlias, $alias, $nullable),
-                    $phpType === 'float'                   => $this->floatMethods($titleAlias, $alias, $nullable),
-                    $phpType === 'string'                  => $this->stringMethods($titleAlias, $alias, $nullable),
-                    $phpType === 'bool'                    => $this->boolMethods($titleAlias, $alias),
-                    str_ends_with($phpType, 'DateTimeImmutable') => $this->dateMethods($titleAlias, $alias, $nullable),
+                    $phpType === 'int'                     => $this->intMethods($titleAlias, $filterColumn, $nullable),
+                    $phpType === 'float'                   => $this->floatMethods($titleAlias, $filterColumn, $nullable),
+                    $phpType === 'string'                  => $this->stringMethods($titleAlias, $filterColumn, $nullable),
+                    $phpType === 'bool'                    => $this->boolMethods($titleAlias, $filterColumn),
+                    str_ends_with($phpType, 'DateTimeImmutable') => $this->dateMethods($titleAlias, $filterColumn, $nullable),
                     default                                => [],
                 });
             }

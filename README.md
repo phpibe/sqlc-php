@@ -1524,7 +1524,78 @@ sqlc-php/
 
 ## Changelog
 
-### [2.9.3] — `scoped_dtos` path includes `@class` group
+### [2.12.3] — `@json` annotation — typed DTO arrays for JSON_ARRAYAGG columns
+
+Adds a new `@json alias ClassName` annotation that deserializes a `JSON_ARRAYAGG` result column into a typed `ClassName[]` array instead of a plain PHP `array`. A standalone readonly DTO is always generated for the referenced class, inferred from the schema table whose name matches the class (e.g. `City` → `cities`, `Country` → `countries`).
+
+**Usage:**
+
+```sql
+-- @name GetCountryWithCities
+-- @class Country
+-- @returns :one
+-- @json cities City
+SELECT
+    countries.id,
+    countries.name,
+    JSON_ARRAYAGG(
+        JSON_OBJECT('id', cities.id, 'name', cities.name)
+    ) AS cities
+FROM countries
+INNER JOIN cities ON cities.country_id = countries.id
+WHERE countries.id = :id
+GROUP BY countries.id;
+```
+
+**Generated parent DTO (`GetCountryWithCitiesRow.php`):**
+
+```php
+readonly class GetCountryWithCitiesRow
+{
+    public function __construct(
+        public int    $id,
+        public string $name,
+        /** @var City[] */
+        public array  $cities,
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            id:     (int) $row['id'],
+            name:   (string) $row['name'],
+            cities: array_map(fn(array $r) => City::fromRow($r), json_decode((string) $row['cities'], true) ?? []),
+        );
+    }
+}
+```
+
+**Generated JSON DTO (`City.php`) — inferred from `cities` table schema:**
+
+```php
+readonly class City
+{
+    public function __construct(
+        public int    $id,
+        public string $name,
+        public string $slug,
+        public int    $country_id,
+    ) {}
+
+    public static function fromRow(array $row): self { ... }
+}
+```
+
+**Key behaviours:**
+
+- The `City` DTO is **always generated** — it is never reused from an existing model class.
+- Placement respects `scoped_dtos:` — when `true`, the DTO lives in `DTOs/{Group}/{Method}/City.php`; when `false`, it is placed flat in the DTOs directory.
+- When `extensions:` is declared in `out:`, a `CityExtension` trait scaffold is generated alongside the DTO (write-once, never overwritten), with `@property` tags for all schema columns. The parent DTO extension also lists the `@json` column as `@property array $cities`.
+- **Error on unknown table** — if no schema table can be matched to the class name (direct, lowercase, or plural heuristic), generation fails with a clear `RuntimeException`.
+- Multiple `@json` annotations on the same query are supported — each produces its own DTO and extension.
+- 26 new tests in `tests/JsonAnnotationTest.php`.
+
+
 
 Iterates the `scoped_dtos: true` feature. The subdirectory now includes the `@class` group as a parent:
 

@@ -276,6 +276,7 @@ class QueryAnalyzer
             isUnion:              $query->isUnion,
             typeOverrides:        $query->typeOverrides,
             cursorColumns:        $query->cursorColumns,
+            jsonColumns:          $query->jsonColumns,
         );
     }
 

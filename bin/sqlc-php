@@ -340,7 +340,7 @@ function runGeneration(
         $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
         $queries       = $analyzer->analyze($rawQueries);
 
-        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper);
+        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper, $catalog);
 
         // Extension trait scaffolding — activated by declaring `extensions:` in out:
         $extGen = $output->hasExtensions()
@@ -482,10 +482,16 @@ function runGeneration(
                 foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
                     $toWrite["{$subdir}/{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
                 }
+                foreach ($r['jsonDtos'] as $cls => ['className' => $jcls, 'code' => $jc]) {
+                    $toWrite["{$subdir}/{$jcls}.php"] = ['type' => 'dtos', 'label' => '[json]   ', 'code' => $jc];
+                }
             } else {
                 $toWrite["{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
                 foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
                     $toWrite["{$ecls}.php"] = ['type' => 'dtos', 'label' => '[embed]  ', 'code' => $ec];
+                }
+                foreach ($r['jsonDtos'] as $cls => ['className' => $jcls, 'code' => $jc]) {
+                    $toWrite["{$jcls}.php"] = ['type' => 'dtos', 'label' => '[json]   ', 'code' => $jc];
                 }
             }
             // Collect DTO extension scaffolds

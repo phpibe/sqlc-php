@@ -149,6 +149,7 @@
       <a class="sidebar-link" href="#ann-optional"><i class="bi bi-toggles"></i> @optional</a>
       <a class="sidebar-link" href="#ann-dto"><i class="bi bi-box"></i> @dto / @column</a>
       <a class="sidebar-link" href="#ann-embed"><i class="bi bi-boxes"></i> @embed</a>
+      <a class="sidebar-link" href="#ann-json"><i class="bi bi-braces"></i> @json</a>
       <a class="sidebar-link" href="#ann-nillable"><i class="bi bi-question-circle"></i> @nillable</a>
       <a class="sidebar-link" href="#ann-type"><i class="bi bi-tag"></i> @type</a>
       <a class="sidebar-link" href="#ann-counted"><i class="bi bi-hash"></i> @counted</a>
@@ -521,6 +522,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name</td></tr>
             <tr><td><span class="annotation ann-optional">@column</span></td><td>No</td><td>Rename a result column without SQL <code>AS</code></td></tr>
             <tr><td><span class="annotation ann-optional">@embed</span></td><td>No</td><td>Group prefixed columns into a nested readonly object</td></tr>
+            <tr><td><span class="annotation ann-optional">@json</span></td><td>No</td><td>Deserialize a <code>JSON_ARRAYAGG</code> column into a typed <code>ClassName[]</code> array — generates a standalone readonly DTO inferred from the schema table. <span class="badge bg-secondary">v2.12.3</span></td></tr>
             <tr><td><span class="annotation ann-optional">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable)</td></tr>
             <tr><td><span class="annotation ann-optional">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — overrides the inferred type. Essential for UNION queries and constant expressions. <span class="badge bg-secondary">v2.9.6</span></td></tr>
             <tr><td><span class="annotation ann-optional">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method. Valid with <code>:many-paginated</code> and <code>:cursor</code>. For <code>:cursor</code>, counts total rows matching user filters (independent of cursor position).</td></tr>
@@ -677,6 +679,85 @@ readonly class Role {
       <div class="callout callout-info">
         <i class="bi bi-info-circle callout-icon"></i>
         The prefix can have any number of trailing underscores: <code>role_</code>, <code>role__</code>, <code>country___</code> — all are preserved exactly. Use a consistent prefix in both the annotation and the SQL aliases.
+      </div>
+    </section>
+
+    <!-- ── @json -->
+    <section class="doc-section" id="ann-json">
+      <h3><i class="bi bi-braces me-2"></i>@json <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.12.3</span></h3>
+      <p style="color:var(--text-muted)">Declares that a result column containing a <code>JSON_ARRAYAGG</code> value should be deserialized into a typed <code>ClassName[]</code> array instead of a plain PHP <code>array</code>. sqlc-php always generates a standalone readonly DTO for the referenced class, inferred from the schema table whose name matches the class name.</p>
+
+      <pre><code class="language-sql">-- @name GetCountryWithCities
+-- @class Country
+-- @returns :one
+-- @json cities City         ← cities column → City[] array
+SELECT
+    countries.id,
+    countries.name,
+    JSON_ARRAYAGG(
+        JSON_OBJECT('id', cities.id, 'name', cities.name, 'slug', cities.slug)
+    ) AS cities
+FROM countries
+INNER JOIN cities ON cities.country_id = countries.id
+WHERE countries.id = :id
+GROUP BY countries.id;</code></pre>
+
+      <p style="color:var(--text-muted);margin-top:1rem">Generated files:</p>
+
+      <pre><code class="language-php">// GetCountryWithCitiesRow.php
+readonly class GetCountryWithCitiesRow
+{
+    public function __construct(
+        public int    $id,
+        public string $name,
+        /** @var City[] */
+        public array  $cities,
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            id:     (int) $row['id'],
+            name:   (string) $row['name'],
+            cities: array_map(
+                fn(array $r) => City::fromRow($r),
+                json_decode((string) $row['cities'], true) ?? []
+            ),
+        );
+    }
+}</code></pre>
+
+      <pre><code class="language-php">// City.php — generated from the `cities` table schema
+readonly class City
+{
+    public function __construct(
+        public int    $id,
+        public string $name,
+        public string $slug,
+        public int    $country_id,
+    ) {}
+
+    public static function fromRow(array $row): self { ... }
+}</code></pre>
+
+      <p style="color:var(--text-muted);margin-top:1rem">Usage:</p>
+      <pre><code class="language-php">$result = $repo->getCountryWithCities(id: 1);
+
+// $result->cities is City[], not array[]
+foreach ($result->cities as $city) {
+    echo $city->name;   // typed — full IDE autocomplete
+    echo $city->slug;
+}</code></pre>
+
+      <div class="callout callout-info" style="margin-top:1.2rem">
+        <strong>Key behaviours</strong>
+        <ul class="mb-0 mt-2">
+          <li>The DTO is <strong>always generated</strong> — it is never reused from an existing model class.</li>
+          <li>Placement respects <code>scoped_dtos:</code> — when <code>true</code>, the DTO lives in <code>DTOs/{Group}/{Method}/City.php</code>.</li>
+          <li>When <code>extensions:</code> is declared, a <code>CityExtension</code> trait scaffold is generated alongside the DTO (write-once, never overwritten) with <code>@property</code> tags for all schema columns.</li>
+          <li>Table resolution: <code>City</code> → tries <code>city</code>, <code>citys</code>, <code>cities</code>. If no match is found, generation fails with a clear error.</li>
+          <li>Multiple <code>@json</code> annotations per query are supported.</li>
+        </ul>
       </div>
     </section>
 
@@ -2365,6 +2446,19 @@ $with_or = $base->orGroup(fn($c) => $c->whereStatusEq('vip'));</code></pre>
 
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.12.3 — @json annotation — typed DTO arrays for JSON_ARRAYAGG columns</div>
+          <ul>
+            <li><strong>New <code>@json alias ClassName</code> annotation</strong> — declares that a <code>JSON_ARRAYAGG</code> result column should be deserialized into a <code>ClassName[]</code> typed array instead of a plain PHP <code>array</code>. The referenced class is always generated as a standalone readonly DTO, inferred from the matching schema table (<code>City</code> → <code>cities</code>, <code>Country</code> → <code>countries</code>, etc.).</li>
+            <li><strong>Generated parent DTO</strong> uses <code>array_map(fn(array $r) => City::fromRow($r), json_decode(...))</code> for the cast, and emits a <code>/** @var City[] */</code> docblock on the property for full IDE type inference.</li>
+            <li><strong>JSON DTO placement follows <code>scoped_dtos:</code></strong> — when <code>true</code>, the DTO and its extension scaffold live in <code>DTOs/{Group}/{Method}/</code>; when <code>false</code>, they are placed flat in the DTOs directory.</li>
+            <li><strong>Extension trait support</strong> — when <code>extensions:</code> is declared in <code>out:</code>, a <code>CityExtension</code> scaffold is generated alongside the DTO (write-once, never overwritten) with <code>@property</code> tags for all schema columns and a <code>@mixin</code> pointing to <code>City</code>. The parent DTO extension also lists the <code>@json</code> column as <code>@property array $cities</code>.</li>
+            <li><strong>Error on unknown table</strong> — generation fails with a clear <code>RuntimeException</code> if no schema table matches the class name (direct, lowercase, or plural heuristic).</li>
+            <li>Multiple <code>@json</code> annotations per query are supported — each produces its own DTO file and extension scaffold.</li>
+            <li>26 new tests in <code>tests/JsonAnnotationTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.11.2 — @counted support for :cursor</div>

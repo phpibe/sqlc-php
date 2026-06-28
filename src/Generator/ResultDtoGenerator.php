@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SqlcPhp\Generator;
 
+use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Parser\EmbedDefinition;
 use SqlcPhp\Generator\ExtensionData;
 use SqlcPhp\Generator\ExtensionGenerator;
@@ -18,6 +19,9 @@ use SqlcPhp\TypeMapper\TypeMapperInterface;
  * Supports @embed: columns whose alias matches an embed prefix are grouped
  * into a nested readonly value object instead of being flattened.
  *
+ * Supports @json: columns containing JSON_ARRAYAGG output are typed as
+ * arrays of a generated DTO class instead of plain PHP arrays.
+ *
  * Naming convention: {QueryName}Row  (e.g. GetUserWithRoleRow)
  */
 class ResultDtoGenerator
@@ -25,6 +29,7 @@ class ResultDtoGenerator
     public function __construct(
         private readonly string               $namespace,
         private readonly ?TypeMapperInterface $typeMapper = null,
+        private readonly ?SchemaCatalog       $catalog    = null,
     ) {}
 
     public function dtoClassName(QueryDefinition $query): string
@@ -96,6 +101,7 @@ class ResultDtoGenerator
      *   className:     string,
      *   code:          string,
      *   embeds:        array<string, array{className: string, code: string}>,
+     *   jsonDtos:      array<string, array{className: string, code: string}>,
      *   scopeSubdir:   string|null,
      *   namespace:     string,
      *   extensions:    array<string, ExtensionData>,
@@ -139,9 +145,20 @@ class ResultDtoGenerator
         $props    = [];
         $fromArgs = [];
 
+        // Collect @json column mappings for this query
+        $jsonColumns = $query->jsonColumns ?? [];
+
         foreach ($flatColumns as $col) {
-            $props[]    = "        public {$col->phpType} \${$col->alias},";
-            $fromArgs[] = $this->buildCast($col);
+            if (isset($jsonColumns[$col->alias])) {
+                // @json column — typed as ClassName[] instead of plain array
+                $dtoClass   = $jsonColumns[$col->alias];
+                $access     = "\$row['{$col->alias}']";
+                $props[]    = "        /** @var {$dtoClass}[] */\n        public array \${$col->alias},";
+                $fromArgs[] = "            array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []),";
+            } else {
+                $props[]    = "        public {$col->phpType} \${$col->alias},";
+                $fromArgs[] = $this->buildCast($col);
+            }
         }
 
         foreach ($embeds as $embed) {
@@ -211,6 +228,25 @@ PHP;
             $embedFiles[$cls] = ['className' => $cls, 'code' => $ec];
         }
 
+        // Generate one JSON DTO file per @json annotation
+        $jsonDtoFiles = [];
+        if (!empty($jsonColumns) && $this->catalog !== null && $this->typeMapper !== null) {
+            $jsonDtoGen = new JsonDtoGenerator($this->catalog, $this->typeMapper);
+            foreach ($jsonColumns as $alias => $dtoClass) {
+                $tableName = $jsonDtoGen->resolveTableName($dtoClass);
+                if ($tableName === null) {
+                    throw new \RuntimeException(
+                        "@json '{$alias}' references class '{$dtoClass}' but no matching table " .
+                        "was found in the schema (tried: {$dtoClass}, " . strtolower($dtoClass) .
+                        ", " . strtolower($dtoClass) . "s, ...). " .
+                        "Declare the table in schema.sql or add a virtual_table entry."
+                    );
+                }
+                ['className' => $cls, 'code' => $jc] = $jsonDtoGen->generate($dtoClass, $namespace, $tableName);
+                $jsonDtoFiles[$cls] = ['className' => $cls, 'code' => $jc];
+            }
+        }
+
         $scopeSubdir = $scoped ? $this->scopeSubdirFor($query) : null;
 
         // ── Extension trait injection ────────────────────────────────────────
@@ -232,7 +268,15 @@ PHP;
                 ];
             }
 
-            $propsWithFqcn = $this->attachFqcns($flatColumns);
+            // Add @json columns to the main DTO extension as array properties
+            $jsonColumnsForExt = [];
+            foreach ($jsonColumns as $alias => $dtoClass) {
+                $jsonColumnsForExt[] = ['name' => $alias, 'phpType' => 'array', 'fqcn' => null];
+            }
+
+            // Exclude @json columns from flat columns — they are listed separately below
+            $flatColumnsForExt = array_filter($flatColumns, fn($c) => !isset($jsonColumns[$c->alias]));
+            $propsWithFqcn = array_merge($this->attachFqcns(array_values($flatColumnsForExt)), $jsonColumnsForExt);
             $dtoExt        = $extGen->forDto($className, $propsWithFqcn, $embedsForExt, $scopeSubdir, $hostFqcn);
             $code          = $extGen->injectIntoClass($code, $dtoExt);
             $extensions[$dtoExt->relPath] = $dtoExt;
@@ -262,12 +306,33 @@ PHP;
                 }
                 $extensions[$embedExt->relPath] = $embedExt;
             }
+
+            // JSON DTO extensions — one extension trait per @json DTO class
+            if (!empty($jsonDtoFiles) && $this->catalog !== null) {
+                $jsonDtoResv = new JsonDtoGenerator($this->catalog, $this->typeMapper);
+                foreach ($jsonDtoFiles as $cls => ['className' => $jCls, 'code' => $jCode]) {
+                    $jsonHostFqcn  = $namespace . '\\' . $jCls;
+                    $jsonTableName = $jsonDtoResv->resolveTableName($jCls);
+                    $jsonProps     = [];
+                    if ($jsonTableName !== null) {
+                        $table = $this->catalog->getTable($jsonTableName);
+                        foreach ($table?->columns ?? [] as $col) {
+                            $phpType     = $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $jsonTableName, $col->name);
+                            $jsonProps[] = ['name' => $col->name, 'phpType' => $phpType, 'fqcn' => null];
+                        }
+                    }
+                    $jsonExt  = $extGen->forDto($jCls, $jsonProps, [], $scopeSubdir, $jsonHostFqcn);
+                    $jsonDtoFiles[$cls]['code'] = $extGen->injectIntoClass($jCode, $jsonExt);
+                    $extensions[$jsonExt->relPath] = $jsonExt;
+                }
+            }
         }
 
         return [
             'className'   => $className,
             'code'        => $code,
             'embeds'      => $embedFiles,
+            'jsonDtos'    => $jsonDtoFiles,
             'scopeSubdir' => $scopeSubdir,
             'namespace'   => $namespace,
             'extensions'  => $extensions,

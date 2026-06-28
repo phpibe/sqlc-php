@@ -47,6 +47,16 @@ class SchemaCatalog
     }
 
     /**
+     * Returns all registered table names (lowercased keys as stored internally).
+     *
+     * @return string[]
+     */
+    public function tableNames(): array
+    {
+        return array_keys($this->tables);
+    }
+
+    /**
      * Returns the name of the primary key column for the given table.
      *
      * Detection strategy (in order):

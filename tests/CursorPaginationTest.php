@@ -852,6 +852,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.12.4', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.13.1', \SqlcPhp\Version::VERSION);
     }
 }

@@ -62,6 +62,11 @@ readonly class Target
          * with a clear error message listing the conflicting queries.
          */
         public bool         $scopedDtos            = false,
+        /**
+         * Per-target CTE file paths — merged with global ctes at generation time.
+         * @var string[]
+         */
+        public array        $ctePaths              = [],
     ) {}
 
     /**
@@ -120,6 +125,11 @@ readonly class Target
                                         ? DatabaseConfig::fromArray($data['database'])
                                         : null,
             scopedDtos:             filter_var($data['scoped_dtos'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            ctePaths:               is_array($data['ctes'] ?? null)
+                                        ? array_values(array_filter(array_map('strval', $data['ctes'])))
+                                        : (is_string($data['ctes'] ?? null) && $data['ctes'] !== ''
+                                            ? [(string) $data['ctes']]
+                                            : []),
         );
     }
 }

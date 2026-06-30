@@ -277,6 +277,7 @@ class QueryAnalyzer
             typeOverrides:        $query->typeOverrides,
             cursorColumns:        $query->cursorColumns,
             jsonColumns:          $query->jsonColumns,
+            usedCtes:             $query->usedCtes,
         );
     }
 

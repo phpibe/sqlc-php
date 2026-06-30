@@ -98,7 +98,7 @@ class JsonAnnotationTest extends TestCase
         SQL);
 
         $this->assertCount(1, $queries);
-        $this->assertSame(['cities' => 'City'], $queries[0]->jsonColumns);
+        $this->assertSame(['cities' => ['class' => 'City', 'many' => true]], $queries[0]->jsonColumns);
     }
 
     public function test_parser_captures_multiple_json_annotations(): void
@@ -113,7 +113,10 @@ class JsonAnnotationTest extends TestCase
         SQL);
 
         $this->assertSame(
-            ['cities' => 'City', 'products' => 'Product'],
+            [
+                'cities'   => ['class' => 'City',    'many' => true],
+                'products' => ['class' => 'Product', 'many' => true],
+            ],
             $queries[0]->jsonColumns
         );
     }

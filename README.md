@@ -1524,7 +1524,213 @@ sqlc-php/
 
 ## Changelog
 
-### [2.12.3] — `@json` annotation — typed DTO arrays for JSON_ARRAYAGG columns
+### [2.13.1] — Hotfix: CTE feature crashed in real-world CLI usage
+
+Fixes two regressions introduced in 2.13.0 that only manifest when running `bin/sqlc-php` for real (not caught by the unit test suite, which exercised the classes directly rather than through the CLI entrypoint):
+
+**Bug 1 — `Undefined variable $baseDir`, fatal `TypeError` on every run, even without `ctes:` configured.**
+
+`runGeneration()` referenced `$baseDir` when calling `CteRegistry::build()`, but the variable was never defined anywhere in the function. This broke **every** generation run, regardless of whether the project used CTEs at all.
+
+Fix: `$baseDir` is now derived from the resolved config path: `dirname(realpath($configPath) ?: $configPath)`, matching the same convention `Config::fromFile()` already uses internally for `includes:` and `virtual_tables:`.
+
+**Bug 2 — Fatal `Unknown named parameter $returnType` whenever a query actually used `@use`.**
+
+The `QueryDefinition` reconstruction (done to inject the resolved `WITH` clause) referenced a non-existent `returnType` parameter — the real property is `returns` — and omitted several other required properties (`resultColumns`, `paramAnnotations`, `optionalParams`, `returnsModelDirectly`, `modelClass`, `deprecated`, `nillableColumns`), which would have silently reset them to defaults even if the name had been correct.
+
+Fix: the reconstruction now lists every real `QueryDefinition` property with its correct name.
+
+**Both bugs were latent in the unit tests** because tests called `CteRegistry` and `QueryDefinition` directly with controlled inputs, never exercising the exact code path inside `bin/sqlc-php`. 6 new end-to-end CLI regression tests (`tests/CliCteRegressionTest.php`) now invoke the actual `bin/sqlc-php` binary as a subprocess against real temporary project directories, covering: no `ctes:` configured, `@use` present, mixed queries with and without `@use`, and CLI output reporting of loaded CTE names.
+
+**No changes to the public API or query/CTE syntax** — this is a pure bugfix release.
+
+
+
+Introduces reusable named CTEs that can be declared once in dedicated `.sql` files and referenced by any number of queries via `@use`. Eliminates the need to repeat `WITH ... AS (...)` blocks across queries that share the same CTE logic.
+
+**CTE file format (`database/ctes/active_users.sql`):**
+
+```sql
+-- @cte active_users
+SELECT id, email, role
+FROM users
+WHERE active = 1 AND role = 'client';
+
+-- @cte active_admins
+SELECT id, email
+FROM users
+WHERE active = 1 AND role = 'admin';
+```
+
+Each file can contain any number of `@cte name` blocks separated by the annotation. A file without any `@cte` annotation is silently ignored.
+
+**`sqlc.yaml` configuration:**
+
+```yaml
+version: 1
+engine:  mysql
+
+schema:
+  - database/schema.sql
+
+ctes:                                    # global — available to all targets
+  - database/ctes/active_users.sql
+  - database/ctes/recent_orders.sql
+
+targets:
+  - namespace: App\Queries
+    queries:
+      - database/queries/orders.sql
+    out: generated/
+    ctes:                                # per-target — merged with global
+      - database/ctes/billing.sql
+```
+
+**Usage in queries:**
+
+```sql
+-- @name ListActiveUserOrders
+-- @class Orders
+-- @returns :many
+-- @use active_users
+SELECT orders.* FROM orders
+INNER JOIN active_users ON active_users.id = orders.user_id;
+
+-- @name ListActiveUserPayments
+-- @class Payments
+-- @returns :many
+-- @use active_users, recent_orders       ← multiple CTEs, comma-separated
+SELECT payments.* FROM payments
+INNER JOIN active_users  ON active_users.id  = payments.user_id
+INNER JOIN recent_orders ON recent_orders.id = payments.order_id;
+```
+
+**Generated SQL (injected automatically before analysis):**
+
+```sql
+WITH
+active_users AS (
+    SELECT id, email, role FROM users WHERE active = 1 AND role = 'client'
+),
+recent_orders AS (
+    SELECT id, user_id FROM orders WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+)
+SELECT payments.* FROM payments ...
+```
+
+**Rules and constraints:**
+
+- CTE names must be unique across all loaded files — a duplicate triggers a clear error.
+- Queries that use `@use` must not declare an inline `WITH` clause — mixing the two is an error.
+- Multiple `@use` on the same query and comma-separated names on one line are both supported.
+- Duplicate names in a single `@use` list are deduplicated automatically.
+- Global `ctes:` paths are available to every target. Per-target `ctes:` add to them.
+- CTE files are pure SQL — no PHP or YAML mixed in.
+- Injected CTEs are transparent to the Analyzer, Resolver, and Generator — no other changes needed.
+
+**New classes:**
+- `src/Parser/CteDefinition.php` — readonly value object `{name, sql, sourceFile}`
+- `src/Parser/CteParser.php` — parses `@cte` blocks from `.sql` files
+- `src/Config/CteRegistry.php` — registry with duplicate detection and `inject()` method
+
+**Modified:**
+- `src/Parser/QueryParser.php` — `$usedCtes: string[]` field, `@use` annotation parsing
+- `src/Analyzer/QueryAnalyzer.php` — propagates `usedCtes`
+- `src/Config/Config.php` — `$globalCtePaths`, parses root `ctes:` key
+- `src/Config/Target.php` — `$ctePaths`, parses target `ctes:` key
+- `bin/sqlc-php` — builds `CteRegistry` per-target, injects CTEs before analysis, logs loaded CTEs
+
+- 31 new tests in `tests/SharedCteTest.php`
+
+
+
+Extends the `@json` annotation with explicit cardinality variants:
+
+| Syntax | Cardinality | Use case | Generated type |
+|---|---|---|---|
+| `@json alias ClassName` | many (default) | `JSON_ARRAYAGG(...)` | `ClassName[]` |
+| `@json:many alias ClassName` | many (explicit) | `JSON_ARRAYAGG(...)` | `ClassName[]` |
+| `@json:one alias ClassName` | one | `JSON_OBJECT(...)` | `ClassName` |
+
+**`@json:one` — single embedded object:**
+
+```sql
+-- @name GetUserWithAddress
+-- @class User
+-- @returns :one
+-- @json:one address Address
+SELECT
+    users.id,
+    users.name,
+    JSON_OBJECT('id', addresses.id, 'street', addresses.street, 'city', addresses.city) AS address
+FROM users
+INNER JOIN addresses ON addresses.user_id = users.id
+WHERE users.id = :id;
+```
+
+Generated DTO:
+
+```php
+readonly class GetUserWithAddressRow
+{
+    public function __construct(
+        public int     $id,
+        public string  $name,
+        public Address $address,   // ← typed single object, not array
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            id:      (int) $row['id'],
+            name:    (string) $row['name'],
+            address: Address::fromRow(json_decode((string) $row['address'], true) ?? []),
+        );
+    }
+}
+```
+
+**Mixed cardinality on the same query:**
+
+```sql
+-- @json:one  address Address   ← single JSON_OBJECT
+-- @json:many orders  Order     ← array from JSON_ARRAYAGG
+```
+
+**Backward compatibility:** bare `@json alias ClassName` continues to behave as `:many` — no changes required to existing queries.
+
+- 14 new tests in `tests/JsonCardinalityTest.php`
+
+
+
+Fixes a MySQL `"Column 'x' in where clause is ambiguous"` error that occurred when using `@searchable` on queries that JOIN multiple tables sharing a column name (e.g. `reserve_id` present in `reserves`, `products`, and `payments`).
+
+**Root cause:** `CriteriaGenerator` was using the result alias as the column reference inside `Filter::eq('reserve_id', ...)`. MySQL cannot resolve bare column names in `WHERE` when they exist in more than one joined table.
+
+**Fix:** When a `ResolvedColumn` has both `tableName` and `columnName` populated (i.e. it comes from a real schema table), the generated `Filter` now uses `table.column` as the column reference:
+
+```php
+// Before (ambiguous on JOIN):
+Filter::eq('reserve_id', $value)
+Filter::eq('product_reserve_id', $value)   // alias — doesn't exist as a column name
+
+// After (always unambiguous):
+Filter::eq('reserves.reserve_id', $value)
+Filter::eq('products.reserve_id', $value)  // resolved from tableName.columnName
+```
+
+**What does NOT change:**
+
+- Method names still derive from the result alias: `whereReserveIdEq()`, `whereProductReserveIdEq()`
+- `orderBy*()` methods still use the alias — MySQL `ORDER BY` accepts `SELECT` aliases
+- `COLUMN_*` constants and `allowedColumns` still use the alias
+- Expression/aggregate columns (`COUNT(*)`, `SUM(...)`, `JSON_ARRAYAGG(...)`) have no `tableName` and continue using the alias as-is
+
+**Single-table queries are unaffected** — they are also qualified now (`users.id` instead of `id`) which is always valid SQL and slightly more explicit.
+
+- 13 new tests in `tests/CriteriaFilterColumnTest.php`
+
+
 
 Adds a new `@json alias ClassName` annotation that deserializes a `JSON_ARRAYAGG` result column into a typed `ClassName[]` array instead of a plain PHP `array`. A standalone readonly DTO is always generated for the referenced class, inferred from the schema table whose name matches the class (e.g. `City` → `cities`, `Country` → `countries`).
 

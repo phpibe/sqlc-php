@@ -159,6 +159,7 @@
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
       <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
       <a class="sidebar-link" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
+      <a class="sidebar-link" href="#ann-use"><i class="bi bi-link-45deg"></i> @use</a>
       <a class="sidebar-link" href="#extensions"><i class="bi bi-puzzle"></i> Extensions</a>
       <a class="sidebar-link" href="#criteria-from-array"><i class="bi bi-table"></i> Criteria::fromArray()</a>
       <a class="sidebar-link" href="#cursor-pagination"><i class="bi bi-cursor"></i> Cursor pagination</a>
@@ -534,6 +535,7 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@partial</span></td><td>No</td><td>Mark SET params in an UPDATE as optional — passing <code>null</code> leaves the column unchanged. Only valid on <code>:exec</code> UPDATE queries.</td></tr>
             
             <tr><td><span class="annotation ann-optional">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the newly created row by its primary key. Only valid on <code>:one</code> INSERT queries without <code>ON DUPLICATE KEY</code>.</td></tr>
+            <tr><td><span class="annotation ann-optional">@use</span></td><td>No</td><td>Reference shared CTEs declared in <code>ctes:</code> files — <code>@use name</code> or <code>@use a, b</code>. <span class="badge bg-secondary">v2.13.0</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -685,12 +687,24 @@ readonly class Role {
     <!-- ── @json -->
     <section class="doc-section" id="ann-json">
       <h3><i class="bi bi-braces me-2"></i>@json <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.12.3</span></h3>
-      <p style="color:var(--text-muted)">Declares that a result column containing a <code>JSON_ARRAYAGG</code> value should be deserialized into a typed <code>ClassName[]</code> array instead of a plain PHP <code>array</code>. sqlc-php always generates a standalone readonly DTO for the referenced class, inferred from the schema table whose name matches the class name.</p>
+      <p style="color:var(--text-muted)">Declares that a result column containing JSON output should be deserialized into a typed DTO instead of a plain PHP <code>array</code>. sqlc-php always generates a standalone readonly DTO for the referenced class, inferred from the schema table whose name matches the class name.</p>
 
+      <p style="color:var(--text-muted)">Three cardinality variants are supported:</p>
+
+      <table class="table table-sm mb-4" style="font-size:.9em">
+        <thead><tr><th>Syntax</th><th>Cardinality</th><th>Use case</th><th>Generated type</th></tr></thead>
+        <tbody>
+          <tr><td><code>@json alias ClassName</code></td><td>many <em>(default)</em></td><td><code>JSON_ARRAYAGG(...)</code></td><td><code>ClassName[]</code></td></tr>
+          <tr><td><code>@json:many alias ClassName</code></td><td>many <em>(explicit)</em></td><td><code>JSON_ARRAYAGG(...)</code></td><td><code>ClassName[]</code></td></tr>
+          <tr><td><code>@json:one alias ClassName</code></td><td>one <span class="badge bg-secondary" style="font-size:.6em">v2.12.5</span></td><td><code>JSON_OBJECT(...)</code></td><td><code>ClassName</code></td></tr>
+        </tbody>
+      </table>
+
+      <p style="color:var(--text-muted)"><strong>@json:many — typed array (JSON_ARRAYAGG):</strong></p>
       <pre><code class="language-sql">-- @name GetCountryWithCities
 -- @class Country
 -- @returns :one
--- @json cities City         ← cities column → City[] array
+-- @json:many cities City       ← or simply: @json cities City
 SELECT
     countries.id,
     countries.name,
@@ -702,10 +716,7 @@ INNER JOIN cities ON cities.country_id = countries.id
 WHERE countries.id = :id
 GROUP BY countries.id;</code></pre>
 
-      <p style="color:var(--text-muted);margin-top:1rem">Generated files:</p>
-
-      <pre><code class="language-php">// GetCountryWithCitiesRow.php
-readonly class GetCountryWithCitiesRow
+      <pre><code class="language-php">readonly class GetCountryWithCitiesRow
 {
     public function __construct(
         public int    $id,
@@ -727,36 +738,49 @@ readonly class GetCountryWithCitiesRow
     }
 }</code></pre>
 
-      <pre><code class="language-php">// City.php — generated from the `cities` table schema
-readonly class City
+      <p style="color:var(--text-muted);margin-top:1.5rem"><strong>@json:one — single embedded object (JSON_OBJECT):</strong></p>
+      <pre><code class="language-sql">-- @name GetUserWithAddress
+-- @class User
+-- @returns :one
+-- @json:one address Address    ← single object, not an array
+SELECT
+    users.id,
+    users.name,
+    JSON_OBJECT('id', addresses.id, 'street', addresses.street, 'city', addresses.city) AS address
+FROM users
+INNER JOIN addresses ON addresses.user_id = users.id
+WHERE users.id = :id;</code></pre>
+
+      <pre><code class="language-php">readonly class GetUserWithAddressRow
 {
     public function __construct(
-        public int    $id,
-        public string $name,
-        public string $slug,
-        public int    $country_id,
+        public int     $id,
+        public string  $name,
+        public Address $address,   // ← typed single object
     ) {}
 
-    public static function fromRow(array $row): self { ... }
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            id:      (int) $row['id'],
+            name:    (string) $row['name'],
+            address: Address::fromRow(json_decode((string) $row['address'], true) ?? []),
+        );
+    }
 }</code></pre>
 
-      <p style="color:var(--text-muted);margin-top:1rem">Usage:</p>
-      <pre><code class="language-php">$result = $repo->getCountryWithCities(id: 1);
-
-// $result->cities is City[], not array[]
-foreach ($result->cities as $city) {
-    echo $city->name;   // typed — full IDE autocomplete
-    echo $city->slug;
-}</code></pre>
+      <p style="color:var(--text-muted);margin-top:1.5rem"><strong>Mixed cardinality on the same query:</strong></p>
+      <pre><code class="language-sql">-- @json:one  address Address   ← JSON_OBJECT  → Address  $address
+-- @json:many orders  Order     ← JSON_ARRAYAGG → Order[] $orders</code></pre>
 
       <div class="callout callout-info" style="margin-top:1.2rem">
         <strong>Key behaviours</strong>
         <ul class="mb-0 mt-2">
-          <li>The DTO is <strong>always generated</strong> — it is never reused from an existing model class.</li>
-          <li>Placement respects <code>scoped_dtos:</code> — when <code>true</code>, the DTO lives in <code>DTOs/{Group}/{Method}/City.php</code>.</li>
-          <li>When <code>extensions:</code> is declared, a <code>CityExtension</code> trait scaffold is generated alongside the DTO (write-once, never overwritten) with <code>@property</code> tags for all schema columns.</li>
-          <li>Table resolution: <code>City</code> → tries <code>city</code>, <code>citys</code>, <code>cities</code>. If no match is found, generation fails with a clear error.</li>
-          <li>Multiple <code>@json</code> annotations per query are supported.</li>
+          <li>The DTO is <strong>always generated</strong> — never reused from an existing model class.</li>
+          <li>Placement respects <code>scoped_dtos:</code> — when <code>true</code>, the DTO lives in <code>DTOs/{Group}/{Method}/ClassName.php</code>.</li>
+          <li>When <code>extensions:</code> is declared, an extension trait scaffold is generated for each JSON DTO (write-once, never overwritten).</li>
+          <li>Table resolution: <code>Address</code> → tries <code>address</code>, <code>addresss</code>, <code>addresses</code>. Fails with a clear error if no match.</li>
+          <li>Bare <code>@json</code> defaults to <code>:many</code> — fully backward-compatible.</li>
         </ul>
       </div>
     </section>
@@ -1167,6 +1191,84 @@ echo $user->active;   // 1</code></pre>
         <strong>MySQL only — <code>ON DUPLICATE KEY UPDATE</code> is not supported.</strong> When an upsert performs an UPDATE instead of an INSERT, <code>lastInsertId()</code> returns <code>0</code> or the ID of a previous row. The analyzer will reject any INSERT with <code>ON DUPLICATE KEY</code> and <code>@returning</code>.
       </div>
     </section>
+
+    <!-- ── @use -->
+    <section class="doc-section" id="ann-use">
+      <h3><i class="bi bi-link-45deg me-2"></i>@use <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.13.0</span></h3>
+      <p style="color:var(--text-muted)">References one or more shared CTEs defined in <code>ctes:</code> files. sqlc-php injects the corresponding <code>WITH name AS (...)</code> clause before the query SQL at generation time — transparent to the Analyzer and Generator.</p>
+
+      <p style="color:var(--text-muted)">Declare your shared CTEs in a dedicated <code>.sql</code> file:</p>
+      <pre><code class="language-sql">-- database/ctes/active_users.sql
+
+-- @cte active_users
+SELECT id, email, role
+FROM users
+WHERE active = 1 AND role = 'client';
+
+-- @cte active_admins
+SELECT id, email
+FROM users
+WHERE active = 1 AND role = 'admin';</code></pre>
+
+      <p style="color:var(--text-muted)">Register the file(s) in <code>sqlc.yaml</code>:</p>
+      <pre><code class="language-yaml">version: 1
+engine: mysql
+
+schema:
+  - database/schema.sql
+
+ctes:                                     # global — available to all targets
+  - database/ctes/active_users.sql
+  - database/ctes/recent_orders.sql
+
+targets:
+  - namespace: App\Queries
+    queries:
+      - database/queries/orders.sql
+    out: generated/
+    ctes:                                 # per-target — merged with global
+      - database/ctes/billing.sql</code></pre>
+
+      <p style="color:var(--text-muted)">Reference with <code>@use</code> in your queries:</p>
+      <pre><code class="language-sql">-- @name ListActiveUserOrders
+-- @class Orders
+-- @returns :many
+-- @use active_users
+SELECT orders.* FROM orders
+INNER JOIN active_users ON active_users.id = orders.user_id;
+
+-- @name ListActiveUserPayments
+-- @class Payments
+-- @returns :many
+-- @use active_users, recent_orders     ← comma-separated list
+-- @use billing_summary                 ← or separate @use lines
+SELECT payments.* FROM payments
+INNER JOIN active_users ON active_users.id = payments.user_id;</code></pre>
+
+      <p style="color:var(--text-muted)">sqlc-php injects the <code>WITH</code> clause automatically:</p>
+      <pre><code class="language-sql">-- Effective SQL sent to the Analyzer:
+WITH
+active_users AS (
+    SELECT id, email, role FROM users WHERE active = 1 AND role = 'client'
+),
+recent_orders AS (
+    SELECT id, user_id FROM orders WHERE status = 'pending'
+)
+SELECT payments.* FROM payments ...</code></pre>
+
+      <div class="callout callout-info" style="margin-top:1.2rem">
+        <strong>Rules</strong>
+        <ul class="mb-0 mt-2">
+          <li>CTE names must be unique across all loaded <code>ctes:</code> files — duplicates are a hard error.</li>
+          <li>A query using <code>@use</code> must not also declare an inline <code>WITH</code> clause.</li>
+          <li>Global <code>ctes:</code> (root level) are available in every target. Per-target <code>ctes:</code> add to them.</li>
+          <li>Multiple <code>@use</code> lines and comma-separated names are both supported. Duplicates are deduplicated.</li>
+          <li>CTE files are pure SQL — no PHP or YAML syntax.</li>
+          <li>CTEs are transparent to the Analyzer: <code>@searchable</code>, <code>@json</code>, <code>@embed</code> all work normally on queries that use <code>@use</code>.</li>
+        </ul>
+      </div>
+    </section>
+
       <h3><i class="bi bi-arrow-repeat me-2"></i>@calls</h3>
       <p style="color:var(--text-muted)">Used with <code>:transaction</code> to declare which methods are called in sequence inside a single database transaction. See the <a href="#rt-transaction">:transaction</a> return type for a full example.</p>
       <pre><code class="language-sql">-- @name TransferFunds
@@ -2446,6 +2548,51 @@ $with_or = $base->orGroup(fn($c) => $c->whereStatusEq('vip'));</code></pre>
 
     <section class="doc-section" id="changelog">
       <h2><i class="bi bi-clock-history me-2" style="color:var(--accent-2)"></i>Changelog</h2>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.13.1 — Hotfix: CTE feature crashed in real-world CLI usage <span class="badge bg-danger ms-1" style="font-size:.6em;vertical-align:middle">hotfix</span></div>
+          <ul>
+            <li><strong>Fixed <code>Undefined variable $baseDir</code></strong> — caused a fatal <code>TypeError</code> on <strong>every</strong> generation run, even when <code>ctes:</code> was not configured at all. <code>$baseDir</code> is now derived from <code>dirname(realpath($configPath))</code>.</li>
+            <li><strong>Fixed fatal <code>Unknown named parameter $returnType</code></strong> — triggered whenever a query actually used <code>@use</code>. The internal <code>QueryDefinition</code> reconstruction referenced a non-existent property name and omitted several required ones. All properties are now listed correctly.</li>
+            <li>Both bugs were undetected by the 2.13.0 unit test suite because it exercised <code>CteRegistry</code> and <code>QueryDefinition</code> directly rather than through the CLI entrypoint. 6 new end-to-end tests in <code>tests/CliCteRegressionTest.php</code> now invoke <code>bin/sqlc-php</code> as a real subprocess against temporary project directories.</li>
+            <li>No changes to the public API or CTE syntax — pure bugfix release.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.13.0 — Shared CTEs via <code>ctes:</code> files and <code>@use</code> annotation <span class="badge bg-secondary ms-1" style="font-size:.6em;vertical-align:middle">feature</span></div>
+          <ul>
+            <li><strong>New <code>@cte name</code> block format</strong> — declare named CTEs in dedicated <code>.sql</code> files. Each file can contain multiple <code>@cte</code> blocks. Files are pure SQL, no YAML or PHP.</li>
+            <li><strong>New <code>ctes:</code> key in <code>sqlc.yaml</code></strong> — at root level (global, available to all targets) and/or per-target. Accepts a single path or a list. Paths resolved relative to <code>sqlc.yaml</code>.</li>
+            <li><strong>New <code>@use cte_name</code> annotation</strong> — references one or more shared CTEs in a query. Comma-separated and multi-line forms both supported. sqlc-php injects the <code>WITH</code> clause before analysis — transparent to the Analyzer, Resolver, and all Generators.</li>
+            <li><strong>Duplicate detection</strong> — CTE names must be unique across all loaded files; redefinition throws a clear error with both source file paths.</li>
+            <li><strong>Guard against mixing</strong> — a query using <code>@use</code> that also declares an inline <code>WITH</code> throws a clear error.</li>
+            <li>CLI logs loaded CTE names per target when CTEs are registered.</li>
+            <li>31 new tests in <code>tests/SharedCteTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.12.5 — <code>@json:one</code> / <code>@json:many</code> cardinality variants <span class="badge bg-secondary ms-1" style="font-size:.6em;vertical-align:middle">feature</span></div>
+          <ul>
+            <li><strong>New <code>@json:one alias ClassName</code></strong> — for <code>JSON_OBJECT</code> columns that hold a single embedded object. Generates a typed <code>ClassName $alias</code> property and a <code>fromRow</code> cast using <code>ClassName::fromRow(json_decode(...))</code> without <code>array_map</code>.</li>
+            <li><strong>New <code>@json:many alias ClassName</code></strong> — explicit form of the existing default; identical output to bare <code>@json</code>.</li>
+            <li><strong>Bare <code>@json</code> unchanged</strong> — defaults to <code>:many</code> for full backward compatibility.</li>
+            <li>Mixed cardinality on the same query is supported: <code>@json:one address Address</code> + <code>@json:many orders Order</code> each produce independent properties and DTO files.</li>
+            <li>14 new tests in <code>tests/JsonCardinalityTest.php</code>.</li>
+          </ul>
+        </div>
+
+        <div class="changelog-item">
+          <div class="changelog-version">v2.12.4 — Criteria: qualified <code>table.column</code> in Filter for JOIN queries <span class="badge bg-secondary ms-1" style="font-size:.6em;vertical-align:middle">bugfix</span></div>
+          <ul>
+            <li><strong>Fixed MySQL <code>Column is ambiguous</code> error</strong> when using <code>@searchable</code> on queries that JOIN multiple tables sharing a column name (e.g. <code>reserve_id</code> in <code>reserves</code>, <code>products</code>, and <code>payments</code>).</li>
+            <li><strong>Root cause:</strong> <code>CriteriaGenerator</code> used the result alias as the bare column name inside <code>Filter::eq('reserve_id', ...)</code>. MySQL cannot resolve it in <code>WHERE</code> when multiple joined tables have the same column.</li>
+            <li><strong>Fix:</strong> when a <code>ResolvedColumn</code> has both <code>tableName</code> and <code>columnName</code> set, the generated <code>Filter</code> uses <code>table.column</code> — e.g. <code>Filter::eq('reserves.reserve_id', $value)</code> and <code>Filter::eq('products.reserve_id', $value)</code>.</li>
+            <li><strong>Unaffected:</strong> method names, <code>orderBy*()</code>, <code>COLUMN_*</code> constants, and <code>allowedColumns</code> all continue to use the alias. Expression/aggregate columns fall back to alias as before.</li>
+            <li>13 new tests in <code>tests/CriteriaFilterColumnTest.php</code>.</li>
+          </ul>
+        </div>
 
         <div class="changelog-item">
           <div class="changelog-version">v2.12.3 — @json annotation — typed DTO arrays for JSON_ARRAYAGG columns</div>

@@ -72,6 +72,12 @@ class Config
          */
         public readonly array  $virtualTables = [],
         /**
+         * Global CTE file paths from the root `ctes:` key.
+         * Available to every target. Paths are resolved relative to sqlc.yaml.
+         * @var string[]
+         */
+        public readonly array  $globalCtePaths = [],
+        /**
          * Global class suffix for generated Query classes.
          * Default: 'Query'  → UserQuery, OrderQuery
          * Can be overridden per target via class_suffix: in the target block.
@@ -129,6 +135,12 @@ class Config
             array_merge($includeData['virtual_tables'], $data['virtual_tables'] ?? [])
         );
 
+        // ctes: global CTE file paths — resolved relative to baseDir at generation time
+        $rawGlobalCtes  = $data['ctes'] ?? [];
+        $globalCtePaths = is_array($rawGlobalCtes)
+            ? array_values(array_filter(array_map('strval', $rawGlobalCtes)))
+            : (is_string($rawGlobalCtes) && $rawGlobalCtes !== '' ? [$rawGlobalCtes] : []);
+
         // targets: includes first, main file appended after
         $rawTargets = array_merge(
             $includeData['targets'],
@@ -161,17 +173,18 @@ class Config
         }
 
         return new self(
-            version:       (string) ($data['version'] ?? '2'),
-            schemas:       $schemas,
-            typeOverrides: $globalOverrides,
-            engine:        $globalEngine,
-            language:      $globalLanguage,
-            targets:       $targets,
-            virtualTables: $virtualTables,
-            classSuffix:   $globalClassSuffix,
-            database:      isset($data['database']) && is_array($data['database'])
-                               ? DatabaseConfig::fromArray($data['database'])
-                               : null,
+            version:        (string) ($data['version'] ?? '2'),
+            schemas:        $schemas,
+            typeOverrides:  $globalOverrides,
+            engine:         $globalEngine,
+            language:       $globalLanguage,
+            targets:        $targets,
+            virtualTables:  $virtualTables,
+            globalCtePaths: $globalCtePaths,
+            classSuffix:    $globalClassSuffix,
+            database:       isset($data['database']) && is_array($data['database'])
+                                ? DatabaseConfig::fromArray($data['database'])
+                                : null,
         );
     }
 

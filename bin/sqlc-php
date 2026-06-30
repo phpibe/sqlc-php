@@ -42,6 +42,7 @@ if (!interface_exists('Psr\\Log\\LoggerInterface', false)) {
 use SqlcPhp\Analyzer\QueryAnalyzer;
 use SqlcPhp\Catalog\SchemaCatalog;
 use SqlcPhp\Config\Config;
+use SqlcPhp\Config\CteRegistry;
 use SqlcPhp\Config\Target;
 use SqlcPhp\Generator\EnumGenerator;
 use SqlcPhp\Generator\InterfaceGenerator;
@@ -265,6 +266,10 @@ function runGeneration(
         return $result;
     }
 
+    // Base directory for resolving relative ctes: paths — same convention
+    // used internally by Config::fromFile() for includes: and virtual_tables:
+    $baseDir = dirname(realpath($configPath) ?: $configPath);
+
     // Collect watch paths: config + all schemas + all query files
     $result['watchPaths'] = array_unique(array_merge(
         [$configPath],
@@ -320,6 +325,56 @@ function runGeneration(
             if (!$silent) echo "  Queries: " . count($parsed) . " query(ies) from {$queryFile}\n";
         }
         if (!$silent) echo "  Queries: " . count($rawQueries) . " total\n";
+
+        // Build CTE registry (global + per-target) and inject WITH clauses
+        $cteRegistry = CteRegistry::build(
+            $config->globalCtePaths,
+            $target->ctePaths,
+            $baseDir,
+        );
+
+        if (!$cteRegistry->isEmpty() && !$silent) {
+            echo "  CTEs   : " . implode(', ', $cteRegistry->names()) . "\n";
+        }
+
+        if (!$cteRegistry->isEmpty()) {
+            foreach ($rawQueries as $idx => $query) {
+                if (empty($query->usedCtes)) continue;
+                try {
+                    $injected         = $cteRegistry->inject($query->usedCtes, $query->sql);
+                    $rawQueries[$idx] = new \SqlcPhp\Parser\QueryDefinition(
+                        name:                 $query->name,
+                        group:                $query->group,
+                        returns:              $query->returns,
+                        sql:                  $injected,
+                        fromTable:            $query->fromTable,
+                        params:               $query->params,
+                        resultColumns:        $query->resultColumns,
+                        paramAnnotations:     $query->paramAnnotations,
+                        optionalParams:       $query->optionalParams,
+                        returnsModelDirectly: $query->returnsModelDirectly,
+                        modelClass:           $query->modelClass,
+                        deprecated:           $query->deprecated,
+                        nillableColumns:      $query->nillableColumns,
+                        embeds:               $query->embeds,
+                        dtoClassName:         $query->dtoClassName,
+                        columnAliases:        $query->columnAliases,
+                        counted:              $query->counted,
+                        searchable:           $query->searchable,
+                        partial:              $query->partial,
+                        returning:            $query->returning,
+                        isUnion:              $query->isUnion,
+                        typeOverrides:        $query->typeOverrides,
+                        cursorColumns:        $query->cursorColumns,
+                        usedCtes:             $query->usedCtes,
+                        jsonColumns:          $query->jsonColumns,
+                    );
+                } catch (\RuntimeException $e) {
+                    $result['error'] = "Query '{$query->name}': " . $e->getMessage();
+                    return $result;
+                }
+            }
+        }
 
         $output  = $target->output;
 

@@ -150,11 +150,20 @@ class ResultDtoGenerator
 
         foreach ($flatColumns as $col) {
             if (isset($jsonColumns[$col->alias])) {
-                // @json column — typed as ClassName[] instead of plain array
-                $dtoClass   = $jsonColumns[$col->alias];
-                $access     = "\$row['{$col->alias}']";
-                $props[]    = "        /** @var {$dtoClass}[] */\n        public array \${$col->alias},";
-                $fromArgs[] = "            array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []),";
+                // @json / @json:one / @json:many column — typed DTO instead of plain array
+                $jsonDef  = $jsonColumns[$col->alias];
+                $dtoClass = $jsonDef['class'];
+                $isMany   = $jsonDef['many'];
+                $access   = "\$row['{$col->alias}']";
+                if ($isMany) {
+                    // @json:many / @json (default) — City[]
+                    $props[]    = "        /** @var {$dtoClass}[] */\n        public array \${$col->alias},";
+                    $fromArgs[] = "            array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []),";
+                } else {
+                    // @json:one — single DTO object
+                    $props[]    = "        public {$dtoClass} \${$col->alias},";
+                    $fromArgs[] = "            {$dtoClass}::fromRow(json_decode((string) {$access}, true) ?? []),";
+                }
             } else {
                 $props[]    = "        public {$col->phpType} \${$col->alias},";
                 $fromArgs[] = $this->buildCast($col);
@@ -232,7 +241,8 @@ PHP;
         $jsonDtoFiles = [];
         if (!empty($jsonColumns) && $this->catalog !== null && $this->typeMapper !== null) {
             $jsonDtoGen = new JsonDtoGenerator($this->catalog, $this->typeMapper);
-            foreach ($jsonColumns as $alias => $dtoClass) {
+            foreach ($jsonColumns as $alias => $jsonDef) {
+                $dtoClass  = $jsonDef['class'];
                 $tableName = $jsonDtoGen->resolveTableName($dtoClass);
                 if ($tableName === null) {
                     throw new \RuntimeException(
@@ -268,10 +278,11 @@ PHP;
                 ];
             }
 
-            // Add @json columns to the main DTO extension as array properties
+            // Add @json columns to the main DTO extension as typed properties
             $jsonColumnsForExt = [];
-            foreach ($jsonColumns as $alias => $dtoClass) {
-                $jsonColumnsForExt[] = ['name' => $alias, 'phpType' => 'array', 'fqcn' => null];
+            foreach ($jsonColumns as $alias => $jsonDef) {
+                $phpType = $jsonDef['many'] ? 'array' : $jsonDef['class'];
+                $jsonColumnsForExt[] = ['name' => $alias, 'phpType' => $phpType, 'fqcn' => null];
             }
 
             // Exclude @json columns from flat columns — they are listed separately below

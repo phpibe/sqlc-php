@@ -113,7 +113,7 @@
   <a href="#" class="brand">
     <i class="bi bi-database-fill-gear" style="color:var(--accent)"></i>
     sqlc-php
-    <span class="badge-version">v2.11.2</span>
+    <span class="badge-version">v2.13.1</span>
   </a>
   <div class="topbar-right">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub" target="_blank"><i class="bi bi-github"></i></a>
@@ -159,6 +159,7 @@
       <a class="sidebar-link" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
       <a class="sidebar-link" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
       <a class="sidebar-link" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
+      <a class="sidebar-link" href="#ann-cte"><i class="bi bi-filetype-sql"></i> @cte</a>
       <a class="sidebar-link" href="#ann-use"><i class="bi bi-link-45deg"></i> @use</a>
       <a class="sidebar-link" href="#extensions"><i class="bi bi-puzzle"></i> Extensions</a>
       <a class="sidebar-link" href="#criteria-from-array"><i class="bi bi-table"></i> Criteria::fromArray()</a>
@@ -535,7 +536,8 @@ source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code><
             <tr><td><span class="annotation ann-optional">@partial</span></td><td>No</td><td>Mark SET params in an UPDATE as optional — passing <code>null</code> leaves the column unchanged. Only valid on <code>:exec</code> UPDATE queries.</td></tr>
             
             <tr><td><span class="annotation ann-optional">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the newly created row by its primary key. Only valid on <code>:one</code> INSERT queries without <code>ON DUPLICATE KEY</code>.</td></tr>
-            <tr><td><span class="annotation ann-optional">@use</span></td><td>No</td><td>Reference shared CTEs declared in <code>ctes:</code> files — <code>@use name</code> or <code>@use a, b</code>. <span class="badge bg-secondary">v2.13.0</span></td></tr>
+            <tr><td><span class="annotation ann-optional">@cte</span></td><td>—</td><td>Declares a named reusable CTE in a <code>.sql</code> file — not a query annotation, but a block header in CTE files. <span class="badge bg-secondary">v2.13.0</span></td></tr>
+            <tr><td><span class="annotation ann-optional">@use</span></td><td>No</td><td>Inject one or more shared CTEs (declared with <code>@cte</code>) into this query as a <code>WITH</code> clause. <code>@use name</code> or <code>@use a, b, c</code>. <span class="badge bg-secondary">v2.13.0</span></td></tr>
           </tbody>
         </table>
       </div>
@@ -1192,79 +1194,265 @@ echo $user->active;   // 1</code></pre>
       </div>
     </section>
 
-    <!-- ── @use -->
-    <section class="doc-section" id="ann-use">
-      <h3><i class="bi bi-link-45deg me-2"></i>@use <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.13.0</span></h3>
-      <p style="color:var(--text-muted)">References one or more shared CTEs defined in <code>ctes:</code> files. sqlc-php injects the corresponding <code>WITH name AS (...)</code> clause before the query SQL at generation time — transparent to the Analyzer and Generator.</p>
+    <!-- ── @cte -->
+    <section class="doc-section" id="ann-cte">
+      <h3><i class="bi bi-filetype-sql me-2"></i>@cte <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.13.0</span></h3>
+      <p style="color:var(--text-muted)">Declares a named, reusable CTE inside a dedicated <code>.sql</code> file. Unlike query annotations (which annotate a single query), <code>@cte</code> is a <strong>block header</strong> — it names the CTE that follows and has no corresponding query annotation in <code>.sql</code> query files.</p>
 
-      <p style="color:var(--text-muted)">Declare your shared CTEs in a dedicated <code>.sql</code> file:</p>
-      <pre><code class="language-sql">-- database/ctes/active_users.sql
+      <p style="color:var(--text-muted)">A single file can contain any number of <code>@cte</code> blocks, each ending at the next <code>@cte</code> or at EOF:</p>
+
+      <pre><code class="language-sql">-- database/ctes/users.sql
 
 -- @cte active_users
-SELECT id, email, role
+-- Users that are active and have the 'client' role.
+-- Used by: orders, payments, reports modules.
+SELECT
+    id,
+    email,
+    role,
+    created_at
 FROM users
-WHERE active = 1 AND role = 'client';
+WHERE active = 1
+  AND role = 'client';
 
 -- @cte active_admins
-SELECT id, email
+-- Staff members with admin privileges.
+SELECT
+    id,
+    email,
+    role
 FROM users
-WHERE active = 1 AND role = 'admin';</code></pre>
+WHERE active = 1
+  AND role IN ('admin', 'superadmin');
 
-      <p style="color:var(--text-muted)">Register the file(s) in <code>sqlc.yaml</code>:</p>
+-- @cte new_users_30d
+-- Users registered in the last 30 days, regardless of role.
+SELECT id, email, created_at
+FROM users
+WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY);</code></pre>
+
+      <p style="color:var(--text-muted);margin-top:1.2rem">CTE files are <strong>pure SQL</strong> — no PHP, no YAML, no special syntax beyond the <code>-- @cte name</code> block header. They can be shared across teams, checked into version control, and used as documentation for recurring business concepts.</p>
+
+      <p style="color:var(--text-muted)">Register files in <code>sqlc.yaml</code> under <code>ctes:</code>:</p>
       <pre><code class="language-yaml">version: 1
 engine: mysql
 
 schema:
   - database/schema.sql
 
-ctes:                                     # global — available to all targets
-  - database/ctes/active_users.sql
-  - database/ctes/recent_orders.sql
+# Global CTEs — available to every target in this config
+ctes:
+  - database/ctes/users.sql
+  - database/ctes/orders.sql
 
 targets:
-  - namespace: App\Queries
+  - namespace: App\Reports
     queries:
-      - database/queries/orders.sql
-    out: generated/
-    ctes:                                 # per-target — merged with global
-      - database/ctes/billing.sql</code></pre>
+      - database/queries/reports.sql
+    out: generated/Reports/
+    ctes:
+      - database/ctes/billing.sql   # per-target — merged with global above</code></pre>
 
-      <p style="color:var(--text-muted)">Reference with <code>@use</code> in your queries:</p>
-      <pre><code class="language-sql">-- @name ListActiveUserOrders
+      <div class="callout callout-info" style="margin-top:1.2rem">
+        <strong>File format rules</strong>
+        <ul class="mb-0 mt-2">
+          <li>Each block starts with <code>-- @cte name</code> on its own line and ends at the next <code>-- @cte</code> or EOF.</li>
+          <li>Trailing semicolons are stripped automatically — only the <code>SELECT</code> body is used.</li>
+          <li>Comments and blank lines inside a body are preserved.</li>
+          <li>Content before the first <code>@cte</code> annotation (file-level comments, headers) is silently ignored.</li>
+          <li>CTE names must be unique across all loaded files — a duplicate triggers a hard error with both source paths.</li>
+          <li>CTEs cannot have parameters (<code>:param</code>) — they are static, reusable fragments.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ── @use -->
+    <section class="doc-section" id="ann-use">
+      <h3><i class="bi bi-link-45deg me-2"></i>@use <span class="badge bg-secondary ms-2" style="font-size:.6em;vertical-align:middle">v2.13.0</span></h3>
+      <p style="color:var(--text-muted)">Injects one or more shared CTEs (declared with <code>@cte</code>) into a query as a <code>WITH</code> clause. sqlc-php resolves and prepends the <code>WITH name AS (...)</code> block before analysis — the Analyzer, Resolver, and all Generators receive the complete SQL transparently.</p>
+
+      <h4 style="margin-top:1.4rem">Syntax</h4>
+      <pre><code class="language-sql">-- Single CTE
+-- @use active_users
+
+-- Multiple on one line (comma-separated)
+-- @use active_users, recent_orders
+
+-- Multiple on separate lines (equivalent)
+-- @use active_users
+-- @use recent_orders</code></pre>
+
+      <h4 style="margin-top:1.4rem">Use case 1 — Reusing a business rule across modules</h4>
+      <p style="color:var(--text-muted)">The definition of "active user" lives in one place. Any query in any module can reference it without copy-pasting the <code>WHERE</code> conditions:</p>
+
+      <pre><code class="language-sql">-- database/queries/orders.sql
+
+-- @name ListActiveUserOrders
 -- @class Orders
 -- @returns :many
 -- @use active_users
-SELECT orders.* FROM orders
-INNER JOIN active_users ON active_users.id = orders.user_id;
+SELECT
+    orders.id,
+    orders.total,
+    orders.status,
+    orders.created_at
+FROM orders
+INNER JOIN active_users ON active_users.id = orders.user_id
+WHERE orders.status != 'cancelled'
+ORDER BY orders.created_at DESC;
+
+-- @name CountActiveUserOrders
+-- @class Orders
+-- @returns :one
+-- @use active_users
+SELECT COUNT(*) AS total
+FROM orders
+INNER JOIN active_users ON active_users.id = orders.user_id;</code></pre>
+
+      <pre><code class="language-sql">-- database/queries/payments.sql
 
 -- @name ListActiveUserPayments
 -- @class Payments
 -- @returns :many
--- @use active_users, recent_orders     ← comma-separated list
--- @use billing_summary                 ← or separate @use lines
-SELECT payments.* FROM payments
+-- @use active_users             ← same CTE, different module
+SELECT
+    payments.id,
+    payments.amount,
+    payments.created_at
+FROM payments
 INNER JOIN active_users ON active_users.id = payments.user_id;</code></pre>
 
-      <p style="color:var(--text-muted)">sqlc-php injects the <code>WITH</code> clause automatically:</p>
-      <pre><code class="language-sql">-- Effective SQL sent to the Analyzer:
-WITH
+      <h4 style="margin-top:1.4rem">Use case 2 — Composing multiple CTEs</h4>
+      <p style="color:var(--text-muted)">A report that needs both active users and recent orders uses both CTEs together. The generated SQL chains them automatically:</p>
+
+      <pre><code class="language-sql">-- @name ActiveUserOrderSummary
+-- @class Reports
+-- @returns :many
+-- @use active_users, recent_orders
+SELECT
+    active_users.email,
+    COUNT(recent_orders.id)    AS order_count,
+    SUM(recent_orders.total)   AS total_spent
+FROM active_users
+LEFT JOIN recent_orders ON recent_orders.user_id = active_users.id
+GROUP BY active_users.id, active_users.email
+ORDER BY total_spent DESC;</code></pre>
+
+      <p style="color:var(--text-muted)">Effective SQL injected before the Analyzer:</p>
+      <pre><code class="language-sql">WITH
 active_users AS (
-    SELECT id, email, role FROM users WHERE active = 1 AND role = 'client'
+    SELECT id, email, role, created_at
+    FROM users
+    WHERE active = 1 AND role = 'client'
 ),
 recent_orders AS (
-    SELECT id, user_id FROM orders WHERE status = 'pending'
+    SELECT id, user_id, total
+    FROM orders
+    WHERE created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
 )
-SELECT payments.* FROM payments ...</code></pre>
+SELECT
+    active_users.email,
+    COUNT(recent_orders.id)    AS order_count,
+    SUM(recent_orders.total)   AS total_spent
+FROM active_users
+LEFT JOIN recent_orders ON recent_orders.user_id = active_users.id
+GROUP BY active_users.id, active_users.email
+ORDER BY total_spent DESC;</code></pre>
 
-      <div class="callout callout-info" style="margin-top:1.2rem">
-        <strong>Rules</strong>
+      <h4 style="margin-top:1.4rem">Use case 3 — Combined with <code>@searchable</code></h4>
+      <p style="color:var(--text-muted)"><code>@use</code> works transparently with all other annotations. Adding <code>@searchable</code> generates a typed Criteria class for the full query including the injected CTE — column resolution, <code>table.column</code> qualification, and Criteria generation all work normally:</p>
+
+      <pre><code class="language-sql">-- @name ListActiveUserOrders
+-- @class Orders
+-- @returns :many
+-- @use active_users
+-- @searchable
+SELECT
+    orders.id,
+    orders.total,
+    orders.status,
+    active_users.email AS user_email
+FROM orders
+INNER JOIN active_users ON active_users.id = orders.user_id;</code></pre>
+
+      <pre><code class="language-php">// Generated usage:
+$orders = $query->listActiveUserOrders(
+    (new OrdersCriteria())
+        ->whereStatusEq('pending')
+        ->whereOrdersTotalGt(100.00)
+        ->orderByCreatedAt('DESC')
+);</code></pre>
+
+      <h4 style="margin-top:1.4rem">Use case 4 — Combined with <code>@json:many</code></h4>
+      <p style="color:var(--text-muted)">Aggregate child rows as a typed JSON array while filtering via a shared CTE:</p>
+
+      <pre><code class="language-sql">-- @name GetActiveUserWithOrders
+-- @class Users
+-- @returns :one
+-- @use active_users
+-- @json:many orders Order
+SELECT
+    active_users.id,
+    active_users.email,
+    JSON_ARRAYAGG(
+        JSON_OBJECT('id', orders.id, 'total', orders.total, 'status', orders.status)
+    ) AS orders
+FROM active_users
+LEFT JOIN orders ON orders.user_id = active_users.id
+WHERE active_users.id = :id
+GROUP BY active_users.id;</code></pre>
+
+      <pre><code class="language-php">// Generated:
+readonly class GetActiveUserWithOrdersRow
+{
+    public function __construct(
+        public int    $id,
+        public string $email,
+        /** @var Order[] */
+        public array  $orders,
+    ) {}
+}</code></pre>
+
+      <h4 style="margin-top:1.4rem">Use case 5 — Recursive CTE for hierarchical data</h4>
+      <p style="color:var(--text-muted)">Shared CTEs support any valid MySQL CTE syntax, including <code>RECURSIVE</code> — useful for category trees, org charts, or multi-level BOMs:</p>
+
+      <pre><code class="language-sql">-- database/ctes/categories.sql
+
+-- @cte category_tree
+-- Full recursive category tree from root to leaf.
+WITH RECURSIVE category_tree AS (
+    SELECT id, name, parent_id, 0 AS depth
+    FROM categories
+    WHERE parent_id IS NULL
+    UNION ALL
+    SELECT c.id, c.name, c.parent_id, ct.depth + 1
+    FROM categories c
+    INNER JOIN category_tree ct ON ct.id = c.parent_id
+)
+SELECT id, name, parent_id, depth FROM category_tree</code></pre>
+
+      <pre><code class="language-sql">-- @name ListProductsInCategory
+-- @class Products
+-- @returns :many
+-- @use category_tree
+SELECT
+    products.id,
+    products.name,
+    category_tree.name  AS category_name,
+    category_tree.depth AS category_depth
+FROM products
+INNER JOIN category_tree ON category_tree.id = products.category_id
+ORDER BY category_tree.depth, products.name;</code></pre>
+
+      <div class="callout callout-info" style="margin-top:1.4rem">
+        <strong>Rules &amp; constraints</strong>
         <ul class="mb-0 mt-2">
-          <li>CTE names must be unique across all loaded <code>ctes:</code> files — duplicates are a hard error.</li>
-          <li>A query using <code>@use</code> must not also declare an inline <code>WITH</code> clause.</li>
-          <li>Global <code>ctes:</code> (root level) are available in every target. Per-target <code>ctes:</code> add to them.</li>
-          <li>Multiple <code>@use</code> lines and comma-separated names are both supported. Duplicates are deduplicated.</li>
-          <li>CTE files are pure SQL — no PHP or YAML syntax.</li>
-          <li>CTEs are transparent to the Analyzer: <code>@searchable</code>, <code>@json</code>, <code>@embed</code> all work normally on queries that use <code>@use</code>.</li>
+          <li>A query using <code>@use</code> must <strong>not</strong> also declare an inline <code>WITH</code> clause — mixing the two is a hard error with a clear message.</li>
+          <li>Duplicate CTE names in a single <code>@use</code> list are silently deduplicated.</li>
+          <li>CTEs are injected in the order they appear in the <code>@use</code> annotation — relevant when one CTE references another.</li>
+          <li>Global <code>ctes:</code> (root of <code>sqlc.yaml</code>) are available to every target. Per-target <code>ctes:</code> add on top.</li>
+          <li>CTEs are transparent to the Analyzer: all annotations (<code>@searchable</code>, <code>@json</code>, <code>@embed</code>, <code>@optional</code>, <code>@partial</code>, <code>@cursor</code>) work normally on queries using <code>@use</code>.</li>
+          <li>The <code>--verify</code> and <code>--diff</code> flags work with CTE-injected queries.</li>
         </ul>
       </div>
     </section>

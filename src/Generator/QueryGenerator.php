@@ -864,12 +864,14 @@ PHP;
             $bindingsExpr, $returnClass, $query->name,
         );
 
+        $extraParams = [
+            '@param int $limit  Rows per page. Defaults to 10.',
+            '@param int $offset Rows to skip.',
+        ];
+        $docblock = $this->buildDocblockWithExtra($query, "@return PaginatedResult<{$returnClass}>", $extraParams);
+
         return <<<PHP
-    /**
-     * @param int \$limit  Rows per page. Defaults to 10.
-     * @param int \$offset Rows to skip.
-     * @return PaginatedResult<{$returnClass}>
-     */
+{$docblock}
     public function {$signature}
     {
 {$body}    }
@@ -906,13 +908,15 @@ PHP;
             $criteriaCountBlock, $criteriaPageBlock,
         );
 
+        $extraPaginateParams = [
+            "@param ?{$criteriaClass} \$criteria  Dynamic filters and ordering.",
+            '@param int                   $limit   Rows per page. Defaults to 10.',
+            '@param int                   $offset  Rows to skip.',
+        ];
+        $docblock = $this->buildDocblockWithExtra($query, "@return PaginatedResult<{$returnClass}>", $extraPaginateParams);
+
         return <<<PHP
-    /**
-     * @param ?{$criteriaClass} \$criteria  Dynamic filters and ordering.
-     * @param int \$limit                   Rows per page. Defaults to 10.
-     * @param int \$offset                  Rows to skip.
-     * @return PaginatedResult<{$returnClass}>
-     */
+{$docblock}
     public function {$query->name}({$allParams}): PaginatedResult
     {
         // Build dynamic SQL from criteria filters
@@ -1860,6 +1864,14 @@ PHP;
     {
         $lines = ['    /**'];
 
+        // Description lines from @comment — emitted before @param/@return tags
+        if (!empty($query->comment)) {
+            foreach ($query->comment as $commentLine) {
+                $lines[] = "     * {$commentLine}";
+            }
+            $lines[] = '     *';
+        }
+
         if ($query->deprecated !== null) {
             $msg     = $query->deprecated !== '' ? ' ' . $query->deprecated : '';
             $lines[] = "     * @deprecated{$msg}";
@@ -1899,6 +1911,14 @@ PHP;
     private function buildDocblockWithExtra(QueryDefinition $query, string $returnTag, array $extraParamLines): string
     {
         $lines = ['    /**'];
+
+        // Description lines from @comment — emitted before @param/@return tags
+        if (!empty($query->comment)) {
+            foreach ($query->comment as $commentLine) {
+                $lines[] = "     * {$commentLine}";
+            }
+            $lines[] = '     *';
+        }
 
         if ($query->deprecated !== null) {
             $msg     = $query->deprecated !== '' ? ' ' . $query->deprecated : '';

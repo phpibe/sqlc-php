@@ -355,6 +355,7 @@ function runGeneration(
                         returnsModelDirectly: $query->returnsModelDirectly,
                         modelClass:           $query->modelClass,
                         deprecated:           $query->deprecated,
+                        comment:              $query->comment,
                         nillableColumns:      $query->nillableColumns,
                         embeds:               $query->embeds,
                         dtoClassName:         $query->dtoClassName,

@@ -59,6 +59,18 @@ class QueryDefinition
         public readonly ?string    $modelClass = null,
         /** Deprecation message from @deprecated annotation. null = not deprecated. */
         public readonly ?string    $deprecated = null,
+        /**
+         * Human-readable description lines from @comment annotations.
+         * Each @comment line becomes one entry in the array.
+         * Emitted as the description block in the generated method docblock,
+         * before @param and @return tags.
+         *
+         * -- @comment Returns the active user matching the given ID.
+         * -- @comment Returns null when no match is found.
+         *
+         * @var string[]
+         */
+        public readonly array      $comment = [],
         /** Column aliases (or names) forced nullable via @nillable. */
         public readonly array      $nillableColumns = [],
         /**
@@ -199,10 +211,30 @@ class QueryParser
     {
         $queries = [];
 
-        // Split on blank lines between query blocks
+        // Split on the @name annotation — each block starts where @name appears.
+        // We use a lookahead so the @name line itself stays inside the block.
         $blocks = preg_split('/(?=^\s*--\s*@name\b)/mi', $sql);
 
+        // Annotations that appear before the first @name (e.g. @comment placed
+        // above @name) end up in a leading fragment with no @name of their own.
+        // Carry them forward by prepending them to the next block.
+        $carry = '';
+        $merged = [];
         foreach ($blocks as $block) {
+            $block = trim($block);
+            if (empty($block)) continue;
+
+            if (!preg_match('/--\s*@name\b/i', $block)) {
+                // No @name in this fragment — accumulate and prepend to the next
+                $carry .= "\n" . $block;
+            } else {
+                $merged[] = $carry !== '' ? trim($carry) . "\n" . $block : $block;
+                $carry    = '';
+            }
+        }
+        // Any trailing carry (annotations after the last query) is silently dropped.
+
+        foreach ($merged as $block) {
             $block = trim($block);
             if (empty($block)) continue;
 
@@ -224,6 +256,7 @@ class QueryParser
         $optionalParams   = [];
         $nillableColumns  = [];
         $deprecated       = null;
+        $commentLines     = [];           // @comment description lines
         $embeds           = [];
         $dtoClassName     = null;
         $counted          = false;
@@ -242,12 +275,12 @@ class QueryParser
             if (str_starts_with($trimmed, '--')) {
                 $comment = trim(substr($trimmed, 2));
 
-                if (preg_match('/@name\s+(\w+)/i', $comment, $m)) {
+                if (preg_match('/^@name\s+(\w+)/i', $comment, $m)) {
                     $name = $m[1];
-                } elseif (preg_match('/@class\s+(\w+)/i', $comment, $m)) {
+                } elseif (preg_match('/^@class\s+(\w+)/i', $comment, $m)) {
                     // @class is the canonical annotation — @group is deprecated
                     $group ??= $m[1];
-                } elseif (preg_match('/@group\s+(\w+)/i', $comment, $m)) {
+                } elseif (preg_match('/^@group\s+(\w+)/i', $comment, $m)) {
                     // @group is deprecated in favour of @class — emit a stderr warning
                     // but continue normally so existing configs keep working.
                     fwrite(STDERR,
@@ -265,6 +298,17 @@ class QueryParser
                     $nillableColumns[] = $m[1];
                 } elseif (preg_match('/@deprecated(?:\s+(.+))?$/i', $comment, $m)) {
                     $deprecated = isset($m[1]) ? trim($m[1]) : '';
+                } elseif (preg_match('/@comment\s+(.*)/i', $comment, $m)) {
+                    // @comment One description line.
+                    // Multiple @comment lines are joined as separate sentences
+                    // in the generated docblock description.
+                    // NOTE: use $commentText (not $line) to avoid shadowing the
+                    // foreach control variable, which caused @comment to be lost
+                    // when placed before @name (the block-split boundary).
+                    $commentText = trim($m[1]);
+                    if ($commentText !== '') {
+                        $commentLines[] = $commentText;
+                    }
                 } elseif (preg_match('/@dto\s+(\w+)/i', $comment, $m)) {
                     $dtoClassName = $m[1];
                 } elseif (preg_match('/^@counted\b/i', $comment)) {
@@ -382,6 +426,7 @@ class QueryParser
             paramAnnotations: $paramAnnotations,
             optionalParams:   $optionalParams,
             deprecated:       $deprecated,
+            comment:          $commentLines,
             nillableColumns:  $nillableColumns,
             embeds:           $embeds,
             dtoClassName:     $dtoClassName,

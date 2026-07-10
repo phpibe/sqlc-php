@@ -377,6 +377,14 @@ PHP;
     ): string {
         $lines = ['    /**'];
 
+        // Description lines from @comment — emitted before @param/@return tags
+        if (!empty($query->comment)) {
+            foreach ($query->comment as $commentLine) {
+                $lines[] = "     * {$commentLine}";
+            }
+            $lines[] = '     *';
+        }
+
         if ($query->deprecated !== null) {
             $lines[] = '     * @deprecated ' . $query->deprecated;
         }

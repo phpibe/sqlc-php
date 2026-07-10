@@ -265,6 +265,7 @@ class QueryAnalyzer
             returnsModelDirectly: $returnsModelDirectly,
             modelClass:           $modelClass,
             deprecated:           $query->deprecated,
+            comment:              $query->comment,
             nillableColumns:      $query->nillableColumns,
             embeds:               $query->embeds,
             dtoClassName:         $query->dtoClassName,

@@ -40,6 +40,14 @@ class Criteria
      */
     protected array $orGroups = [];
 
+    /**
+     * Raw SQL conditions added via addRawCondition().
+     * Each entry: {sql: string, bindings: array<string, array{0:mixed,1:int}>}
+     *
+     * @var array<int, array{sql: string, bindings: array<string, array{0:mixed,1:int}>}>
+     */
+    protected array $rawConditions = [];
+
     protected ?string $orderByColumn = null;
     protected string  $orderByDir    = 'ASC';
 
@@ -63,6 +71,48 @@ class Criteria
     {
         $clone          = clone $this;
         $clone->filters = [...$this->filters, $filter];
+        return $clone;
+    }
+
+    /**
+     * Add a raw SQL condition string to the WHERE clause.
+     *
+     * The condition is injected verbatim as an AND clause alongside
+     * any typed filters. Use this for conditions that cannot be expressed
+     * through the generated typed methods — e.g. filtering on JOIN columns
+     * that are not in the SELECT list.
+     *
+     * ⚠️  No SQL injection protection is applied. The caller is responsible
+     *     for ensuring the SQL string is safe. Never interpolate user input
+     *     directly — use named placeholders and pass bindings instead.
+     *
+     * Usage — static value (safe, no user input):
+     *   $criteria->addRawCondition('reserve.id IS NOT NULL')
+     *
+     * Usage — with named placeholder and binding:
+     *   $criteria->addRawCondition(
+     *       'reserve.id = :reserveId',
+     *       [':reserveId' => [42, PDO::PARAM_INT]]
+     *   )
+     *
+     * Usage — multiple placeholders:
+     *   $criteria->addRawCondition(
+     *       'reserve.status IN (:st1, :st2)',
+     *       [':st1' => ['pending', PDO::PARAM_STR], ':st2' => ['active', PDO::PARAM_STR]]
+     *   )
+     *
+     * Placeholder naming: use unique names per call to avoid conflicts
+     * with other filters. A safe convention is to prefix with the table/column:
+     *   ':reserveId', ':reserveStatus', ':joinedAt', etc.
+     *
+     * @param  string                                       $sql      Raw SQL condition
+     * @param  array<string, array{0: mixed, 1: int}>       $bindings Named placeholder → [value, PDO::PARAM_*]
+     * @return static
+     */
+    public function addRawCondition(string $sql, array $bindings = []): static
+    {
+        $clone                  = clone $this;
+        $clone->rawConditions   = [...$this->rawConditions, ['sql' => $sql, 'bindings' => $bindings]];
         return $clone;
     }
 
@@ -118,12 +168,12 @@ class Criteria
 
     public function isEmpty(): bool
     {
-        return empty($this->filters) && empty($this->orGroups) && $this->orderByColumn === null;
+        return empty($this->filters) && empty($this->orGroups) && empty($this->rawConditions) && $this->orderByColumn === null;
     }
 
     public function hasFilters(): bool
     {
-        return !empty($this->filters) || !empty($this->orGroups);
+        return !empty($this->filters) || !empty($this->orGroups) || !empty($this->rawConditions);
     }
 
     public function hasOrderBy(): bool
@@ -150,10 +200,11 @@ class Criteria
      */
     public function toFilterClause(bool $appendMode = false): string
     {
-        $hasTopLevel = !empty($this->filters);
-        $hasOrGroups = !empty($this->orGroups);
+        $hasTopLevel  = !empty($this->filters);
+        $hasOrGroups  = !empty($this->orGroups);
+        $hasRaw       = !empty($this->rawConditions);
 
-        if (!$hasTopLevel && !$hasOrGroups) return '';
+        if (!$hasTopLevel && !$hasOrGroups && !$hasRaw) return '';
 
         // Counter shared across all filters and OR groups for unique placeholders
         $idx = 0;
@@ -163,6 +214,10 @@ class Criteria
             $parts = [];
             foreach ($this->filters as $filter) {
                 $parts[] = $this->renderCondition($filter, $idx++);
+            }
+            // Raw conditions are appended as-is to the AND chain
+            foreach ($this->rawConditions as $raw) {
+                $parts[] = $raw['sql'];
             }
             $keyword = $appendMode ? ' AND ' : ' WHERE ';
             return $keyword . implode(' AND ', $parts);
@@ -193,12 +248,16 @@ class Criteria
             }
         }
 
+        // Raw conditions are always AND-ed with the whole expression
+        // (they are not OR-able via this path — use addRawCondition on the criteria)
+        foreach ($this->rawConditions as $raw) {
+            $segments[] = $raw['sql'];
+        }
+
         if (empty($segments)) return '';
 
         $keyword = $appendMode ? ' AND ' : ' WHERE ';
 
-        // When mixing top-level AND filters with OR groups, wrap the whole
-        // top-level block in parens if there are other OR segments
         return $keyword . implode(' OR ', $segments);
     }
 
@@ -241,6 +300,13 @@ class Criteria
         foreach ($this->orGroups as $group) {
             foreach ($group as $filter) {
                 $this->collectFilterBindings($filter, $idx++, $result);
+            }
+        }
+
+        // Raw conditions — merge their explicit bindings
+        foreach ($this->rawConditions as $raw) {
+            foreach ($raw['bindings'] as $placeholder => $binding) {
+                $result[$placeholder] = $binding;
             }
         }
 

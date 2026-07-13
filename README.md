@@ -1524,7 +1524,76 @@ sqlc-php/
 
 ## Changelog
 
-### [2.15.2] — Hotfix: cursor condition injected after `GROUP BY` causing SQL error
+### [2.15.4] — `Criteria::addRawCondition()` — raw SQL filters for JOIN columns
+
+Adds `addRawCondition(string $sql, array $bindings = [])` to the `Criteria` base class, allowing verbatim SQL conditions to be AND-ed into the WHERE clause alongside typed filters. Designed for cases where the filter target is a JOIN column not present in the SELECT list — and therefore has no generated typed method.
+
+```php
+// Filter on a JOIN column (reserve.id is not in the SELECT)
+$criteria = (new ProfileReserveCriteria())
+    ->whereSnapFirstnameLike('cri')          // typed method — normal
+    ->addRawCondition(                        // raw condition — JOIN column
+        'reserve.id = :reserveId',
+        [':reserveId' => [$id, PDO::PARAM_INT]]
+    );
+
+$result = $repo->listProfileReserve(criteria: $criteria);
+$count  = $repo->listProfileReserveCount(criteria: $criteria);
+```
+
+**API:**
+
+```php
+/**
+ * @param string                                 $sql      Raw SQL condition (verbatim)
+ * @param array<string, array{0:mixed, 1:int}>   $bindings Named placeholder → [value, PDO::PARAM_*]
+ */
+public function addRawCondition(string $sql, array $bindings = []): static
+```
+
+**Behavior:**
+- Immutable — returns a new instance.
+- The condition is injected as-is into the AND chain, after typed filters.
+- Bindings are merged with typed-filter bindings in `getBindings()` / `bindAll()`.
+- `hasFilters()` and `isEmpty()` correctly reflect the presence of raw conditions.
+- Multiple `addRawCondition()` calls are all AND-ed together.
+- Works with all generated query types: `:many`, `:cursor`, `Count`, etc.
+
+**⚠️ Security:** no SQL injection protection is applied. Never interpolate user input directly — always use named placeholders and pass the value through `$bindings`.
+
+- 17 new tests in `tests/RawConditionTest.php`
+
+
+
+Extends the `GROUP BY` fix from v2.15.2 to cover two additional code paths that had the same bug:
+
+**`renderCursorCountMethod` (`@counted` + `@searchable` + `:cursor`)**
+
+The Count method was building `$__basePart` from the full inner SQL (including `GROUP BY`), then calling `$criteria->toFilterClause()` which appended `AND filter` after the `GROUP BY`. Now the `GROUP BY` is split off into `$__groupBySuffix`, criteria filters are applied first, then `GROUP BY` is re-appended before the `COUNT(*)` wrapper.
+
+```sql
+-- BEFORE (invalid):
+SELECT COUNT(*) FROM (
+  SELECT ... WHERE fixed_condition
+  GROUP BY col
+  AND snap_firstname LIKE :snap_firstname   ← after GROUP BY, invalid
+) AS _cursor_total
+
+-- AFTER (correct):
+SELECT COUNT(*) FROM (
+  SELECT ... WHERE fixed_condition
+  AND snap_firstname LIKE :snap_firstname   ← before GROUP BY ✓
+  GROUP BY col
+) AS _cursor_total
+```
+
+**`buildSearchableSqlBlock` (`@searchable` + `:many` / `:many-paginated`)**
+
+Same bug in the non-cursor searchable path — `$__sql` could end with `GROUP BY` when the user query had one, and `toFilterClause` would append after it. The same `$groupBySuffix` split-and-reappend approach is applied.
+
+- 1 new regression test in `CursorPaginationTest`
+
+
 
 Fixes an `only_full_group_by` SQL error in queries that combine `:cursor` (with or without `@searchable`) and `GROUP BY`. The cursor condition was being appended after the `GROUP BY` clause, producing invalid SQL:
 

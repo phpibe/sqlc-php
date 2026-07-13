@@ -353,6 +353,6 @@ class TypeAnnotationTest extends TestCase
 
     public function test_version_is_2_9_6(): void
     {
-        $this->assertSame('2.15.3', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.15.4', \SqlcPhp\Version::VERSION);
     }
 }

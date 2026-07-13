@@ -1524,7 +1524,35 @@ sqlc-php/
 
 ## Changelog
 
-### [2.15.1] — Hotfix: `@cursor` with qualified `table.column` failed to parse
+### [2.15.2] — Hotfix: cursor condition injected after `GROUP BY` causing SQL error
+
+Fixes an `only_full_group_by` SQL error in queries that combine `:cursor` (with or without `@searchable`) and `GROUP BY`. The cursor condition was being appended after the `GROUP BY` clause, producing invalid SQL:
+
+```sql
+-- BEFORE (invalid — cursor condition after GROUP BY):
+SELECT ... FROM profile_reserve ... WHERE ...
+GROUP BY profile_reserve.profile_id
+AND (:__cursor_created_at_chk IS NULL OR ...)   ← invalid position
+ORDER BY ... LIMIT 21
+```
+
+```sql
+-- AFTER (correct — cursor condition in the WHERE, before GROUP BY):
+SELECT ... FROM profile_reserve ... WHERE ...
+AND (:__cursor_created_at_chk IS NULL OR ...)   ← correct position
+GROUP BY profile_reserve.profile_id
+ORDER BY ... LIMIT 21
+```
+
+**Root cause:** both `buildCursorSql` (used by non-searchable `:cursor`) and the searchable cursor SQL assembly block detected `WHERE` presence and appended `AND condition` to the tail of the base SQL — without checking whether the tail was a `GROUP BY` clause rather than a valid place for `WHERE` conditions.
+
+**Fix:** both code paths now detect `GROUP BY` at the end of the base SQL and split it off. The cursor condition (and criteria filters) are injected into the `WHERE` section, then the `GROUP BY` is re-appended, followed by `ORDER BY` and `LIMIT`.
+
+The fix also correctly handles `GROUP BY` + `HAVING` — the entire suffix from `GROUP BY` onward is preserved as a unit after the cursor condition.
+
+- 3 new regression tests in `CursorPaginationTest`
+
+
 
 Fixes two bugs that prevented using qualified column names in `@cursor` when queries JOIN multiple tables sharing the same column name (e.g. `created_at` in both `profile_reserve` and `reserve`).
 

@@ -1041,10 +1041,9 @@ PHP;
         if (preg_match('/\bORDER\s+BY\b/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
             $pos    = $m[0][1];
             $before = rtrim(substr($sql, 0, $pos));
-            $orderByClause = substr($sql, $pos); // "ORDER BY col1 DESC, col2 DESC"
+            $orderByClause = substr($sql, $pos);
 
             if ($direction === 'before') {
-                // Invert all ASC↔DESC in ORDER BY for backward traversal
                 $orderByClause = preg_replace_callback(
                     '/\b(ASC|DESC)\b/i',
                     fn($m) => strtoupper($m[1]) === 'ASC' ? 'DESC' : 'ASC',
@@ -1052,11 +1051,27 @@ PHP;
                 );
             }
 
-            $glue = $hasWhere ? ' AND ' : ' WHERE ';
-            $sql  = $before . $glue . "({$condition}) " . $orderByClause;
+            // Cursor condition must go before GROUP BY, not after it
+            if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $before, $gbm)) {
+                $beforeGroup = rtrim($gbm[1]);
+                $groupSuffix = trim($gbm[2]);
+                $glue = $hasWhere ? ' AND ' : ' WHERE ';
+                $sql  = $beforeGroup . $glue . "({$condition}) " . $groupSuffix . ' ' . $orderByClause;
+            } else {
+                $glue = $hasWhere ? ' AND ' : ' WHERE ';
+                $sql  = $before . $glue . "({$condition}) " . $orderByClause;
+            }
         } else {
-            $glue = $hasWhere ? ' AND ' : ' WHERE ';
-            $sql .= $glue . "({$condition})";
+            // No ORDER BY — check if SQL ends with GROUP BY
+            if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $sql, $gbm)) {
+                $beforeGroup = rtrim($gbm[1]);
+                $groupSuffix = trim($gbm[2]);
+                $glue = $hasWhere ? ' AND ' : ' WHERE ';
+                $sql  = $beforeGroup . $glue . "({$condition}) " . $groupSuffix;
+            } else {
+                $glue = $hasWhere ? ' AND ' : ' WHERE ';
+                $sql .= $glue . "({$condition})";
+            }
         }
 
         $sql .= ' LIMIT :__limit';
@@ -1240,39 +1255,65 @@ PHP;
                 $orderByPart)
             : '';
 
-        $baseSqlLit       = $this->renderSqlLiteral($baseSqlPart);
-        $orderByLit       = $this->renderSqlLiteral($orderByPart);
-        $orderByBeforeLit = $this->renderSqlLiteral($orderByPartBefore);
+        // Detect whether the base SQL ends with GROUP BY (or GROUP BY + HAVING).
+        // When it does, the cursor condition must be injected BEFORE the GROUP BY —
+        // appending it after GROUP BY is invalid SQL. We split baseSqlPart into
+        // the part before GROUP BY (which receives the cursor WHERE/AND) and
+        // the suffix (GROUP BY ...) that comes after.
+        //
+        // Pattern: extract everything from GROUP BY to the end of baseSqlPart.
+        $hasGroupBy     = (bool) preg_match('/\bGROUP\s+BY\b/i', $baseSqlPart);
+        $groupBySuffix  = '';
+        $baseSqlPreGroup = $baseSqlPart;
+        if ($hasGroupBy) {
+            if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $baseSqlPart, $gbm)) {
+                $baseSqlPreGroup = rtrim($gbm[1]);
+                $groupBySuffix   = trim($gbm[2]);
+            }
+        }
+
+        $baseSqlLit          = $this->renderSqlLiteral($baseSqlPreGroup);
+        $groupBySuffixLit    = $this->renderSqlLiteral($groupBySuffix);
+        $orderByLit          = $this->renderSqlLiteral($orderByPart);
+        $orderByBeforeLit    = $this->renderSqlLiteral($orderByPartBefore);
         $cursorCondAfterLit  = $this->renderSqlLiteral("({$cursorCondAfter})");
         $cursorCondBeforeLit = $this->renderSqlLiteral("({$cursorCondBefore})");
 
-        // The SQL is assembled at runtime in three layers:
-        //   1. Base SQL (user filters already applied via @optional rewriting)
+        // The SQL is assembled at runtime in layers:
+        //   1. Base SQL up to (but not including) GROUP BY
         //   2. + Criteria filters (dynamic WHERE from $criteria->toFilterClause())
         //   3. + Cursor condition (AND or WHERE depending on what came before)
-        //   4. + ORDER BY (forward or backward)
-        //   5. + LIMIT :__limit
+        //   4. + GROUP BY suffix (if any — restored after cursor condition)
+        //   5. + ORDER BY (forward or backward)
+        //   6. + LIMIT :__limit
         $sqlBlock = <<<'PHPBLOCK'
-        // Assemble SQL in layers: base → criteria filters → cursor condition → ORDER BY → LIMIT
-        $__basePart   = BASE_SQL_LIT;
-        $__cursorCond = $before !== null ? CURSOR_COND_BEFORE_LIT : CURSOR_COND_AFTER_LIT;
-        $__orderBy    = $before !== null ? ORDER_BY_BEFORE_LIT : ORDER_BY_LIT;
-        $__hasWhere   = HASWHERE_LIT;
+        // Assemble SQL in layers: base → criteria filters → cursor condition → GROUP BY → ORDER BY → LIMIT
+        $__basePart      = BASE_SQL_LIT;
+        $__groupBySuffix = GROUP_BY_SUFFIX_LIT;
+        $__cursorCond    = $before !== null ? CURSOR_COND_BEFORE_LIT : CURSOR_COND_AFTER_LIT;
+        $__orderBy       = $before !== null ? ORDER_BY_BEFORE_LIT : ORDER_BY_LIT;
+        $__hasWhere      = HASWHERE_LIT;
 
-        // Layer 2: criteria filters
+        // Layer 2: criteria filters (injected before GROUP BY)
         if ($criteria !== null && $criteria->hasFilters()) {
             $__basePart .= $criteria->toFilterClause($__hasWhere);
             $__hasWhere  = true;
         }
 
-        // Layer 3: cursor condition
+        // Layer 3: cursor condition (injected before GROUP BY)
         $__basePart .= ($__hasWhere ? ' AND ' : ' WHERE ') . $__cursorCond;
 
-        // Layer 4+5: ORDER BY + LIMIT
+        // Layer 4: restore GROUP BY (if the query had one)
+        if ($__groupBySuffix !== '') {
+            $__basePart .= ' ' . $__groupBySuffix;
+        }
+
+        // Layer 5+6: ORDER BY + LIMIT
         $__baseSql = $__basePart . ($__orderBy !== '' ? ' ' . $__orderBy : '') . ' LIMIT :__limit';
 PHPBLOCK;
 
-        $sqlBlock = str_replace('BASE_SQL_LIT',         $baseSqlLit,          $sqlBlock);
+        $sqlBlock = str_replace('BASE_SQL_LIT',          $baseSqlLit,          $sqlBlock);
+        $sqlBlock = str_replace('GROUP_BY_SUFFIX_LIT',   $groupBySuffixLit,    $sqlBlock);
         $sqlBlock = str_replace('CURSOR_COND_AFTER_LIT', $cursorCondAfterLit,  $sqlBlock);
         $sqlBlock = str_replace('CURSOR_COND_BEFORE_LIT',$cursorCondBeforeLit, $sqlBlock);
         $sqlBlock = str_replace('ORDER_BY_LIT',          $orderByLit,          $sqlBlock);

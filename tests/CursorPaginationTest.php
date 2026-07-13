@@ -224,6 +224,95 @@ class CursorPaginationTest extends TestCase
     }
 
     // =========================================================================
+    // GROUP BY + cursor: condition must go BEFORE GROUP BY
+    // =========================================================================
+
+    public function test_cursor_condition_placed_before_group_by_in_build_cursor_sql(): void
+    {
+        // buildCursorSql is used by the non-searchable :cursor path
+        $gen    = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog, $this->mapper,
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $this->mapper, $this->catalog),
+            'App\\Queries'
+        );
+
+        $method = new \ReflectionMethod($gen, 'buildCursorSql');
+        $method->setAccessible(true);
+
+        $sql = 'SELECT a.id, MAX(a.created_at) AS created_at FROM a ' .
+               'INNER JOIN b ON b.a_id = a.id ' .
+               'WHERE a.active = 1 ' .
+               'GROUP BY a.id ' .
+               'ORDER BY MAX(a.created_at) DESC, a.id DESC';
+
+        $cursorCols = [
+            ['col' => 'a.created_at', 'key' => 'created_at', 'dir' => 'DESC'],
+            ['col' => 'a.id',         'key' => 'id',          'dir' => 'DESC'],
+        ];
+
+        $result = $method->invoke($gen, $sql, $cursorCols, 'after');
+
+        // Cursor condition must appear BEFORE GROUP BY
+        $groupByPos = stripos($result, 'GROUP BY');
+        $cursorPos  = stripos($result, ':__cursor_created_at_chk');
+        $this->assertNotFalse($groupByPos);
+        $this->assertNotFalse($cursorPos);
+        $this->assertLessThan($groupByPos, $cursorPos,
+            'Cursor condition must appear before GROUP BY');
+
+        // GROUP BY must appear before ORDER BY
+        $orderByPos = stripos($result, 'ORDER BY');
+        $this->assertLessThan($orderByPos, $groupByPos,
+            'GROUP BY must appear before ORDER BY');
+    }
+
+    public function test_cursor_condition_placed_before_group_by_when_no_order_by(): void
+    {
+        $gen    = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog, $this->mapper,
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $this->mapper, $this->catalog),
+            'App\\Queries'
+        );
+
+        $method = new \ReflectionMethod($gen, 'buildCursorSql');
+        $method->setAccessible(true);
+
+        $sql = 'SELECT a.id, MAX(a.created_at) AS created_at FROM a WHERE a.active = 1 GROUP BY a.id';
+        $cursorCols = [['col' => 'a.created_at', 'key' => 'created_at', 'dir' => 'DESC']];
+
+        $result = $method->invoke($gen, $sql, $cursorCols, 'after');
+
+        $groupByPos = stripos($result, 'GROUP BY');
+        $cursorPos  = stripos($result, ':__cursor_created_at_chk');
+        $this->assertLessThan($groupByPos, $cursorPos,
+            'Cursor condition must appear before GROUP BY even without ORDER BY');
+    }
+
+    public function test_cursor_sql_without_group_by_unaffected(): void
+    {
+        $gen    = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog, $this->mapper,
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', $this->mapper, $this->catalog),
+            'App\\Queries'
+        );
+
+        $method = new \ReflectionMethod($gen, 'buildCursorSql');
+        $method->setAccessible(true);
+
+        $sql = 'SELECT a.id, a.created_at FROM a WHERE a.active = 1 ORDER BY a.created_at DESC, a.id DESC';
+        $cursorCols = [
+            ['col' => 'a.created_at', 'key' => 'created_at', 'dir' => 'DESC'],
+            ['col' => 'a.id',         'key' => 'id',          'dir' => 'DESC'],
+        ];
+
+        $result = $method->invoke($gen, $sql, $cursorCols, 'after');
+
+        // No GROUP BY — cursor condition goes at WHERE position as before
+        $this->assertStringContainsString('AND (:__cursor_created_at_chk', $result);
+        $this->assertStringNotContainsString('GROUP BY', $result);
+    }
+
+    // =========================================================================
     // Analyzer — validation
     // =========================================================================
 
@@ -948,6 +1037,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.15.1', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.15.2', \SqlcPhp\Version::VERSION);
     }
 }

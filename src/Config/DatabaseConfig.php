@@ -13,10 +13,20 @@ namespace SqlcPhp\Config;
  *     dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
  *     username: "${DB_USER}"
  *     password: "${DB_PASS}"
- *     exclude_tables:
+ *     exclude_tables:       # skip specific tables
  *       - migrations
  *       - failed_jobs
- *       - sessions
+ *     include_tables:       # whitelist — only these tables
+ *       - users
+ *       - orders
+ *     exclude_views:        # skip specific views
+ *       - v_legacy_report
+ *     include_views:        # whitelist — only these views
+ *       - v_active_users
+ *       - v_order_summary
+ *
+ * Views are always extracted alongside tables. Use include_views or
+ * exclude_views to filter them, exactly like include_tables / exclude_tables.
  *
  * Values of the form ${ENV_VAR} are expanded from the environment at runtime
  * so that credentials are never stored in the committed YAML file.
@@ -27,9 +37,12 @@ namespace SqlcPhp\Config;
 readonly class DatabaseConfig
 {
     /**
-     * @param string[] $excludeTables  Table names to skip when generating the schema.
-     * @param string[] $includeTables  When non-empty, only these tables are extracted.
-     *                                 Mutually exclusive with excludeTables.
+     * @param string[] $excludeTables Table names to skip when generating the schema.
+     * @param string[] $includeTables When non-empty, only these tables are extracted.
+     *                                Mutually exclusive with excludeTables.
+     * @param string[] $includeViews  When non-empty, only these views are extracted.
+     *                                Mutually exclusive with excludeViews.
+     * @param string[] $excludeViews  View names to skip. Ignored when includeViews is set.
      */
     public function __construct(
         public string $dsn,
@@ -39,6 +52,10 @@ readonly class DatabaseConfig
         public array  $excludeTables = [],
         /** @var string[] */
         public array  $includeTables = [],
+        /** @var string[] */
+        public array  $includeViews  = [],
+        /** @var string[] */
+        public array  $excludeViews  = [],
     ) {}
 
     /**
@@ -52,6 +69,8 @@ readonly class DatabaseConfig
             password:      (string) ($data['password'] ?? ''),
             excludeTables: self::toStringArray($data['exclude_tables'] ?? []),
             includeTables: self::toStringArray($data['include_tables'] ?? []),
+            includeViews:  self::toStringArray($data['include_views']  ?? []),
+            excludeViews:  self::toStringArray($data['exclude_views']  ?? []),
         );
     }
 
@@ -93,6 +112,24 @@ readonly class DatabaseConfig
         return !in_array($tableName, $this->excludeTables, true);
     }
 
+    /**
+     * Returns true if the given view should be included in the schema output.
+     *
+     * Views are included by default (unlike the old include_views: true flag).
+     * Use include_views: [...] as a whitelist or exclude_views: [...] as a
+     * blacklist, mirroring the include_tables / exclude_tables behaviour.
+     */
+    public function shouldIncludeView(string $viewName): bool
+    {
+        // include_views acts as a whitelist — if non-empty, only those views pass
+        if (!empty($this->includeViews)) {
+            return in_array($viewName, $this->includeViews, true);
+        }
+
+        // exclude_views acts as a blacklist
+        return !in_array($viewName, $this->excludeViews, true);
+    }
+
     // -------------------------------------------------------------------------
 
     /**
@@ -102,7 +139,7 @@ readonly class DatabaseConfig
     private static function expand(string $value): string
     {
         return preg_replace_callback(
-            '/\$\{([A-Z_][A-Z0-9_]*)\}/i',
+            '/\\$\\{([A-Z_][A-Z0-9_]*)\\}/i',
             static function (array $m): string {
                 $val = getenv($m[1]);
                 if ($val === false) {

@@ -1524,7 +1524,239 @@ sqlc-php/
 
 ## Changelog
 
-### [2.13.1] — Hotfix: CTE feature crashed in real-world CLI usage
+### [2.15.1] — Hotfix: `@cursor` with qualified `table.column` failed to parse
+
+Fixes two bugs that prevented using qualified column names in `@cursor` when queries JOIN multiple tables sharing the same column name (e.g. `created_at` in both `profile_reserve` and `reserve`).
+
+**Bug 1 — Parser rejected `table.column` syntax.**
+
+The `@cursor` regex used `\w+` which only matches word characters (letters, digits, underscore). Passing `profile_reserve.created_at DESC` produced an empty `cursorColumns` array, causing the Analyzer to throw:
+
+```
+RuntimeException: Query 'listProfileReserve': :cursor requires @cursor to declare
+the cursor columns. Example: -- @cursor created_at DESC, id DESC
+```
+
+**Bug 2 — No separation between SQL ref and PHP key.**
+
+Even if parsed, using `profile_reserve.created_at` directly as a PHP variable name would produce invalid code: `$__cursor_profile_reserve.created_at`.
+
+**Fix:** the parser now stores two values per cursor column:
+
+| Field | Value | Used for |
+|---|---|---|
+| `col` | `profile_reserve.created_at` | SQL `WHERE` condition — qualified, no ambiguity |
+| `key` | `created_at` | PHP variable names, PDO placeholders, cursor token keys |
+
+The generator (`buildCursorSql`, `buildCursorDecodeLines`, `buildCursorBindings`, `buildCursorEncodeExpr`, and the `@counted` cursor variant) was updated to use `col` for SQL and `key` for PHP identifiers throughout.
+
+**Usage (unchanged — just use the qualified name):**
+
+```sql
+-- @cursor profile_reserve.created_at DESC
+```
+
+The generated SQL condition will correctly use `profile_reserve.created_at` in the `WHERE` clause, and PHP code will use `$__cursor_created_at` as the variable name.
+
+Bare column names (`-- @cursor created_at DESC`) are unaffected — `key` equals `col` in that case.
+
+- 6 new regression tests added to `tests/CursorPaginationTest.php`
+
+
+
+#### `@nullable` — force nullable PHP type on query parameters
+
+Declares that one or more query parameters accept `null`, changing their PHP type from `type` to `?type`. Unlike `@optional` (which rewrites the SQL condition to `IS NULL OR`), `@nullable` only changes the PHP type — the SQL is unchanged. Ideal for `UPDATE SET col = :param` patterns where the column accepts `NULL`.
+
+```sql
+-- @name UpdateUserAvatar
+-- @class Users
+-- @returns :exec
+-- @nullable avatarUrl          ← single param
+-- @nullable deletedAt, name    ← comma-separated list also supported
+UPDATE users
+SET avatar_url = :avatarUrl,
+    deleted_at = :deletedAt,
+    name       = :name
+WHERE id = :id;
+```
+
+Generated signature:
+
+```php
+public function updateUserAvatar(
+    ?string   $avatarUrl,   // ← nullable
+    ?\DateTimeImmutable $deletedAt,  // ← nullable
+    ?string   $name,        // ← nullable
+    int       $id,          // ← unchanged
+): void
+```
+
+**Rules:**
+- Multiple `@nullable` lines and comma-separated lists are both supported.
+- Duplicate param names are deduplicated automatically.
+- Applying `@nullable` to an already-nullable column is idempotent — no double `??` prefix.
+- `@nullable` and `@optional` can coexist on different params in the same query.
+- The annotation is position-independent (can appear before `@name`).
+
+---
+
+#### Typed UNION ALL column merging
+
+When a query contains `UNION` or `UNION ALL`, sqlc-php now analyzes each branch independently and merges the column types using the following rules:
+
+| Branch A | Branch B | Merged type |
+|---|---|---|
+| `int` | `int` | `int` |
+| `int` | `?int` | `?int` — nullable propagates |
+| `?int` | `int` | `?int` — nullable propagates |
+| `int` | `string` | `mixed` — type conflict |
+| `\DateTimeImmutable` | `?\DateTimeImmutable` | `?\DateTimeImmutable` |
+
+**Before (today):** the last branch's types were used, silently discarding nullability differences between branches.
+
+**After:** each branch is resolved and merged. If one branch has a nullable column that the other doesn't, the merged column is nullable. If types differ entirely, the column widens to `mixed` (with `@type` available for manual correction).
+
+```sql
+-- @name ListAgenda
+-- @class Agenda
+-- @returns :many
+SELECT id, title, started_at AS scheduled_at FROM events   -- DATETIME NOT NULL
+UNION ALL
+SELECT id, title, due_at    AS scheduled_at FROM tasks;    -- DATETIME NULL
+```
+
+Generated DTO:
+
+```php
+readonly class ListAgendaRow
+{
+    public function __construct(
+        public int                  $id,
+        public string               $title,
+        public ?\DateTimeImmutable  $scheduled_at,  // ← correctly nullable
+    ) {}
+}
+```
+
+`@type` overrides still work after merging for manual corrections.
+
+- 16 new tests in `tests/NullableParamAnnotationTest.php`
+- 11 new tests in `tests/TypedUnionTest.php`
+
+
+
+Extends `--generate-schema` to extract database views alongside tables. Views are included by default — no configuration required. Use `include_views` or `exclude_views` to filter them, with the exact same semantics as `include_tables` / `exclude_tables`.
+
+**`sqlc.yaml` configuration:**
+
+```yaml
+database:
+  dsn:      "mysql:host=localhost;dbname=myapp"
+  username: "${DB_USER}"
+  password: "${DB_PASS}"
+
+  # Tables — unchanged
+  exclude_tables: [migrations, failed_jobs]
+
+  # Views — same model as tables: include whitelist OR exclude blacklist
+  exclude_views: [v_legacy_report]     # skip specific views
+  # include_views: [v_active, v_summary] # OR: only extract these views
+```
+
+| Config key | Behaviour |
+|---|---|
+| *(none)* | All views extracted |
+| `include_views: [a, b]` | Only `a` and `b` extracted (whitelist) |
+| `exclude_views: [x, y]` | All views except `x` and `y` (blacklist) |
+
+**Generated `schema.sql` output:**
+
+```sql
+-- Tables   : 5 (of 5 total)
+-- Views    : 2 (of 4 total)
+
+CREATE TABLE users ( ... );
+CREATE TABLE orders ( ... );
+
+-- ── Views ──────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE VIEW v_active_users AS
+SELECT id, email, name FROM users WHERE active = 1;
+```
+
+**View DDL normalization:** `ALGORITHM=`, `DEFINER=\`user\`@\`host\`` and `SQL SECURITY` are stripped. Output is normalized to `CREATE OR REPLACE VIEW` for clean git diffs.
+
+**`SchemaParser` now parses `CREATE OR REPLACE VIEW`:** Columns inferred from the SELECT list. Views stored as `virtual: true` `TableDefinition` — usable as `FROM` targets in queries like `virtual_tables`. Subqueries handled via balanced-parenthesis splitting.
+
+- 23 new tests in `tests/ViewSupportTest.php`
+
+
+
+Fixes two related parser bugs introduced in v2.14.0:
+
+**Bug 1 — `@comment` before `@name` was silently dropped.**
+
+The parser splits query blocks using `@name` as the start marker. Any annotations appearing before `@name` (like `-- @comment Description.\n-- @name GetUser`) ended up in a leading fragment with no `@name` and were discarded. Fix: the splitting loop now carries forward any pre-`@name` fragment and prepends it to the following block.
+
+**Bug 2 — `@comment` text containing `@name` or `@class` corrupted the query name.**
+
+If the comment text itself mentioned `@name` or `@class` (e.g. `-- @comment This appears between @name and @class.`), the unanchored regexes `/@name\s+(\w+)/i` and `/@class\s+(\w+)/i` would match inside the comment text, setting the query's `$name` to `and` and `$class` to `Users` from the wrong position. Fix: both regexes are now anchored to the start of the annotation string with `^`.
+
+These two bugs combined to make `@comment` unreliable unless placed after all other annotations and containing no annotation keywords. Both are now fixed and covered by 7 new regression tests in `CommentAnnotationTest`.
+
+**Root cause:** the `^` anchor was already used for `@counted`, `@searchable`, `@partial` — it was simply missing from `@name` and `@class`, which are the most likely to appear as words inside a description.
+
+**No API changes** — pure bugfix release.
+
+
+
+Adds a new `@comment` annotation that injects a human-readable description into the generated method docblock (and its matching interface method), placed before `@param` and `@return` tags following PSR-5/phpDoc conventions.
+
+**Usage:**
+
+```sql
+-- @name GetActiveUser
+-- @class Users
+-- @returns :opt
+-- @comment Returns the active user matching the given ID.
+-- @comment Returns null when no user is found or the user is inactive.
+SELECT * FROM users WHERE id = :id AND active = 1;
+```
+
+**Generated method:**
+
+```php
+/**
+ * Returns the active user matching the given ID.
+ * Returns null when no user is found or the user is inactive.
+ *
+ * @param int $id
+ * @return User|null
+ */
+public function getActiveUser(int $id): ?User
+```
+
+**Rules:**
+
+- Multiple `@comment` lines are supported — each line becomes its own line in the description block.
+- A blank `* ` separator is automatically inserted between the description and `@param`/`@return` tags.
+- `@comment` coexists with `@deprecated` — both appear in the docblock, description first.
+- Works with all return types: `:one`, `:opt`, `:many`, `:many-paginated`, `:paginated`, `:exec`, `:batch`, `:cursor`, `:transaction`.
+- Empty `@comment` lines (no text after the annotation) are silently ignored.
+- The interface method docblock also receives the description.
+- Queries without `@comment` are completely unaffected — no change in generated output.
+
+**Modified files:**
+- `src/Parser/QueryParser.php` — `$comment: string[]` field, `@comment` parsing
+- `src/Analyzer/QueryAnalyzer.php` — propagates `comment`
+- `src/Generator/QueryGenerator.php` — `buildDocblock()` and `buildDocblockWithExtra()` emit description block
+- `src/Generator/InterfaceGenerator.php` — `buildDocblock()` emits description block
+- `bin/sqlc-php` — propagates `comment` in CTE injection reconstruction
+
+- 31 new tests in `tests/CommentAnnotationTest.php`
+
+
 
 Fixes two regressions introduced in 2.13.0 that only manifest when running `bin/sqlc-php` for real (not caught by the unit test suite, which exercised the classes directly rather than through the CLI entrypoint):
 

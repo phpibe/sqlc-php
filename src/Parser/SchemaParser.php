@@ -19,6 +19,9 @@ class SchemaParser
 {
     /**
      * Parse all CREATE TABLE statements in the given SQL string.
+     * Parses both CREATE TABLE and CREATE [OR REPLACE] VIEW statements.
+     * Views are stored as TableDefinition with virtual=true and columns
+     * inferred from the SELECT column list.
      *
      * @return TableDefinition[]
      */
@@ -31,22 +34,32 @@ class SchemaParser
         // Remove multi-line comments
         $sql = preg_replace('/\/\*.*?\*\//s', '', $sql ?? '');
 
-        // Find each CREATE TABLE — support backtick, double-quote, or unquoted table names
-        $pattern = '/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"]?(\w+)[`"]?\s*\(/si';
+        // ── Parse CREATE TABLE statements ────────────────────────────────────
+        $tablePattern = '/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"]?(\w+)[`\"]?\s*\(/si';
 
-        if (!preg_match_all($pattern, $sql, $matches, PREG_OFFSET_CAPTURE)) {
-            return $tables;
+        if (preg_match_all($tablePattern, $sql, $matches, PREG_OFFSET_CAPTURE)) {
+            foreach ($matches[0] as $i => $match) {
+                $tableName  = $matches[1][$i][0];
+                $parenStart = $match[1] + strlen($match[0]) - 1;
+
+                $columnBlock = $this->extractBalancedParens($sql, $parenStart);
+                if ($columnBlock === null) continue;
+
+                $columns  = $this->parseColumns($columnBlock);
+                $tables[] = new TableDefinition($tableName, $columns);
+            }
         }
 
-        foreach ($matches[0] as $i => $match) {
-            $tableName  = $matches[1][$i][0];
-            $parenStart = $match[1] + strlen($match[0]) - 1; // position of '('
+        // ── Parse CREATE [OR REPLACE] VIEW statements ────────────────────────
+        $viewPattern = '/CREATE\s+(?:OR\s+REPLACE\s+)?VIEW\s+[`\"]?(\w+)[`\"]?\s+AS\s+(SELECT\b.+?)(?=;|\Z)/si';
 
-            $columnBlock = $this->extractBalancedParens($sql, $parenStart);
-            if ($columnBlock === null) continue;
-
-            $columns  = $this->parseColumns($columnBlock);
-            $tables[] = new TableDefinition($tableName, $columns);
+        if (preg_match_all($viewPattern, $sql, $vMatches, PREG_OFFSET_CAPTURE)) {
+            foreach ($vMatches[1] as $i => $nameMatch) {
+                $viewName  = $nameMatch[0];
+                $selectSql = trim($vMatches[2][$i][0]);
+                $columns   = $this->parseViewColumns($selectSql);
+                $tables[]  = new TableDefinition($viewName, $columns, virtual: true);
+            }
         }
 
         return $tables;
@@ -59,6 +72,137 @@ class SchemaParser
      * between it and its matching closing ')', respecting nested parens
      * and string literals so that DEFAULT 'value(with paren)' is handled.
      */
+    // -------------------------------------------------------------------------
+
+    /**
+     * Infer column definitions from a VIEW's SELECT clause.
+     *
+     * Extracts the outer SELECT list (between SELECT and the first top-level FROM),
+     * respecting nested parentheses so subqueries like
+     *   (SELECT COUNT(*) FROM orders ...) AS order_count
+     * are treated as a single item.
+     *
+     * @return ColumnDefinition[]
+     */
+    private function parseViewColumns(string $selectSql): array
+    {
+        // Find the outer SELECT list — everything between SELECT and the first
+        // top-level FROM keyword (depth=0 means not inside any parentheses).
+        $selectList = $this->extractOuterSelectList($selectSql);
+
+        $columns = [];
+        $items   = $this->splitSelectList($selectList);
+
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item === '' || strtoupper($item) === '*') continue;
+
+            // Extract alias: `... AS alias` or `... AS \`alias\``
+            if (preg_match('/\bAS\s+[`"]?(\w+)[`"]?\s*$/i', $item, $m)) {
+                $colName = $m[1];
+            } else {
+                // No alias — use the last bare identifier (e.g. table.col_name → col_name)
+                if (preg_match('/[`"]?(\w+)[`"]?\s*$/', $item, $m)) {
+                    $colName = $m[1];
+                } else {
+                    continue;
+                }
+            }
+
+            $columns[] = new ColumnDefinition(
+                name:          $colName,
+                sqlType:       'VARCHAR',
+                nullable:      true,
+                autoIncrement: false,
+                default:       null,
+            );
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Extract the SELECT list: everything between SELECT and the first
+     * top-level FROM (not inside parentheses).
+     */
+    private function extractOuterSelectList(string $selectSql): string
+    {
+        // Skip the leading SELECT keyword
+        $pos = stripos($selectSql, 'SELECT');
+        if ($pos === false) return $selectSql;
+        $pos += strlen('SELECT');
+
+        $depth   = 0;
+        $start   = $pos;
+        $len     = strlen($selectSql);
+        $inStr   = false;
+        $strChar = '';
+
+        for ($i = $pos; $i < $len; $i++) {
+            $ch = $selectSql[$i];
+
+            // Track string literals to avoid treating FROM inside strings as keywords
+            if (!$inStr && ($ch === "'" || $ch === '"')) {
+                $inStr   = true;
+                $strChar = $ch;
+                continue;
+            }
+            if ($inStr) {
+                if ($ch === $strChar && ($i === 0 || $selectSql[$i - 1] !== '\\')) {
+                    $inStr = false;
+                }
+                continue;
+            }
+
+            if ($ch === '(') { $depth++; continue; }
+            if ($ch === ')') { $depth--; continue; }
+
+            // Top-level FROM keyword ends the SELECT list
+            if ($depth === 0 && substr_compare($selectSql, 'FROM', $i, 4, true) === 0) {
+                // Make sure it's a word boundary (preceded by whitespace or comma)
+                if ($i === 0 || in_array($selectSql[$i - 1], [' ', "\t", "\n", "\r", ','])) {
+                    return substr($selectSql, $start, $i - $start);
+                }
+            }
+        }
+
+        // No top-level FROM found — return everything after SELECT
+        return substr($selectSql, $start);
+    }
+
+    /**
+     * Split a SELECT list on top-level commas (not inside parentheses).
+     *
+     * @return string[]
+     */
+    private function splitSelectList(string $list): array
+    {
+        $items  = [];
+        $depth  = 0;
+        $current = '';
+
+        for ($i = 0, $len = strlen($list); $i < $len; $i++) {
+            $ch = $list[$i];
+            if ($ch === '(') {
+                $depth++;
+                $current .= $ch;
+            } elseif ($ch === ')') {
+                $depth--;
+                $current .= $ch;
+            } elseif ($ch === ',' && $depth === 0) {
+                $items[]  = $current;
+                $current  = '';
+            } else {
+                $current .= $ch;
+            }
+        }
+        if (trim($current) !== '') {
+            $items[] = $current;
+        }
+
+        return $items;
+    }
+
     private function extractBalancedParens(string $sql, int $openPos): ?string
     {
         $depth  = 0;

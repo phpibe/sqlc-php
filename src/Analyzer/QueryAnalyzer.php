@@ -61,6 +61,11 @@ class QueryAnalyzer
         // @optional marking will happen in markPartialAndOptional() below
         $params = $rawParams;
 
+        // Apply @nullable — force nullable=true on explicitly listed params
+        if (!empty($query->nullableParams)) {
+            $params = $this->applyNullableParams($params, $query->nullableParams);
+        }
+
         // 4. Resolve result columns — treat :paginated like :many for column resolution
         $resultColumns        = [];
         $returnsModelDirectly = false;
@@ -68,7 +73,14 @@ class QueryAnalyzer
 
         $isSelectQuery = $query->returns->value !== ':exec';
         if ($isSelectQuery) {
-            $rawColumns    = $this->columnResolver->resolve($rewrittenSql);
+            $rawColumns = $this->columnResolver->resolve($rewrittenSql);
+
+            // UNION ALL: resolve each branch independently and merge types.
+            // Rules: if types differ → mixed; if one branch is nullable → nullable.
+            if ($query->isUnion) {
+                $rawColumns = $this->mergeUnionBranchTypes($rewrittenSql, $rawColumns);
+            }
+
             $resultColumns = $this->applyNillable($rawColumns, $query->nillableColumns);
             $resultColumns = $this->applyTypeOverrides($resultColumns, $query->typeOverrides);
 
@@ -279,6 +291,7 @@ class QueryAnalyzer
             cursorColumns:        $query->cursorColumns,
             jsonColumns:          $query->jsonColumns,
             usedCtes:             $query->usedCtes,
+            nullableParams:       $query->nullableParams,
         );
     }
 
@@ -363,6 +376,180 @@ class QueryAnalyzer
      * @param  string[]         $nillable  Column aliases to force nullable
      * @return ResolvedColumn[]
      */
+    /**
+     * Force nullable=true on params explicitly listed via @nullable.
+     *
+     * The phpType is updated to have a leading '?' if not already present.
+     * The PDO param type stays unchanged — PDO::PARAM_STR handles null correctly.
+     *
+     * @param  array<string, QueryParam> $params
+     * @param  string[]                  $nullableNames
+     * @return array<string, QueryParam>
+     */
+    private function applyNullableParams(array $params, array $nullableNames): array
+    {
+        $nameSet = array_flip($nullableNames);
+
+        return array_map(function (QueryParam $p) use ($nameSet): QueryParam {
+            if (!isset($nameSet[$p->name])) return $p;
+
+            $phpType = $p->phpType;
+            if (!str_starts_with($phpType, '?')) {
+                $phpType = '?' . $phpType;
+            }
+
+            return new QueryParam(
+                name:     $p->name,
+                sqlType:  $p->sqlType,
+                nullable: true,
+                pdoParam: $p->pdoParam,
+                phpType:  $phpType,
+                optional: $p->optional,
+                inList:   $p->inList,
+            );
+        }, $params);
+    }
+
+    /**
+     * Resolve each UNION branch independently and merge the column types.
+     *
+     * Merge rules (applied per column position):
+     *   - Same base type + both non-nullable  → use that type, non-nullable
+     *   - Same base type + one nullable       → use that type, nullable
+     *   - Different base types                → mixed
+     *   - Branch count differs from first     → keep first-branch columns (safe fallback)
+     *
+     * After merging, @type overrides can still correct any column individually.
+     *
+     * @param  ResolvedColumn[] $firstBranchColumns Already resolved from the full SQL
+     * @return ResolvedColumn[]
+     */
+    private function mergeUnionBranchTypes(string $sql, array $firstBranchColumns): array
+    {
+        $branches = $this->splitUnionBranches($sql);
+
+        // With < 2 branches we can't compare — return first-branch result as-is
+        if (count($branches) < 2) return $firstBranchColumns;
+
+        // Resolve each branch independently
+        /** @var ResolvedColumn[][] $perBranch */
+        $perBranch = [];
+        foreach ($branches as $branch) {
+            try {
+                $cols = $this->columnResolver->resolve($branch);
+                if (!empty($cols)) {
+                    $perBranch[] = $cols;
+                }
+            } catch (\Throwable) {
+                // Branch couldn't be resolved — skip it, keep first-branch result
+            }
+        }
+
+        if (count($perBranch) < 2) return $firstBranchColumns;
+
+        $base    = $perBranch[0];
+        $merged  = [];
+
+        foreach ($base as $i => $baseCol) {
+            $phpType = ltrim($baseCol->phpType, '?');
+            $nullable = $baseCol->nullable;
+            $consistent = true;
+
+            foreach (array_slice($perBranch, 1) as $branch) {
+                $other = $branch[$i] ?? null;
+                if ($other === null) {
+                    $consistent = false;
+                    break;
+                }
+
+                $otherBase = ltrim($other->phpType, '?');
+
+                if ($otherBase !== $phpType) {
+                    // Type conflict → widen to mixed
+                    $phpType    = 'mixed';
+                    $nullable   = false;
+                    $consistent = false;
+                    break;
+                }
+
+                // Same base type — propagate nullable
+                if ($other->nullable || str_starts_with($other->phpType, '?')) {
+                    $nullable = true;
+                }
+            }
+
+            $finalPhpType = ($nullable && $phpType !== 'mixed')
+                ? '?' . $phpType
+                : $phpType;
+
+            $merged[] = new \SqlcPhp\Resolver\ResolvedColumn(
+                alias:      $baseCol->alias,
+                columnName: $baseCol->columnName,
+                tableName:  $consistent ? $baseCol->tableName : '',
+                sqlType:    $baseCol->sqlType,
+                nullable:   $nullable,
+                phpType:    $finalPhpType,
+            );
+        }
+
+        return $merged ?: $firstBranchColumns;
+    }
+
+    /**
+     * Split a UNION / UNION ALL query into its individual SELECT branches.
+     *
+     * Handles top-level UNION / UNION ALL keywords only (not inside subqueries).
+     * Preserves each branch as a complete SELECT statement for independent analysis.
+     *
+     * @return string[]  One entry per branch; may be empty on parse failure.
+     */
+    private function splitUnionBranches(string $sql): array
+    {
+        $branches = [];
+        $depth    = 0;
+        $current  = '';
+        $len      = strlen($sql);
+        $inStr    = false;
+        $strChar  = '';
+
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $sql[$i];
+
+            if (!$inStr && ($ch === "'" || $ch === '"' || $ch === '`')) {
+                $inStr   = true;
+                $strChar = $ch;
+                $current .= $ch;
+                continue;
+            }
+            if ($inStr) {
+                $current .= $ch;
+                if ($ch === $strChar && ($i === 0 || $sql[$i - 1] !== '\\')) {
+                    $inStr = false;
+                }
+                continue;
+            }
+
+            if ($ch === '(') { $depth++; $current .= $ch; continue; }
+            if ($ch === ')') { $depth--; $current .= $ch; continue; }
+
+            // At depth 0: look for UNION / UNION ALL keyword
+            if ($depth === 0 && preg_match('/^UNION(\s+ALL)?\s/i', substr($sql, $i), $m)) {
+                $branches[] = trim($current);
+                $current    = '';
+                $i         += strlen($m[0]) - 1;
+                continue;
+            }
+
+            $current .= $ch;
+        }
+
+        if (trim($current) !== '') {
+            $branches[] = trim($current);
+        }
+
+        return $branches;
+    }
+
     private function applyNillable(array $columns, array $nillable): array
     {
         if (empty($nillable)) return $columns;

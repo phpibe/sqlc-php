@@ -1023,14 +1023,17 @@ PHP;
         }
 
         // Build cursor condition (first column gets _chk for IS NULL guard)
+        // $cc['col'] is the SQL column reference (may be table.col)
+        // $cc['key'] is the PHP-safe identifier (bare col name, no dots)
         if (count($cursorCols) === 1) {
             $col       = $cursorCols[0]['col'];
-            $condition = ":__cursor_{$col}_chk IS NULL OR {$col} {$op} :__cursor_{$col}";
+            $key       = $cursorCols[0]['key'] ?? $col;
+            $condition = ":__cursor_{$key}_chk IS NULL OR {$col} {$op} :__cursor_{$key}";
         } else {
-            $firstCol  = $cursorCols[0]['col'];
+            $firstKey  = $cursorCols[0]['key'] ?? $cursorCols[0]['col'];
             $cols      = implode(', ', array_column($cursorCols, 'col'));
-            $params    = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
-            $condition = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$op} ({$params})";
+            $params    = implode(', ', array_map(fn($c) => ":__cursor_{$c['key']}", $cursorCols));
+            $condition = ":__cursor_{$firstKey}_chk IS NULL OR ({$cols}) {$op} ({$params})";
         }
 
         $hasWhere = (bool) preg_match('/\bWHERE\b/i', $sql);
@@ -1197,6 +1200,7 @@ PHP;
         // This avoids regex-patching a SQL string that already has the cursor WHERE injected.
         $dir      = strtoupper($cursorCols[0]['dir']);
         $firstCol = $cursorCols[0]['col'];
+        $firstKey = $cursorCols[0]['key'] ?? $firstCol;
 
         // Forward condition (after): DESC→<  ASC→>
         $opAfter  = $dir === 'DESC' ? '<' : '>';
@@ -1205,13 +1209,14 @@ PHP;
 
         if (count($cursorCols) === 1) {
             $col = $cursorCols[0]['col'];
-            $cursorCondAfter  = ":__cursor_{$col}_chk IS NULL OR {$col} {$opAfter} :__cursor_{$col}";
-            $cursorCondBefore = ":__cursor_{$col}_chk IS NULL OR {$col} {$opBefore} :__cursor_{$col}";
+            $key = $cursorCols[0]['key'] ?? $col;
+            $cursorCondAfter  = ":__cursor_{$key}_chk IS NULL OR {$col} {$opAfter} :__cursor_{$key}";
+            $cursorCondBefore = ":__cursor_{$key}_chk IS NULL OR {$col} {$opBefore} :__cursor_{$key}";
         } else {
             $cols   = implode(', ', array_column($cursorCols, 'col'));
-            $params = implode(', ', array_map(fn($c) => ":__cursor_{$c['col']}", $cursorCols));
-            $cursorCondAfter  = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$opAfter} ({$params})";
-            $cursorCondBefore = ":__cursor_{$firstCol}_chk IS NULL OR ({$cols}) {$opBefore} ({$params})";
+            $params = implode(', ', array_map(fn($c) => ":__cursor_{$c['key']}", $cursorCols));
+            $cursorCondAfter  = ":__cursor_{$firstKey}_chk IS NULL OR ({$cols}) {$opAfter} ({$params})";
+            $cursorCondBefore = ":__cursor_{$firstKey}_chk IS NULL OR ({$cols}) {$opBefore} ({$params})";
         }
 
         // Extract ORDER BY from the user SQL for runtime re-use
@@ -1350,8 +1355,8 @@ PHP;
     {
         $lines = '';
         foreach ($cursorCols as $cc) {
-            $col    = $cc['col'];
-            $lines .= "        \$__cursor_{$col} = \$__cursor['{$col}'] ?? null;\n";
+            $key    = $cc['key'] ?? $cc['col'];
+            $lines .= "        \$__cursor_{$key} = \$__cursor['{$key}'] ?? null;\n";
         }
         return $lines;
     }
@@ -1365,11 +1370,11 @@ PHP;
     {
         $lines = '';
         foreach ($cursorCols as $i => $cc) {
-            $col = $cc['col'];
+            $key = $cc['key'] ?? $cc['col'];
             if ($i === 0) {
-                $lines .= "        \$stmt->bindValue(':__cursor_{$col}_chk', \$__cursor_{$col});\n";
+                $lines .= "        \$stmt->bindValue(':__cursor_{$key}_chk', \$__cursor_{$key});\n";
             }
-            $lines .= "        \$stmt->bindValue(':__cursor_{$col}', \$__cursor_{$col});\n";
+            $lines .= "        \$stmt->bindValue(':__cursor_{$key}', \$__cursor_{$key});\n";
         }
         return $lines;
     }
@@ -1381,7 +1386,7 @@ PHP;
     private function buildCursorEncodeExpr(array $cursorCols, string $rowVar): string
     {
         $fields = implode(', ', array_map(
-            fn($cc) => "'{$cc['col']}' => {$rowVar}['{$cc['col']}']",
+            fn($cc) => "'" . ($cc['key'] ?? $cc['col']) . "' => {$rowVar}['" . ($cc['key'] ?? $cc['col']) . "']",
             $cursorCols
         ));
         return "[{$fields}]";

@@ -153,6 +153,22 @@ class QueryDefinition
          */
         public readonly array      $cursorColumns = [],
         /**
+         * Parameter names forced nullable via @nullable annotation.
+         *
+         * -- @nullable avatarUrl
+         * -- @nullable deletedAt, closedAt   (comma-separated list also supported)
+         *
+         * Unlike @optional (which rewrites the SQL condition to IS NULL OR),
+         * @nullable only changes the PHP type of the parameter to ?type.
+         * The SQL is unchanged — the caller may pass null to set the column to NULL.
+         *
+         * Useful for UPDATE SET nullable_col = :param patterns where the column
+         * accepts NULL and the resolver would otherwise infer a non-nullable type.
+         *
+         * @var string[]
+         */
+        public readonly array      $nullableParams = [],
+        /**
          * CTE names declared via @use — resolved against CteRegistry at generation time.
          *
          * -- @use active_users
@@ -267,6 +283,7 @@ class QueryParser
         $cursorColumns    = [];           // @cursor col1 DIR, col2 DIR
         $jsonColumns      = [];           // @json alias ClassName
         $usedCtes         = [];           // @use cte1, cte2
+        $nullableParams   = [];           // @nullable param1, param2
         $sqlLines         = [];
 
         foreach (explode("\n", $block) as $line) {
@@ -343,16 +360,35 @@ class QueryParser
                             $usedCtes[] = $cteName;
                         }
                     }
+                } elseif (preg_match('/@nullable\s+(.+)/i', $comment, $m)) {
+                    // @nullable paramName
+                    // @nullable param1, param2   (comma-separated list)
+                    foreach (preg_split('/\s*,\s*/', trim($m[1])) as $paramName) {
+                        $paramName = trim($paramName);
+                        if ($paramName !== '') {
+                            $nullableParams[] = $paramName;
+                        }
+                    }
                 } elseif (preg_match('/@cursor\s+(.+)/i', $comment, $m)) {
-                    // @cursor col1 [ASC|DESC], col2 [ASC|DESC], ...
+                    // @cursor col [ASC|DESC], col [ASC|DESC], ...
+                    // Accepts bare column names (created_at) and qualified names
+                    // (table.col, `table`.`col`) for disambiguation in JOIN queries.
+                    // The PHP key (variable name, array key, cursor token key) is
+                    // always the bare column name — the last identifier after the dot.
                     foreach (preg_split('/\s*,\s*/', trim($m[1])) as $part) {
                         $part = trim($part);
                         if ($part === '') continue;
-                        if (preg_match('/^(\w+)\s+(ASC|DESC)$/i', $part, $cm)) {
-                            $cursorColumns[] = ['col' => $cm[1], 'dir' => strtoupper($cm[2])];
-                        } elseif (preg_match('/^(\w+)$/i', $part, $cm)) {
-                            // Default direction: ASC
-                            $cursorColumns[] = ['col' => $cm[1], 'dir' => 'ASC'];
+                        // Pattern: [table.]col [ASC|DESC]?
+                        // table/col can be bare words or backtick-quoted
+                        $colPat = '[`"]?[\w]+[`"]?(?:\.[`"]?[\w]+[`"]?)*';
+                        if (preg_match('/^(' . $colPat . ')\s+(ASC|DESC)$/i', $part, $cm)) {
+                            $sqlRef = $cm[1];
+                            $phpKey = $this->cursorPhpKey($sqlRef);
+                            $cursorColumns[] = ['col' => $sqlRef, 'key' => $phpKey, 'dir' => strtoupper($cm[2])];
+                        } elseif (preg_match('/^(' . $colPat . ')$/i', $part, $cm)) {
+                            $sqlRef = $cm[1];
+                            $phpKey = $this->cursorPhpKey($sqlRef);
+                            $cursorColumns[] = ['col' => $sqlRef, 'key' => $phpKey, 'dir' => 'ASC'];
                         }
                     }
                 } elseif (preg_match('/@embed\s+(\w+)\s+(\S+)/i', $comment, $m)) {
@@ -440,8 +476,31 @@ class QueryParser
             cursorColumns:    $cursorColumns,
             jsonColumns:      $jsonColumns,
             usedCtes:         array_values(array_unique($usedCtes)),
+            nullableParams:   array_values(array_unique($nullableParams)),
         );
     }
+    /**
+     * Derive the PHP-safe key from a cursor SQL column reference.
+     *
+     * The PHP key is used as a variable name ($__cursor_{key}), PDO placeholder
+     * (:__cursor_{key}), and cursor token array key ({key} => value).
+     * It must be a valid PHP identifier — no dots, backticks, or quotes.
+     *
+     * Strategy: take the last word-segment after the final dot (or backtick-dot).
+     * Examples:
+     *   created_at                → created_at
+     *   profile_reserve.created_at → created_at
+     *   `reserve`.`created_at`    → created_at
+     */
+    private function cursorPhpKey(string $sqlRef): string
+    {
+        // Strip backticks and double-quotes
+        $clean = str_replace(['`', '"'], '', $sqlRef);
+        // Take the part after the last dot
+        $parts = explode('.', $clean);
+        return end($parts);
+    }
+
     private function extractFromTable(string $sql): ?string
     {
         // For CTE queries (WITH ... AS (...) SELECT ...), skip past all CTE

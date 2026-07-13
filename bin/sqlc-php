@@ -369,6 +369,7 @@ function runGeneration(
                         cursorColumns:        $query->cursorColumns,
                         usedCtes:             $query->usedCtes,
                         jsonColumns:          $query->jsonColumns,
+                        nullableParams:       $query->nullableParams,
                     );
                 } catch (\RuntimeException $e) {
                     $result['error'] = "Query '{$query->name}': " . $e->getMessage();

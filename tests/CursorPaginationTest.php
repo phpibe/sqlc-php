@@ -128,6 +128,102 @@ class CursorPaginationTest extends TestCase
     }
 
     // =========================================================================
+    // Qualified @cursor: table.column syntax (regression for ambiguous JOIN queries)
+    // =========================================================================
+
+    public function test_parser_cursor_accepts_qualified_table_column(): void
+    {
+        $defs = $this->parser->parse(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor profile_reserve.created_at DESC\n-- @returns :cursor\n" .
+            "SELECT * FROM orders ORDER BY profile_reserve.created_at DESC;"
+        );
+
+        $this->assertCount(1, $defs[0]->cursorColumns);
+        // col keeps the full qualified reference (used in SQL)
+        $this->assertSame('profile_reserve.created_at', $defs[0]->cursorColumns[0]['col']);
+        // key is the bare column name (used as PHP variable/array key)
+        $this->assertSame('created_at', $defs[0]->cursorColumns[0]['key']);
+        $this->assertSame('DESC',       $defs[0]->cursorColumns[0]['dir']);
+    }
+
+    public function test_parser_cursor_bare_column_key_equals_col(): void
+    {
+        // For bare column names, key must equal col (backward compat)
+        $defs = $this->parser->parse(
+            "-- @name ListOrders\n-- @class Order\n-- @cursor created_at DESC\n-- @returns :cursor\n" .
+            "SELECT * FROM orders ORDER BY created_at DESC;"
+        );
+
+        $this->assertSame('created_at', $defs[0]->cursorColumns[0]['col']);
+        $this->assertSame('created_at', $defs[0]->cursorColumns[0]['key']);
+    }
+
+    public function test_parser_cursor_qualified_mixed_with_bare(): void
+    {
+        // -- @cursor profile_reserve.created_at DESC, id DESC
+        $defs = $this->parser->parse(
+            "-- @name ListOrders\n-- @class Order\n" .
+            "-- @cursor profile_reserve.created_at DESC, id DESC\n" .
+            "-- @returns :cursor\n" .
+            "SELECT * FROM orders ORDER BY profile_reserve.created_at DESC, id DESC;"
+        );
+
+        $this->assertCount(2, $defs[0]->cursorColumns);
+
+        $this->assertSame('profile_reserve.created_at', $defs[0]->cursorColumns[0]['col']);
+        $this->assertSame('created_at',                 $defs[0]->cursorColumns[0]['key']);
+        $this->assertSame('DESC',                       $defs[0]->cursorColumns[0]['dir']);
+
+        $this->assertSame('id',  $defs[0]->cursorColumns[1]['col']);
+        $this->assertSame('id',  $defs[0]->cursorColumns[1]['key']);
+        $this->assertSame('DESC',$defs[0]->cursorColumns[1]['dir']);
+    }
+
+    public function test_parser_cursor_qualified_no_direction_defaults_to_asc(): void
+    {
+        // table.col without direction → ASC
+        $defs = $this->parser->parse(
+            "-- @name ListOrders\n-- @class Order\n" .
+            "-- @cursor profile_reserve.created_at\n" .
+            "-- @returns :cursor\n" .
+            "SELECT * FROM orders ORDER BY profile_reserve.created_at;"
+        );
+
+        $this->assertCount(1, $defs[0]->cursorColumns);
+        $this->assertSame('profile_reserve.created_at', $defs[0]->cursorColumns[0]['col']);
+        $this->assertSame('created_at',                 $defs[0]->cursorColumns[0]['key']);
+        $this->assertSame('ASC',                        $defs[0]->cursorColumns[0]['dir']);
+    }
+
+    public function test_generated_sql_uses_qualified_col_in_where_condition(): void
+    {
+        $defs    = $this->parser->parse(
+            "-- @name ListReserves\n-- @class Reserve\n" .
+            "-- @cursor profile_reserve.created_at DESC\n" .
+            "-- @returns :cursor\n" .
+            "SELECT profile_reserve.id, profile_reserve.created_at\n" .
+            "FROM profile_reserve\n" .
+            "INNER JOIN reserve ON reserve.profile_id = profile_reserve.id\n" .
+            "ORDER BY profile_reserve.created_at DESC;"
+        );
+
+        $cursorCols = $defs[0]->cursorColumns;
+        $this->assertSame('profile_reserve.created_at', $cursorCols[0]['col']);
+
+        // The generated WHERE condition must use the qualified col (no ambiguity)
+        // and PHP-safe key (no dots in identifiers)
+        $key = $cursorCols[0]['key'];
+        $col = $cursorCols[0]['col'];
+        $this->assertSame('created_at', $key);
+
+        // Simulate what buildCursorSql produces
+        $condition = ":__cursor_{$key}_chk IS NULL OR {$col} < :__cursor_{$key}";
+        $this->assertStringContainsString('profile_reserve.created_at', $condition);
+        $this->assertStringContainsString(':__cursor_created_at',       $condition);
+        $this->assertStringNotContainsString(':__cursor_profile_reserve', $condition);
+    }
+
+    // =========================================================================
     // Analyzer — validation
     // =========================================================================
 
@@ -852,6 +948,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.14.1', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.15.1', \SqlcPhp\Version::VERSION);
     }
 }

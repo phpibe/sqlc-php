@@ -312,6 +312,32 @@ class CursorPaginationTest extends TestCase
         $this->assertStringNotContainsString('GROUP BY', $result);
     }
 
+    public function test_count_method_injects_criteria_before_group_by(): void
+    {
+        // @counted + @searchable + GROUP BY: criteria must go before GROUP BY in Count SQL
+        $q    = $this->analyze(
+            "-- @name ListSummary\n-- @class Order\n-- @searchable\n-- @cursor created_at DESC, id DESC\n" .
+            "-- @counted\n-- @returns :cursor\n" .
+            "SELECT id, MAX(created_at) AS created_at FROM orders " .
+            "WHERE active = 1 GROUP BY user_id ORDER BY MAX(created_at) DESC, id DESC;"
+        );
+        $code        = $this->code($q);
+        $countStart  = strpos($code, 'function listSummaryCount');
+        $countMethod = substr($code, $countStart, 900);
+
+        // GROUP BY suffix must be stored separately and re-appended after criteria
+        $this->assertStringContainsString('groupBySuffix', $countMethod);
+        $this->assertStringContainsString("= 'GROUP BY user_id'", $countMethod);
+
+        // Criteria injection must appear BEFORE GROUP BY in the method body
+        $criteriaPos = strpos($countMethod, 'toFilterClause');
+        $groupByPos  = strpos($countMethod, "' . \$__groupBySuffix");
+        $this->assertNotFalse($criteriaPos);
+        $this->assertNotFalse($groupByPos);
+        $this->assertLessThan($groupByPos, $criteriaPos,
+            'criteria filter must be applied before GROUP BY is re-appended');
+    }
+
     // =========================================================================
     // Analyzer — validation
     // =========================================================================
@@ -478,7 +504,7 @@ class CursorPaginationTest extends TestCase
             'function listByUserCount(int $userId, ?OrderCriteria $criteria = null): int',
             $code
         );
-        $this->assertStringContainsString('hasWhere = true', $countMethod,
+        $this->assertStringContainsString('__hasWhere      = true', $countMethod,
             'When user SQL has WHERE, hasWhere must start as true');
     }
 
@@ -1037,6 +1063,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.15.2', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.15.3', \SqlcPhp\Version::VERSION);
     }
 }

@@ -414,9 +414,19 @@ PHP;
             $staticOrder = '';
         }
 
-        // The base SQL for no-criteria or WITH-criteria cases:
-        // We embed the SQL as a PHP string and append the WHERE/AND and ORDER dynamically
-        $escaped = str_replace("'", "\\'", $beforeOrder);
+        // The base SQL for no-criteria or WITH-criteria cases.
+        // If the SQL has GROUP BY, split it off so criteria filters go BEFORE GROUP BY.
+        $groupBySuffix = '';
+        $beforeGroupBy = $beforeOrder;
+        if ($hasGroupBy) {
+            if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $beforeOrder, $gbm)) {
+                $beforeGroupBy = rtrim($gbm[1]);
+                $groupBySuffix = trim($gbm[2]);
+            }
+        }
+
+        $escaped      = str_replace("'", "\\'", $beforeGroupBy);
+        $escapedGroup = str_replace("'", "\\'", $groupBySuffix);
 
         $lines = [];
         $lines[] = "        \$__sql = '{$escaped}';";
@@ -424,6 +434,9 @@ PHP;
         $lines[] = "            \$__hasWhere = " . ($hasWhere ? 'true' : 'false') . ";";
         $lines[] = "            \$__sql .= {$criteriaVar}->toFilterClause(\$__hasWhere);";
         $lines[] = "        }";
+        if ($groupBySuffix !== '') {
+            $lines[] = "        \$__sql .= ' {$escapedGroup}';";
+        }
 
         // ORDER BY logic
         if ($staticOrder !== '') {
@@ -1656,18 +1669,35 @@ PHP;
             // Detect whether the user SQL already has a WHERE clause
             $hasWhere    = (bool) preg_match('/\bWHERE\b/i', $innerSql);
             $hasWhereLit = $hasWhere ? 'true' : 'false';
-            $baseSqlLit  = $this->renderSqlLiteral($innerSql);
-            $saveLastQuery = $this->renderSaveLastQuery('$__countSql', $bindingsExpr, "'{$countName}'");
+
+            // Split GROUP BY out of innerSql so criteria filters are injected
+            // BEFORE GROUP BY — appending after GROUP BY is invalid SQL.
+            $groupBySuffix   = '';
+            $innerSqlPreGroup = $innerSql;
+            if (preg_match('/\bGROUP\s+BY\b/i', $innerSql)) {
+                if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $innerSql, $gbm)) {
+                    $innerSqlPreGroup = rtrim($gbm[1]);
+                    $groupBySuffix    = trim($gbm[2]);
+                }
+            }
+
+            $baseSqlLit      = $this->renderSqlLiteral($innerSqlPreGroup);
+            $groupBySufLit   = $this->renderSqlLiteral($groupBySuffix);
+            $saveLastQuery   = $this->renderSaveLastQuery('$__countSql', $bindingsExpr, "'{$countName}'");
 
             return <<<PHP
 {$docblock}
     public function {$signature}
     {
-        // Build COUNT SQL: base query + criteria filters (no cursor WHERE, no ORDER BY, no LIMIT)
-        \$__basePart = {$baseSqlLit};
-        \$__hasWhere = {$hasWhereLit};
+        // Build COUNT SQL: base (pre-GROUP BY) → criteria filters → GROUP BY → wrap in COUNT(*)
+        \$__basePart      = {$baseSqlLit};
+        \$__groupBySuffix = {$groupBySufLit};
+        \$__hasWhere      = {$hasWhereLit};
         if (\$criteria !== null && \$criteria->hasFilters()) {
             \$__basePart .= \$criteria->toFilterClause(\$__hasWhere);
+        }
+        if (\$__groupBySuffix !== '') {
+            \$__basePart .= ' ' . \$__groupBySuffix;
         }
         \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__basePart . ') AS _cursor_total';
 

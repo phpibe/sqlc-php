@@ -365,17 +365,21 @@ class Criteria
         if ($filter->operator->isMultiValue()) {
             $values = is_array($filter->value) ? $filter->value : [$filter->value];
             foreach ($values as $i => $v) {
+                $v = $this->normalizeBindValue($v);
                 $result[":{$base}_{$i}"] = [$v, $this->pdoType($v)];
             }
         } elseif ($filter->operator->isTwoValue()) {
-            $result[":{$base}_from"] = [$filter->value,   $this->pdoType($filter->value)];
-            $result[":{$base}_to"]   = [$filter->valueTo, $this->pdoType($filter->valueTo)];
+            $from = $this->normalizeBindValue($filter->value);
+            $to   = $this->normalizeBindValue($filter->valueTo);
+            $result[":{$base}_from"] = [$from, $this->pdoType($from)];
+            $result[":{$base}_to"]   = [$to,   $this->pdoType($to)];
         } elseif ($filter->operator === FilterOperator::LIKE
                || $filter->operator === FilterOperator::STARTS
                || $filter->operator === FilterOperator::ENDS) {
             $result[":{$base}"] = [$filter->value, \PDO::PARAM_STR];
         } else {
-            $result[":{$base}"] = [$filter->value, $this->pdoType($filter->value)];
+            $v = $this->normalizeBindValue($filter->value);
+            $result[":{$base}"] = [$v, $this->pdoType($v)];
         }
     }
 
@@ -418,6 +422,21 @@ class Criteria
         $col = preg_replace('/[^a-zA-Z0-9_]/', '_', $column);
         $col = ltrim($col, '_');
         return "{$col}_f{$idx}";
+    }
+
+    /**
+     * Convert a PHP value to a PDO-bindable scalar.
+     *
+     * PDO::bindValue() cannot handle objects directly. DateTimeImmutable and
+     * DateTime are serialized to MySQL datetime format ('Y-m-d H:i:s').
+     * All other non-scalar types are cast to string as a fallback.
+     */
+    private function normalizeBindValue(mixed $value): mixed
+    {
+        if ($value instanceof \DateTimeImmutable || $value instanceof \DateTime) {
+            return $value->format('Y-m-d H:i:s');
+        }
+        return $value;
     }
 
     private function pdoType(mixed $value): int

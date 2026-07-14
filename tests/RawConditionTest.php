@@ -18,6 +18,81 @@ use SqlcPhp\Criteria\Filter;
 class RawConditionTest extends TestCase
 {
     // =========================================================================
+    // DateTimeImmutable binding — regression for "could not be converted to string"
+    // =========================================================================
+
+    public function test_datetime_eq_filter_binds_as_string(): void
+    {
+        $c = (new Criteria())->add(Filter::eq('created_at', new \DateTimeImmutable('2024-01-15 10:30:00')));
+
+        $bindings = $c->getBindings();
+        $this->assertArrayHasKey(':created_at_f0', $bindings);
+        $this->assertIsString($bindings[':created_at_f0'][0]);
+        $this->assertSame('2024-01-15 10:30:00', $bindings[':created_at_f0'][0]);
+    }
+
+    public function test_datetime_between_filter_binds_both_as_string(): void
+    {
+        $from = new \DateTimeImmutable('2024-01-01 00:00:00');
+        $to   = new \DateTimeImmutable('2024-12-31 23:59:59');
+        $c    = (new Criteria())->add(Filter::between('created_at', $from, $to));
+
+        $bindings = $c->getBindings();
+
+        $this->assertArrayHasKey(':created_at_f0_from', $bindings);
+        $this->assertArrayHasKey(':created_at_f0_to',   $bindings);
+        $this->assertIsString($bindings[':created_at_f0_from'][0]);
+        $this->assertIsString($bindings[':created_at_f0_to'][0]);
+        $this->assertSame('2024-01-01 00:00:00', $bindings[':created_at_f0_from'][0]);
+        $this->assertSame('2024-12-31 23:59:59', $bindings[':created_at_f0_to'][0]);
+    }
+
+    public function test_datetime_between_clause_is_correct_sql(): void
+    {
+        $from = new \DateTimeImmutable('2024-01-01');
+        $to   = new \DateTimeImmutable('2024-12-31');
+        $c    = (new Criteria())->add(Filter::between('created_at', $from, $to));
+
+        $clause = $c->toFilterClause(false);
+        $this->assertStringContainsString('BETWEEN :created_at_f0_from AND :created_at_f0_to', $clause);
+    }
+
+    public function test_datetime_gt_filter_binds_as_string(): void
+    {
+        $c = (new Criteria())->add(Filter::gt('updated_at', new \DateTimeImmutable('2024-06-01 00:00:00')));
+
+        $bindings = $c->getBindings();
+        $this->assertIsString($bindings[':updated_at_f0'][0]);
+        $this->assertSame('2024-06-01 00:00:00', $bindings[':updated_at_f0'][0]);
+    }
+
+    public function test_datetime_in_list_filter_binds_all_as_string(): void
+    {
+        $dates = [
+            new \DateTimeImmutable('2024-01-01'),
+            new \DateTimeImmutable('2024-06-01'),
+            new \DateTimeImmutable('2024-12-01'),
+        ];
+        $c = (new Criteria())->add(Filter::in('created_at', $dates));
+
+        $bindings = $c->getBindings();
+        foreach ($bindings as $key => $binding) {
+            $this->assertIsString($binding[0], "Binding {$key} should be a string");
+        }
+    }
+
+    public function test_mutable_datetime_also_normalized(): void
+    {
+        // \DateTime (mutable) should also be converted correctly
+        $dt = new \DateTime('2024-03-15 08:00:00');
+        $c  = (new Criteria())->add(Filter::eq('created_at', $dt));
+
+        $bindings = $c->getBindings();
+        $this->assertIsString($bindings[':created_at_f0'][0]);
+        $this->assertSame('2024-03-15 08:00:00', $bindings[':created_at_f0'][0]);
+    }
+
+    // =========================================================================
     // Basic behavior — andRawCondition
     // =========================================================================
 

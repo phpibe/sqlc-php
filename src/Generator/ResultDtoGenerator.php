@@ -150,19 +150,34 @@ class ResultDtoGenerator
 
         foreach ($flatColumns as $col) {
             if (isset($jsonColumns[$col->alias])) {
-                // @json / @json:one / @json:many column — typed DTO instead of plain array
+                // @type alias json:Class / json:Class[] / ?json:Class / ?json:Class[]
+                // (also populated by legacy @json / @json:one / @json:many)
                 $jsonDef  = $jsonColumns[$col->alias];
                 $dtoClass = $jsonDef['class'];
                 $isMany   = $jsonDef['many'];
+                $nullable = $jsonDef['nullable'] ?? false;
                 $access   = "\$row['{$col->alias}']";
+
                 if ($isMany) {
-                    // @json:many / @json (default) — City[]
-                    $props[]    = "        /** @var {$dtoClass}[] */\n        public array \${$col->alias},";
-                    $fromArgs[] = "            array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []),";
+                    if ($nullable) {
+                        // ?json:Class[] → City[]|null — null when the JSON value is NULL
+                        $props[]    = "        /** @var {$dtoClass}[]|null */\n        public ?array \${$col->alias},";
+                        $fromArgs[] = "            isset({$access}) && {$access} !== null ? array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []) : null,";
+                    } else {
+                        // json:Class[] → City[]
+                        $props[]    = "        /** @var {$dtoClass}[] */\n        public array \${$col->alias},";
+                        $fromArgs[] = "            array_map(fn(array \$r) => {$dtoClass}::fromRow(\$r), json_decode((string) {$access}, true) ?? []),";
+                    }
                 } else {
-                    // @json:one — single DTO object
-                    $props[]    = "        public {$dtoClass} \${$col->alias},";
-                    $fromArgs[] = "            {$dtoClass}::fromRow(json_decode((string) {$access}, true) ?? []),";
+                    if ($nullable) {
+                        // ?json:Class → ?City
+                        $props[]    = "        public ?{$dtoClass} \${$col->alias},";
+                        $fromArgs[] = "            isset({$access}) && {$access} !== null ? {$dtoClass}::fromRow(json_decode((string) {$access}, true) ?? []) : null,";
+                    } else {
+                        // json:Class → City
+                        $props[]    = "        public {$dtoClass} \${$col->alias},";
+                        $fromArgs[] = "            {$dtoClass}::fromRow(json_decode((string) {$access}, true) ?? []),";
+                    }
                 }
             } else {
                 $props[]    = "        public {$col->phpType} \${$col->alias},";
@@ -246,7 +261,7 @@ PHP;
                 $tableName = $jsonDtoGen->resolveTableName($dtoClass);
                 if ($tableName === null) {
                     throw new \RuntimeException(
-                        "@json '{$alias}' references class '{$dtoClass}' but no matching table " .
+                        "@type '{$alias}' references JSON DTO class '{$dtoClass}' but no matching table " .
                         "was found in the schema (tried: {$dtoClass}, " . strtolower($dtoClass) .
                         ", " . strtolower($dtoClass) . "s, ...). " .
                         "Declare the table in schema.sql or add a virtual_table entry."
@@ -281,7 +296,12 @@ PHP;
             // Add @json columns to the main DTO extension as typed properties
             $jsonColumnsForExt = [];
             foreach ($jsonColumns as $alias => $jsonDef) {
-                $phpType = $jsonDef['many'] ? 'array' : $jsonDef['class'];
+                $nullable = $jsonDef['nullable'] ?? false;
+                if ($jsonDef['many']) {
+                    $phpType = $nullable ? '?array' : 'array';
+                } else {
+                    $phpType = $nullable ? '?' . $jsonDef['class'] : $jsonDef['class'];
+                }
                 $jsonColumnsForExt[] = ['name' => $alias, 'phpType' => $phpType, 'fqcn' => null];
             }
 

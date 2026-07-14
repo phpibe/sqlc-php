@@ -1524,7 +1524,45 @@ sqlc-php/
 
 ## Changelog
 
-### [2.15.4] — `Criteria::addRawCondition()` — raw SQL filters for JOIN columns
+### [2.16.0] — `@type` unified: scalar + JSON DTO + nullable
+
+`@type` is now the single annotation for all result column type overrides. The `json:Class` suffix activates JSON DTO deserialization — replacing `@json`, `@json:one`, and `@json:many`. The `?` prefix handles nullability — replacing `@nillable`.
+
+**New `@type` forms:**
+
+```sql
+-- Scalars (already worked, now documented as @nillable replacement)
+-- @type total  float        → float
+-- @type total  ?float       → float|null
+
+-- JSON DTO — replaces @json / @json:many
+-- @type cities  json:City[]   → City[]
+-- @type cities  ?json:City[]  → City[]|null  (LEFT JOIN)
+
+-- JSON DTO — replaces @json:one
+-- @type address  json:City    → City
+-- @type address  ?json:City   → City|null    (LEFT JOIN)
+```
+
+**Deprecations** — `@json` and `@nillable` still work but emit a stderr warning with the exact replacement:
+
+```
+sqlc-php: @json is deprecated since v2.16.0.
+  Replace: -- @json cities City
+  With:    -- @type cities json:City[]
+```
+
+**Migration guide:**
+
+| Before | After |
+|---|---|
+| `@json cities City` | `@type cities json:City[]` |
+| `@json:many cities City` | `@type cities json:City[]` |
+| `@json:one address City` | `@type address json:City` |
+| `@nillable street` | `@type street ?string` (or `?int`, `?float` — match the actual type) |
+| `@nillable col1 col2` | Two `@type` lines — one per column |
+
+ — raw SQL filters for JOIN columns
 
 Adds `addRawCondition(string $sql, array $bindings = [])` to the `Criteria` base class, allowing verbatim SQL conditions to be AND-ed into the WHERE clause alongside typed filters. Designed for cases where the filter target is a JOIN column not present in the SELECT list — and therefore has no generated typed method.
 

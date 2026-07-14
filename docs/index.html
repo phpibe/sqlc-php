@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.15.4</span>
+    <span class="brand-ver">v2.16.0</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -182,8 +182,6 @@
   <a class="sl" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
   <a class="sl" href="#ann-dto"><i class="bi bi-box"></i> @dto / @column</a>
   <a class="sl" href="#ann-embed"><i class="bi bi-boxes"></i> @embed</a>
-  <a class="sl" href="#ann-json"><i class="bi bi-braces"></i> @json</a>
-  <a class="sl" href="#ann-nillable"><i class="bi bi-question-circle"></i> @nillable</a>
   <a class="sl" href="#ann-type"><i class="bi bi-type"></i> @type</a>
   <a class="sl" href="#ann-counted"><i class="bi bi-hash"></i> @counted</a>
   <a class="sl" href="#ann-searchable"><i class="bi bi-funnel"></i> @searchable</a>
@@ -561,11 +559,7 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
         <tr><td><span class="ann ao">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name.</td></tr>
         <tr><td><span class="ann ao">@column</span></td><td>No</td><td>Rename a result column in the DTO without using SQL <code>AS</code>.</td></tr>
         <tr><td><span class="ann ao">@embed</span></td><td>No</td><td>Group prefixed columns from a JOIN into a nested readonly object.</td></tr>
-        <tr><td><span class="ann ao">@json</span></td><td>No</td><td>Deserialize a JSON column into a typed DTO (<code>:one</code>) or array of DTOs (<code>:many</code>).</td></tr>
-        <tr><td><span class="ann ao">@json:one</span></td><td>No</td><td>Explicit single-object variant of <code>@json</code>.</td></tr>
-        <tr><td><span class="ann ao">@json:many</span></td><td>No</td><td>Explicit array variant of <code>@json</code> (same as bare <code>@json</code>).</td></tr>
-        <tr><td><span class="ann ao">@nillable</span></td><td>No</td><td>Force a result column to <code>?type</code> (nullable) regardless of schema definition.</td></tr>
-        <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Force an explicit PHP type on a result column — essential for UNION queries and expressions.</td></tr>
+        <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Universal column type override. Scalar: <code>@type col float</code> / <code>@type col ?float</code>. JSON DTO: <code>@type col json:City[]</code> / <code>@type col ?json:City</code>. Covers all cases previously handled by <code>@json</code> and <code>@nillable</code>.</td></tr>
         <tr><td><span class="ann ao">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method. Valid with <code>:many-paginated</code> and <code>:cursor</code>.</td></tr>
         <tr><td><span class="ann ao">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE filters. Valid with <code>:many</code>, <code>:many-paginated</code>, <code>:paginated</code>, <code>:cursor</code>.</td></tr>
         <tr><td><span class="ann ao">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination. Required with <code>:cursor</code>. Supports <code>table.col</code> qualified names.</td></tr>
@@ -782,87 +776,116 @@ readonly class Role {
 }</code></pre>
 </section>
 
-<!-- ── @json ── -->
-<section id="ann-json">
-  <h3><i class="bi bi-braces me-2"></i>@json <span class="new-badge">v2.12.3</span></h3>
-  <p class="ds">Deserializes a <code>JSON_ARRAYAGG(JSON_OBJECT(...))</code> column into a typed readonly DTO or array of DTOs. The DTO class is generated from the matching schema table automatically.</p>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Syntax</th><th>Generated type</th><th>Use case</th></tr></thead>
-      <tbody>
-        <tr><td><code>@json alias ClassName</code></td><td><code>ClassName[]</code></td><td>Array of objects (default / backward-compat)</td></tr>
-        <tr><td><code>@json:many alias ClassName</code></td><td><code>ClassName[]</code></td><td>Array of objects (explicit)</td></tr>
-        <tr><td><code>@json:one alias ClassName</code></td><td><code>ClassName</code></td><td>Single nested object</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <pre><code class="language-sql">-- @name GetOrderWithItems
--- @class Orders
--- @returns :one
--- @json:many items Item          ← array of Item DTOs
--- @json:one  address Address     ← single Address object
-SELECT
-    orders.id,
-    orders.total,
-    JSON_ARRAYAGG(JSON_OBJECT('id', items.id, 'name', items.name)) AS items,
-    JSON_OBJECT('street', addresses.street, 'city', addresses.city) AS address
-FROM orders
-JOIN items    ON items.order_id    = orders.id
-JOIN addresses ON addresses.id    = orders.address_id
-WHERE orders.id = :id
-GROUP BY orders.id;</code></pre>
-  <pre><code class="language-php">readonly class GetOrderWithItemsRow {
-    public function __construct(
-        public int     $id,
-        public float   $total,
-        /** @var Item[] */
-        public array   $items,     // hydrated from JSON_ARRAYAGG
-        public Address $address,   // hydrated from JSON_OBJECT
-    ) {}
-}</code></pre>
-  <div class="callout ci-tip">
-    <i class="bi bi-lightbulb ci-icon"></i>
-    For scalar arrays (e.g. an array of IDs), use <code>-- @type reserves array</code> instead of <code>@json</code>. The <code>json_decode</code> cast is applied automatically for any column typed as <code>array</code>.
-  </div>
-</section>
-
-<!-- ── @nillable ── -->
-<section id="ann-nillable">
-  <h3><i class="bi bi-question-circle me-2"></i>@nillable</h3>
-  <p class="ds">Forces a result column to <code>?type</code> (nullable) regardless of the schema definition. Useful for LEFT JOINs where a column that is <code>NOT NULL</code> in the schema may be <code>NULL</code> at runtime when the join produces no match.</p>
-  <pre><code class="language-sql">-- @name GetUserWithAddress
--- @nillable street city zip
--- @returns :opt
-SELECT u.id, u.email, a.street, a.city, a.zip
-FROM users u
-LEFT JOIN addresses a ON a.user_id = u.id
-WHERE u.id = :id;</code></pre>
-</section>
-
 <!-- ── @type ── -->
 <section id="ann-type">
-  <h3><i class="bi bi-type me-2"></i>@type</h3>
-  <p class="ds">Forces an explicit PHP type on a result column, overriding the inferred type. Essential for UNION queries where branches resolve to different types, and for constant expressions or functions the analyzer doesn't recognize.</p>
+  <h3><i class="bi bi-type me-2"></i>@type — universal column type override <span class="new-badge">v2.16.0 unified</span></h3>
+  <p class="ds"><code>@type</code> is the single annotation for overriding the PHP type of any result column. It covers all cases — scalar types, nullable types, and JSON DTO deserialization — using one consistent syntax: <code>@type alias phpType</code>.</p>
+
+  <h4>Scalar and nullable types</h4>
+  <pre><code class="language-sql">-- @type total     float         → float
+-- @type total     ?float        → float|null   (nullable)
+-- @type active    bool
+-- @type role      string
+-- @type ids       array         → scalar JSON array (json_decode applied automatically)
+-- @type label     ?string       → string|null</code></pre>
+
+  <p class="ds">Use scalar <code>@type</code> whenever the analyzer infers the wrong type — UNION queries, constant expressions, aggregates, or <code>IF()</code> expressions where the true/false branches have different types.</p>
   <pre><code class="language-sql">-- @name GetDashboardStats
 -- @class Stats
 -- @returns :one
--- @type total_users  int
--- @type revenue      float
--- @type status       string
+-- @type total_users int
+-- @type revenue     float
+-- @type label       string
 SELECT
-    COUNT(DISTINCT users.id)    AS total_users,
-    SUM(orders.total)           AS revenue,
-    'active'                    AS status
+    COUNT(DISTINCT users.id)  AS total_users,
+    SUM(orders.total)         AS revenue,
+    'active'                  AS label
+FROM orders JOIN users ON users.id = orders.user_id;</code></pre>
+
+  <h4>JSON DTO types — <code>json:Class</code> and <code>json:Class[]</code></h4>
+  <p class="ds">When a column contains JSON produced by <code>JSON_OBJECT()</code> or <code>JSON_ARRAYAGG()</code>, use <code>json:ClassName</code> to deserialize it into a typed readonly DTO. sqlc-php generates the DTO class automatically from the matching schema table.</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Syntax</th><th>PHP type</th><th>fromRow() cast</th><th>Use case</th></tr></thead>
+      <tbody>
+        <tr><td><code>@type col json:City[]</code></td><td><code>City[]</code></td><td><code>array_map(City::fromRow, json_decode(...))</code></td><td>Array of DTOs, non-nullable</td></tr>
+        <tr><td><code>@type col ?json:City[]</code></td><td><code>City[]|null</code></td><td>null check + array_map</td><td>Array of DTOs, nullable (LEFT JOIN)</td></tr>
+        <tr><td><code>@type col json:City</code></td><td><code>City</code></td><td><code>City::fromRow(json_decode(...))</code></td><td>Single DTO object, non-nullable</td></tr>
+        <tr><td><code>@type col ?json:City</code></td><td><code>City|null</code></td><td>null check + fromRow</td><td>Single DTO, nullable (LEFT JOIN)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre><code class="language-sql">-- @name GetCountryWithCities
+-- @class Countries
+-- @returns :one
+-- @type cities json:City[]         ← non-nullable array of City DTOs
+SELECT
+    countries.id,
+    countries.name,
+    JSON_ARRAYAGG(
+        JSON_OBJECT('id', cities.id, 'name', cities.name)
+    ) AS cities
+FROM countries
+INNER JOIN cities ON cities.country_id = countries.id
+WHERE countries.id = :id
+GROUP BY countries.id;</code></pre>
+
+  <pre><code class="language-sql">-- @name GetOrderWithDetails
+-- @class Orders
+-- @returns :one
+-- @type items   ?json:Item[]       ← nullable: LEFT JOIN may produce null
+-- @type address ?json:Address      ← nullable: customer may have no address
+SELECT
+    orders.id,
+    orders.total,
+    JSON_ARRAYAGG(JSON_OBJECT('id', items.id, 'name', items.name, 'price', items.price)) AS items,
+    JSON_OBJECT('street', addresses.street, 'city', addresses.city) AS address
 FROM orders
-JOIN users ON users.id = orders.user_id;</code></pre>
-  <pre><code class="language-sql">-- UNION query: @type ensures consistent types across branches
--- @name ListAllStaff
--- @class Staff
--- @returns :many
--- @type score int
-SELECT id, email, score FROM users
-UNION ALL
-SELECT id, email, score FROM admins;</code></pre>
+LEFT JOIN items     ON items.order_id     = orders.id
+LEFT JOIN addresses ON addresses.order_id = orders.id
+WHERE orders.id = :id
+GROUP BY orders.id;</code></pre>
+
+  <pre><code class="language-php">// Generated DTO:
+readonly class GetOrderWithDetailsRow {
+    public function __construct(
+        public int      $id,
+        public float    $total,
+        /** @var Item[]|null */
+        public ?array   $items,    // null when no items (LEFT JOIN)
+        public ?Address $address,  // null when no address (LEFT JOIN)
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            id:      (int) $row['id'],
+            total:   (float) $row['total'],
+            items:   isset($row['items']) && $row['items'] !== null
+                         ? array_map(fn($r) => Item::fromRow($r), json_decode($row['items'], true) ?? [])
+                         : null,
+            address: isset($row['address']) && $row['address'] !== null
+                         ? Address::fromRow(json_decode($row['address'], true) ?? [])
+                         : null,
+        );
+    }
+}</code></pre>
+
+  <h4>Scalar JSON arrays — <code>@type col array</code></h4>
+  <p class="ds">For <code>JSON_ARRAYAGG</code> of scalar values (IDs, strings), use <code>@type col array</code>. The <code>json_decode</code> cast is applied automatically for any column typed as <code>array</code>.</p>
+  <pre><code class="language-sql">-- @type reserves array
+SELECT orders.id, JSON_ARRAYAGG(reserve.id) AS reserves
+FROM orders LEFT JOIN reserve ON reserve.order_id = orders.id
+WHERE orders.id = :id GROUP BY orders.id;</code></pre>
+  <pre><code class="language-php">public array $reserves,
+// fromRow: json_decode((string) $row['reserves'], true) ?? []
+// Result: [1, 2, 3, 4]  — array of int IDs</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Position-independent.</strong> <code>@type</code> can appear before or after <code>@name</code>. Multiple <code>@type</code> lines are supported — one per column.
+  </div>
 </section>
 
 <!-- ── @counted ── -->
@@ -1157,7 +1180,7 @@ $query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
 </section>
 
 <section id="criteria-raw">
-  <h3><span class="new-badge">v2.15.4</span> addRawCondition() — filter on JOIN columns</h3>
+  <h3><span class="new-badge">v2.16.0</span> addRawCondition() — filter on JOIN columns</h3>
   <p class="ds">Injects a verbatim SQL fragment AND-ed into the WHERE clause. Designed for filtering on JOIN columns not present in the SELECT list (and therefore with no generated typed method).</p>
   <pre><code class="language-php">$criteria = (new ProfileReserveCriteria())
     ->whereSnapFirstnameLike('alice')
@@ -1389,7 +1412,7 @@ ORDER BY MAX(profile_reserve.created_at) DESC, profile_reserve.profile_id DESC;<
   <pre><code class="language-sql">-- @name GetCountryWithCities
 -- @class Countries
 -- @returns :one
--- @json cities City
+-- @type cities json:City[]
 SELECT
     countries.id,
     countries.name,
@@ -1413,7 +1436,11 @@ $country = $query->getCountryWithCities(id: 1);
 foreach ($country->cities as $city) {
     echo "{$city->name}: {$city->population}";
 }</code></pre>
-  <p class="ds">For scalar arrays (array of IDs), use <code>@type colname array</code>:</p>
+  <p class="ds">For nullable columns (LEFT JOIN) or single objects, use the <code>?</code> prefix and omit <code>[]</code>:</p>
+  <pre><code class="language-sql">-- @type cities  ?json:City[]    ← City[]|null  (LEFT JOIN may produce null)
+-- @type address ?json:Address   ← Address|null (LEFT JOIN may produce null)
+-- @type address  json:Address   ← Address      (INNER JOIN, always present)</code></pre>
+  <p class="ds">For scalar arrays (array of IDs), use <code>@type col array</code>:</p>
   <pre><code class="language-sql">-- @type tag_ids array
 SELECT orders.id, JSON_ARRAYAGG(tags.id) AS tag_ids
 FROM orders JOIN tags ON tags.order_id = orders.id
@@ -1773,6 +1800,19 @@ class UserQueryTest extends TestCase
 <!-- ═══ CHANGELOG ═══ -->
 <section id="changelog">
   <h2><i class="bi bi-clock-history me-2" style="color:var(--accent2)"></i>Changelog</h2>
+
+  <div class="cl-item">
+    <div class="cl-ver">v2.16.0 — <code>@type</code> unified: scalar + JSON DTO + nullable <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
+    <ul>
+      <li><strong><code>@type col json:City[]</code></strong> — array of City DTOs (non-nullable). Replaces <code>@json cities City</code>.</li>
+      <li><strong><code>@type col ?json:City[]</code></strong> — <code>City[]|null</code>. For LEFT JOINs that may produce no rows.</li>
+      <li><strong><code>@type col json:City</code></strong> — single City object (non-nullable). Replaces <code>@json:one address City</code>.</li>
+      <li><strong><code>@type col ?json:City</code></strong> — <code>City|null</code>. Nullable single DTO object.</li>
+      <li><strong><code>@type col ?phpType</code></strong> — nullable scalar. Replaces <code>@nillable col</code>.</li>
+      <li><strong><code>@json</code> and <code>@nillable</code> deprecated</strong> — both still work but emit a stderr deprecation warning with the exact <code>@type</code> replacement.</li>
+      <li><code>@type</code> is now the single annotation for all result column type overrides: scalar, JSON DTO, and nullable.</li>
+    </ul>
+  </div>
 
   <div class="cl-item">
     <div class="cl-ver">v2.15.4 — <code>Criteria::addRawCondition()</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>

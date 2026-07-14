@@ -91,7 +91,7 @@ class JsonCardinalityTest extends TestCase
         SQL);
 
         $this->assertSame(
-            ['address' => ['class' => 'Address', 'many' => false]],
+            ['address' => ['class' => 'Address', 'many' => false, 'nullable' => false]],
             $queries[0]->jsonColumns
         );
     }
@@ -109,7 +109,7 @@ class JsonCardinalityTest extends TestCase
         SQL);
 
         $this->assertSame(
-            ['orders' => ['class' => 'Order', 'many' => true]],
+            ['orders' => ['class' => 'Order', 'many' => true, 'nullable' => false]],
             $queries[0]->jsonColumns
         );
     }
@@ -127,7 +127,7 @@ class JsonCardinalityTest extends TestCase
         SQL);
 
         $this->assertSame(
-            ['orders' => ['class' => 'Order', 'many' => true]],
+            ['orders' => ['class' => 'Order', 'many' => true, 'nullable' => false]],
             $queries[0]->jsonColumns
         );
     }
@@ -151,8 +151,8 @@ class JsonCardinalityTest extends TestCase
 
         $this->assertSame(
             [
-                'address' => ['class' => 'Address', 'many' => false],
-                'orders'  => ['class' => 'Order',   'many' => true],
+                'address' => ['class' => 'Address', 'many' => false, 'nullable' => false],
+                'orders'  => ['class' => 'Order',   'many' => true,  'nullable' => false],
             ],
             $queries[0]->jsonColumns
         );

@@ -128,19 +128,23 @@ class QueryDefinition
         public readonly bool       $isUnion   = false,
         /**
          * Explicit PHP type overrides for result columns, declared via @type.
+         * This is the unified annotation for all column type overrides — scalar, JSON DTO, and nullable.
+         *
          * Format: alias → phpType  e.g. ['role' => 'string', 'total' => '?float']
          *
-         * Applied after column resolution — overrides whatever type the resolver
-         * inferred from the schema or expression. Useful for UNION queries where
-         * the second branch has a different type, or for expressions that the
-         * resolver cannot determine (constants, complex expressions, etc.).
-         *
-         * Usage:
-         *   -- @type role string
-         *   -- @type total ?float
+         * Scalar types:
+         *   -- @type role   string
+         *   -- @type total  ?float         ← nullable scalar
          *   -- @type active bool
+         *   -- @type ids    array          ← scalar JSON array (json_decode applied automatically)
          *
-         * @var array<string, string>  alias → phpType
+         * JSON DTO types (populate $jsonColumns internally):
+         *   -- @type cities  json:City[]   ← City[]     (many, non-nullable)
+         *   -- @type cities  ?json:City[]  ← City[]|null (many, nullable)
+         *   -- @type address json:City     ← City       (one, non-nullable)
+         *   -- @type address ?json:City    ← City|null  (one, nullable)
+         *
+         * @var array<string, string>  alias → phpType (scalar/class overrides only, not json:)
          */
         public readonly array      $typeOverrides = [],
         /**
@@ -178,21 +182,24 @@ class QueryDefinition
          */
         public readonly array      $usedCtes = [],
         /**
-         * JSON column → DTO class name mappings, declared via @json.
+         * JSON column → DTO class name mappings.
          *
-         * Each entry declares that a result column containing JSON output should be
-         * deserialized into a typed DTO instead of a plain PHP array.
+         * Populated by two annotation forms (both equivalent):
          *
-         * Cardinality variants:
-         *   -- @json       cities City   → City[]  (array,  default — backward compatible)
-         *   -- @json:many  cities City   → City[]  (array,  explicit)
+         * Unified @type syntax (preferred):
+         *   -- @type cities   json:City      → City     (one, non-nullable)
+         *   -- @type cities   ?json:City     → ?City    (one, nullable)
+         *   -- @type cities   json:City[]    → City[]   (many, non-nullable)
+         *   -- @type cities   ?json:City[]   → City[]|null (many, nullable)
+         *
+         * Legacy @json syntax (deprecated, still works):
+         *   -- @json       cities City   → City[]  (array, default)
+         *   -- @json:many  cities City   → City[]  (array, explicit)
          *   -- @json:one   address City  → City    (single object)
          *
-         * The value is an associative array:
-         *   ['class' => 'City', 'many' => true]   → City[]
-         *   ['class' => 'Address', 'many' => false] → Address
+         * Each entry: alias => ['class' => ClassName, 'many' => bool, 'nullable' => bool]
          *
-         * @var array<string, array{class: string, many: bool}>  alias → {class, many}
+         * @var array<string, array{class: string, many: bool, nullable: bool}>
          */
         public readonly array      $jsonColumns = [],
     ) {}
@@ -311,8 +318,18 @@ class QueryParser
                     $paramAnnotations[$m[1]] = $m[2];
                 } elseif (preg_match('/@optional\s+(\w+)/i', $comment, $m)) {
                     $optionalParams[] = $m[1];
-                } elseif (preg_match('/@nillable\s+(\w+)/i', $comment, $m)) {
-                    $nillableColumns[] = $m[1];
+                } elseif (preg_match('/@nillable\s+(.+)/i', $comment, $m)) {
+                    // @nillable — DEPRECATED since v2.16.0.
+                    // Use: -- @type colname ?type   e.g. -- @type street ?string
+                    foreach (preg_split('/[\s,]+/', trim($m[1])) as $nillCol) {
+                        $nillCol = trim($nillCol);
+                        if ($nillCol === '') continue;
+                        fwrite(STDERR,
+                            "sqlc-php: @nillable is deprecated since v2.16.0. " .
+                            "Replace '-- @nillable {$nillCol}' with '-- @type {$nillCol} ?<phptype>'.\n"
+                        );
+                        $nillableColumns[] = $nillCol;
+                    }
                 } elseif (preg_match('/@deprecated(?:\s+(.+))?$/i', $comment, $m)) {
                     $deprecated = isset($m[1]) ? trim($m[1]) : '';
                 } elseif (preg_match('/@comment\s+(.*)/i', $comment, $m)) {
@@ -343,14 +360,47 @@ class QueryParser
                 } elseif (preg_match('/@column\s+(\w+)\s+(\w+)/i', $comment, $m)) {
                     // @column originalName alias  — rename a result column in the DTO
                     $columnAliases[$m[1]] = $m[2];
-                } elseif (preg_match('/@type\s+(\w+)\s+(\S+)/i', $comment, $m)) {
-                    $typeOverrides[$m[1]] = $m[2];
-                } elseif (preg_match('/@json(?::(one|many))?\s+(\w+)\s+(\w+)/i', $comment, $m)) {
-                    // @json alias ClassName         → :many (array, default, backward-compatible)
-                    // @json:one  alias ClassName    → :one  (single object)
-                    // @json:many alias ClassName    → :many (array, explicit)
+                } elseif (preg_match('/^@type\s+(\w+)\s+(\S+)$/i', $comment, $m)) {
+                    $alias    = $m[1];
+                    $rawType  = $m[2];
+
+                    // Detect json:Class / json:Class[] / ?json:Class / ?json:Class[] forms
+                    $nullable = str_starts_with($rawType, '?');
+                    $baseType = ltrim($rawType, '?');
+
+                    if (preg_match('/^json:([A-Z][A-Za-z0-9_\\\\]*)(\[\])?$/', $baseType, $jm)) {
+                        // @type alias json:ClassName      → ClassName  (one, non-nullable)
+                        // @type alias ?json:ClassName     → ?ClassName (one, nullable)
+                        // @type alias json:ClassName[]    → ClassName[] (many, non-nullable)
+                        // @type alias ?json:ClassName[]   → ClassName[]|null (many, nullable)
+                        $jsonColumns[$alias] = [
+                            'class'    => $jm[1],
+                            'many'     => isset($jm[2]),   // true when [] suffix present
+                            'nullable' => $nullable,
+                        ];
+                    } else {
+                        // Regular scalar/class type override
+                        $typeOverrides[$alias] = $rawType;
+                    }
+                } elseif (preg_match('/@json(?::(one|many))?\\s+(\\w+)\\s+(\\w+)/i', $comment, $m)) {
+                    // @json / @json:one / @json:many — DEPRECATED since v2.16.0.
+                    // Use: -- @type alias json:Class[]   (many)
+                    //      -- @type alias json:Class     (one)
+                    //      -- @type alias ?json:Class[]  (many, nullable)
+                    //      -- @type alias ?json:Class    (one, nullable)
                     $cardinality = ($m[1] !== '' && strtolower($m[1]) === 'one') ? 'one' : 'many';
-                    $jsonColumns[$m[2]] = ['class' => $m[3], 'many' => $cardinality === 'many'];
+                    $suggestion  = $cardinality === 'many'
+                        ? "@type {$m[2]} json:{$m[3]}[]"
+                        : "@type {$m[2]} json:{$m[3]}";
+                    fwrite(STDERR,
+                        "sqlc-php: @json is deprecated since v2.16.0. " .
+                        "Replace '-- @json {$m[1]}{$m[2]} {$m[3]}' with '-- {$suggestion}'.\n"
+                    );
+                    $jsonColumns[$m[2]] = [
+                        'class'    => $m[3],
+                        'many'     => $cardinality === 'many',
+                        'nullable' => false,
+                    ];
                 } elseif (preg_match('/@use\s+(.+)/i', $comment, $m)) {
                     // @use cte_name
                     // @use cte_name, other_cte, third_cte   (comma-separated list)

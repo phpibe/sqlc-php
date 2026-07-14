@@ -629,6 +629,8 @@ class QueryAnalyzer
         $invalid = [];
         foreach ($types as $t) {
             $base = ltrim($t, '?');
+            // json:ClassName and json:ClassName[] are handled by ResultDtoGenerator — always valid
+            if (preg_match('/^json:[A-Z][A-Za-z0-9_\\\\]*(\[\])?$/', $base)) continue;
             $ok   = in_array(strtolower($base), array_map('strtolower', $scalars), true)
                  || preg_match('/^\\\\?[A-Z][A-Za-z0-9_\\\\]*$/', $base);
             if (!$ok) $invalid[] = $t;

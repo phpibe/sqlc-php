@@ -9,28 +9,28 @@ use SqlcPhp\Criteria\Criteria;
 use SqlcPhp\Criteria\Filter;
 
 /**
- * Tests for Criteria::addRawCondition() (v2.15.4).
+ * Tests for Criteria::andRawCondition() (v2.15.4).
  *
- * addRawCondition() injects a verbatim SQL fragment into the WHERE clause,
+ * andRawCondition() injects a verbatim SQL fragment into the WHERE clause,
  * AND-ed with typed filters. Useful for filtering on JOIN columns that are
  * not in the SELECT list and therefore have no generated typed method.
  */
 class RawConditionTest extends TestCase
 {
     // =========================================================================
-    // Basic behavior
+    // Basic behavior — andRawCondition
     // =========================================================================
 
     public function test_raw_condition_without_bindings_appears_in_clause(): void
     {
-        $c = (new Criteria())->addRawCondition('reserve.id IS NOT NULL');
+        $c = (new Criteria())->andRawCondition('reserve.id IS NOT NULL');
 
         $this->assertStringContainsString('reserve.id IS NOT NULL', $c->toFilterClause(false));
     }
 
     public function test_raw_condition_uses_where_keyword_when_no_other_filters(): void
     {
-        $c = (new Criteria())->addRawCondition('reserve.id = 42');
+        $c = (new Criteria())->andRawCondition('reserve.id = 42');
 
         $clause = $c->toFilterClause(false);
         $this->assertStringStartsWith(' WHERE ', $clause);
@@ -39,21 +39,107 @@ class RawConditionTest extends TestCase
 
     public function test_raw_condition_uses_and_keyword_in_append_mode(): void
     {
-        $c = (new Criteria())->addRawCondition('reserve.id = 42');
+        $c = (new Criteria())->andRawCondition('reserve.id = 42');
 
         $clause = $c->toFilterClause(true);
         $this->assertStringStartsWith(' AND ', $clause);
     }
 
     // =========================================================================
-    // Combining with typed filters
+    // orRawCondition
+    // =========================================================================
+
+    public function test_or_raw_condition_appears_in_clause(): void
+    {
+        $c = (new Criteria())->orRawCondition('reserve.is_legacy = 1');
+
+        $clause = $c->toFilterClause(false);
+        $this->assertStringContainsString('reserve.is_legacy = 1', $clause);
+    }
+
+    public function test_or_raw_condition_uses_or_connector_with_typed_filter(): void
+    {
+        $c = (new Criteria())
+            ->add(Filter::eq('status', 'active'))
+            ->orRawCondition('reserve.is_legacy = 1');
+
+        $clause = $c->toFilterClause(false);
+        $this->assertStringContainsString(' OR ', $clause);
+        $this->assertStringContainsString('status = :status_f0', $clause);
+        $this->assertStringContainsString('reserve.is_legacy = 1', $clause);
+    }
+
+    public function test_or_raw_condition_standalone_uses_where(): void
+    {
+        $c = (new Criteria())->orRawCondition('reserve.id = 99');
+
+        $clause = $c->toFilterClause(false);
+        $this->assertStringStartsWith(' WHERE ', $clause);
+    }
+
+    public function test_or_raw_condition_with_binding(): void
+    {
+        $c = (new Criteria())->orRawCondition(
+            'reserve.fallback_id = :fbId',
+            [':fbId' => [42, \PDO::PARAM_INT]]
+        );
+
+        $bindings = $c->getBindings();
+        $this->assertArrayHasKey(':fbId', $bindings);
+        $this->assertSame(42, $bindings[':fbId'][0]);
+    }
+
+    public function test_and_and_or_raw_conditions_combined(): void
+    {
+        $c = (new Criteria())
+            ->add(Filter::eq('status', 'active'))
+            ->andRawCondition('reserve.deleted_at IS NULL')
+            ->orRawCondition('reserve.is_legacy = 1');
+
+        $clause = $c->toFilterClause(false);
+
+        // AND condition must be present
+        $this->assertStringContainsString('reserve.deleted_at IS NULL', $clause);
+        // OR condition must be present
+        $this->assertStringContainsString('reserve.is_legacy = 1', $clause);
+        // OR connector must be present
+        $this->assertStringContainsString(' OR ', $clause);
+    }
+
+    public function test_multiple_or_raw_conditions(): void
+    {
+        $c = (new Criteria())
+            ->orRawCondition('reserve.type = 1')
+            ->orRawCondition('reserve.type = 2');
+
+        $clause = $c->toFilterClause(false);
+        $this->assertStringContainsString('reserve.type = 1', $clause);
+        $this->assertStringContainsString('reserve.type = 2', $clause);
+    }
+
+    public function test_or_raw_bindings_merged_with_other_bindings(): void
+    {
+        $c = (new Criteria())
+            ->add(Filter::eq('status', 'active'))
+            ->andRawCondition('a.col = :aVal', [':aVal' => [1, \PDO::PARAM_INT]])
+            ->orRawCondition('b.col = :bVal', [':bVal' => [2, \PDO::PARAM_INT]]);
+
+        $bindings = $c->getBindings();
+        $this->assertArrayHasKey(':aVal', $bindings);
+        $this->assertArrayHasKey(':bVal', $bindings);
+        $this->assertSame(1, $bindings[':aVal'][0]);
+        $this->assertSame(2, $bindings[':bVal'][0]);
+    }
+
+    // =========================================================================
+    // Combining with typed filters — andRawCondition
     // =========================================================================
 
     public function test_raw_condition_combined_with_typed_filter(): void
     {
         $c = (new Criteria())
             ->add(Filter::eq('status', 'active'))
-            ->addRawCondition('reserve.id = 42');
+            ->andRawCondition('reserve.id = 42');
 
         $clause = $c->toFilterClause(false);
         $this->assertStringContainsString('status = :status_f0', $clause);
@@ -66,7 +152,7 @@ class RawConditionTest extends TestCase
     {
         $c = (new Criteria())
             ->add(Filter::eq('status', 'active'))
-            ->addRawCondition('reserve.id = 42');
+            ->andRawCondition('reserve.id = 42');
 
         $clause = $c->toFilterClause(false);
         $typedPos = strpos($clause, 'status');
@@ -77,8 +163,8 @@ class RawConditionTest extends TestCase
     public function test_multiple_raw_conditions_all_appear(): void
     {
         $c = (new Criteria())
-            ->addRawCondition('reserve.id IS NOT NULL')
-            ->addRawCondition('profiles.verified = 1');
+            ->andRawCondition('reserve.id IS NOT NULL')
+            ->andRawCondition('profiles.verified = 1');
 
         $clause = $c->toFilterClause(false);
         $this->assertStringContainsString('reserve.id IS NOT NULL', $clause);
@@ -92,7 +178,7 @@ class RawConditionTest extends TestCase
 
     public function test_raw_condition_with_named_placeholder_and_binding(): void
     {
-        $c = (new Criteria())->addRawCondition(
+        $c = (new Criteria())->andRawCondition(
             'reserve.id = :reserveId',
             [':reserveId' => [42, \PDO::PARAM_INT]]
         );
@@ -110,7 +196,7 @@ class RawConditionTest extends TestCase
     {
         $c = (new Criteria())
             ->add(Filter::eq('status', 'active'))
-            ->addRawCondition(
+            ->andRawCondition(
                 'reserve.id = :reserveId',
                 [':reserveId' => [42, \PDO::PARAM_INT]]
             );
@@ -128,7 +214,7 @@ class RawConditionTest extends TestCase
 
     public function test_raw_condition_with_multiple_placeholders(): void
     {
-        $c = (new Criteria())->addRawCondition(
+        $c = (new Criteria())->andRawCondition(
             'reserve.status IN (:st1, :st2)',
             [
                 ':st1' => ['pending', \PDO::PARAM_STR],
@@ -146,8 +232,8 @@ class RawConditionTest extends TestCase
     public function test_multiple_raw_conditions_bindings_all_present(): void
     {
         $c = (new Criteria())
-            ->addRawCondition('reserve.id = :rid',    [':rid'  => [1, \PDO::PARAM_INT]])
-            ->addRawCondition('profiles.code = :pcode',[':pcode'=> ['X', \PDO::PARAM_STR]]);
+            ->andRawCondition('reserve.id = :rid',    [':rid'  => [1, \PDO::PARAM_INT]])
+            ->andRawCondition('profiles.code = :pcode',[':pcode'=> ['X', \PDO::PARAM_STR]]);
 
         $bindings = $c->getBindings();
         $this->assertArrayHasKey(':rid',   $bindings);
@@ -160,13 +246,13 @@ class RawConditionTest extends TestCase
 
     public function test_has_filters_true_when_only_raw_condition(): void
     {
-        $c = (new Criteria())->addRawCondition('reserve.id IS NOT NULL');
+        $c = (new Criteria())->andRawCondition('reserve.id IS NOT NULL');
         $this->assertTrue($c->hasFilters());
     }
 
     public function test_is_empty_false_when_only_raw_condition(): void
     {
-        $c = (new Criteria())->addRawCondition('reserve.id IS NOT NULL');
+        $c = (new Criteria())->andRawCondition('reserve.id IS NOT NULL');
         $this->assertFalse($c->isEmpty());
     }
 
@@ -182,7 +268,7 @@ class RawConditionTest extends TestCase
     public function test_add_raw_condition_is_immutable(): void
     {
         $original = new Criteria();
-        $modified = $original->addRawCondition('reserve.id = 1');
+        $modified = $original->andRawCondition('reserve.id = 1');
 
         $this->assertFalse($original->hasFilters());
         $this->assertTrue($modified->hasFilters());
@@ -191,9 +277,9 @@ class RawConditionTest extends TestCase
     public function test_chaining_multiple_raw_conditions(): void
     {
         $c = (new Criteria())
-            ->addRawCondition('a.col1 = 1')
-            ->addRawCondition('b.col2 = 2')
-            ->addRawCondition('c.col3 = 3');
+            ->andRawCondition('a.col1 = 1')
+            ->andRawCondition('b.col2 = 2')
+            ->andRawCondition('c.col3 = 3');
 
         $clause = $c->toFilterClause(false);
         $this->assertStringContainsString('a.col1 = 1', $clause);
@@ -207,38 +293,33 @@ class RawConditionTest extends TestCase
 
     public function test_real_use_case_filter_on_join_column(): void
     {
-        // Simulates: ProfileReserveCriteria filtering by reserve.id
-        // where reserve is joined but reserve.id is not in the SELECT
         $criteria = (new Criteria())
             ->add(Filter::like('snap_firstname', 'cri'))
-            ->addRawCondition(
-                'reserve.id = :reserveId',
-                [':reserveId' => [99, \PDO::PARAM_INT]]
-            );
+            ->andRawCondition('reserve.id = :reserveId', [':reserveId' => [99, \PDO::PARAM_INT]]);
 
-        $clause   = $criteria->toFilterClause(true); // append mode (existing WHERE)
+        $clause   = $criteria->toFilterClause(true);
         $bindings = $criteria->getBindings();
 
-        // Both conditions present
         $this->assertStringContainsString('snap_firstname LIKE :snap_firstname_f0', $clause);
         $this->assertStringContainsString('reserve.id = :reserveId', $clause);
-
-        // Both bindings present
+        $this->assertStringNotContainsString(' OR ', $clause);
         $this->assertArrayHasKey(':snap_firstname_f0', $bindings);
-        $this->assertStringContainsString('cri', $bindings[':snap_firstname_f0'][0]); // like wraps with %
         $this->assertArrayHasKey(':reserveId', $bindings);
         $this->assertSame(99, $bindings[':reserveId'][0]);
     }
 
-    public function test_raw_condition_with_or_group(): void
+    public function test_real_use_case_or_filter_on_join_column(): void
     {
-        // addRawCondition can be combined with orGroup
-        $c = (new Criteria())
+        $criteria = (new Criteria())
             ->add(Filter::eq('status', 'active'))
-            ->addRawCondition('reserve.deleted_at IS NULL');
+            ->orRawCondition('reserve.fallback_id = :fbId', [':fbId' => [7, \PDO::PARAM_INT]]);
 
-        $clause = $c->toFilterClause(false);
-        $this->assertStringContainsString('status = :status_f0',    $clause);
-        $this->assertStringContainsString('reserve.deleted_at IS NULL', $clause);
+        $clause   = $criteria->toFilterClause(true);
+        $bindings = $criteria->getBindings();
+
+        $this->assertStringContainsString('status', $clause);
+        $this->assertStringContainsString('reserve.fallback_id = :fbId', $clause);
+        $this->assertStringContainsString(' OR ', $clause);
+        $this->assertArrayHasKey(':fbId', $bindings);
     }
 }

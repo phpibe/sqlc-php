@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.17.0</span>
+    <span class="brand-ver">v2.17.1</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -202,7 +202,7 @@
 
   <div class="sg-label">Criteria</div>
   <a class="sl" href="#criteria"><i class="bi bi-funnel-fill"></i> Criteria class</a>
-  <a class="sl" href="#criteria-raw"><i class="bi bi-code-slash"></i> addRawCondition()</a>
+  <a class="sl" href="#criteria-raw"><i class="bi bi-code-slash"></i> andRaw / orRawCondition()</a>
   <a class="sl" href="#criteria-from-array"><i class="bi bi-table"></i> fromArray()</a>
   <a class="sl" href="#criteria-or-groups"><i class="bi bi-union"></i> orGroup()</a>
 
@@ -1197,11 +1197,23 @@ $query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
 </section>
 
 <section id="criteria-raw">
-  <h3><span class="new-badge">v2.16.0</span> addRawCondition() — filter on JOIN columns</h3>
-  <p class="ds">Injects a verbatim SQL fragment AND-ed into the WHERE clause. Designed for filtering on JOIN columns not present in the SELECT list (and therefore with no generated typed method).</p>
+  <h3>andRawCondition() / orRawCondition() — filter on JOIN columns</h3>
+  <p class="ds">Inject verbatim SQL fragments into the WHERE clause when the filter target is a JOIN column not present in the SELECT list — and therefore has no generated typed method.</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Method</th><th>Connector</th><th>Use case</th></tr></thead>
+      <tbody>
+        <tr><td><code>andRawCondition(sql, bindings)</code></td><td><code>AND</code></td><td>Must match — narrows the result set</td></tr>
+        <tr><td><code>orRawCondition(sql, bindings)</code></td><td><code>OR</code></td><td>Alternative match — widens the result set</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>andRawCondition — must match (AND)</h4>
   <pre><code class="language-php">$criteria = (new ProfileReserveCriteria())
     ->whereSnapFirstnameLike('alice')
-    ->addRawCondition(
+    ->andRawCondition(
         'reserve.id = :reserveId',
         [':reserveId' => [$id, PDO::PARAM_INT]]
     );
@@ -1209,16 +1221,39 @@ $query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
 $result = $repo->listProfileReserve(criteria: $criteria);
 $count  = $repo->listProfileReserveCount(criteria: $criteria);</code></pre>
 
+  <p class="ds">Effective SQL: <code>WHERE snap_firstname LIKE :snap_firstname_f0 AND reserve.id = :reserveId</code></p>
+
+  <h4>orRawCondition — alternative match (OR)</h4>
+  <pre><code class="language-php">// Single OR raw condition
+$criteria = (new ProfileReserveCriteria())
+    ->whereStatusEq('active')
+    ->orRawCondition('reserve.is_legacy = 1');
+
+// Multiple
+$criteria = (new ProfileReserveCriteria())
+    ->whereStatusEq('active')
+    ->orRawCondition('reserve.type = :t1', [':t1' => ['vip',   PDO::PARAM_STR]])
+    ->orRawCondition('reserve.type = :t2', [':t2' => ['promo', PDO::PARAM_STR]]);</code></pre>
+
+  <p class="ds">Effective SQL: <code>WHERE (status = :status_f0) OR (reserve.is_legacy = 1)</code></p>
+
+  <h4>Combining both in one criteria</h4>
+  <pre><code class="language-php">$criteria = (new ProfileReserveCriteria())
+    ->whereSnapFirstnameLike('alice')           // AND typed filter
+    ->andRawCondition('reserve.deleted_at IS NULL')  // AND raw
+    ->orRawCondition('reserve.is_legacy = 1');       // OR raw
+// WHERE (snap_firstname LIKE :f0 AND reserve.deleted_at IS NULL) OR (reserve.is_legacy = 1)</code></pre>
+
   <div class="callout ci-warn">
     <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>⚠ No SQL injection protection is applied.</strong> Always use named placeholders and pass values through <code>$bindings</code>. Never interpolate user input directly into the SQL string.
+    <strong>⚠ No SQL injection protection.</strong> Always use named placeholders — never interpolate user input directly.
   </div>
 
-  <pre><code class="language-php">// ✅ Safe — value bound via PDO
-->addRawCondition('reserve.id = :rid', [':rid' => [42, PDO::PARAM_INT]])
+  <pre><code class="language-php">// ✅ Safe
+->andRawCondition('reserve.id = :rid', [':rid' => [42, PDO::PARAM_INT]])
 
-// ❌ Unsafe — never do this
-->addRawCondition("reserve.id = {$userInput}")   // SQL injection risk!</code></pre>
+// ❌ Unsafe
+->andRawCondition("reserve.id = {$userInput}")</code></pre>
 </section>
 
 <section id="criteria-from-array">
@@ -1818,7 +1853,18 @@ class UserQueryTest extends TestCase
 <section id="changelog">
   <h2><i class="bi bi-clock-history me-2" style="color:var(--accent2)"></i>Changelog</h2>
 
+    <div class="cl-item">
+    <div class="cl-ver">v2.17.1 — <code>andRawCondition()</code> / <code>orRawCondition()</code> replace <code>addRawCondition()</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
+    <ul>
+      <li><strong><code>addRawCondition()</code> removed</strong> — replaced by two explicit methods.</li>
+      <li><strong><code>andRawCondition(sql, bindings)</code></strong> — injects the condition AND-ed with typed filters. Narrows the result set.</li>
+      <li><strong><code>orRawCondition(sql, bindings)</code></strong> — injects the condition OR-ed against the rest of the WHERE clause. Widens the result set. The raw condition is automatically parenthesized.</li>
+      <li>Both methods are immutable (return a new instance) and support named placeholder bindings.</li>
+    </ul>
+  </div>
+
   <div class="cl-item">
+<div class="cl-item">
     <div class="cl-ver">v2.17.0 — <code>@param</code> unified: type hint + nullable + optional in one annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
     <ul>
       <li><strong><code>@param name ?phpType</code></strong> — nullable param. Passes <code>null</code> to set the column to NULL. Replaces <code>@nullable</code>.</li>
@@ -1846,7 +1892,7 @@ class UserQueryTest extends TestCase
   <div class="cl-item">
     <div class="cl-ver">v2.15.4 — <code>Criteria::addRawCondition()</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
     <ul>
-      <li><strong>New <code>addRawCondition(string $sql, array $bindings = [])</code></strong> — injects a verbatim SQL fragment AND-ed into the WHERE clause alongside typed filters. For filtering on JOIN columns not in the SELECT list. Immutable, bindings merged into <code>getBindings()</code> / <code>bindAll()</code>.</li>
+      <li>Introduced raw SQL condition support in Criteria. Superseded in v2.17.1 by <code>andRawCondition()</code> and <code>orRawCondition()</code>.</li>
     </ul>
   </div>
 

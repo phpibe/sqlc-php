@@ -1524,7 +1524,26 @@ sqlc-php/
 
 ## Changelog
 
-### [2.17.0] — `@param` unified: type hint + nullable + optional
+### [2.17.1] — `andRawCondition()` / `orRawCondition()` replace `addRawCondition()`
+
+`addRawCondition()` has been replaced with two explicit methods that make the connector unambiguous:
+
+```php
+// AND — narrows result set (must match)
+$criteria->andRawCondition('reserve.id = :rid', [':rid' => [$id, PDO::PARAM_INT]])
+
+// OR — widens result set (alternative match)
+$criteria->orRawCondition('reserve.is_legacy = 1')
+
+// Both can be combined:
+$criteria = (new ProfileReserveCriteria())
+    ->whereSnapFirstnameLike('alice')            // AND typed
+    ->andRawCondition('reserve.deleted_at IS NULL')   // AND raw
+    ->orRawCondition('reserve.is_legacy = 1');        // OR raw
+// → WHERE (snap_firstname LIKE :f0 AND reserve.deleted_at IS NULL) OR (reserve.is_legacy = 1)
+```
+
+
 
 `@param` is now the single annotation for all input parameter configuration. Replaces `@optional` and `@nullable`.
 

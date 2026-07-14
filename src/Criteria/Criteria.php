@@ -41,10 +41,10 @@ class Criteria
     protected array $orGroups = [];
 
     /**
-     * Raw SQL conditions added via addRawCondition().
-     * Each entry: {sql: string, bindings: array<string, array{0:mixed,1:int}>}
+     * Raw SQL conditions added via andRawCondition() / orRawCondition().
+     * Each entry: {sql: string, bindings: array, connector: 'AND'|'OR'}
      *
-     * @var array<int, array{sql: string, bindings: array<string, array{0:mixed,1:int}>}>
+     * @var array<int, array{sql: string, bindings: array<string, array{0:mixed,1:int}>, connector: string}>
      */
     protected array $rawConditions = [];
 
@@ -75,47 +75,53 @@ class Criteria
     }
 
     /**
-     * Add a raw SQL condition string to the WHERE clause.
+     * Add a raw SQL condition joined with AND to the WHERE clause.
      *
-     * The condition is injected verbatim as an AND clause alongside
-     * any typed filters. Use this for conditions that cannot be expressed
-     * through the generated typed methods — e.g. filtering on JOIN columns
-     * that are not in the SELECT list.
+     * Injects the condition verbatim, AND-ed with any typed filters.
+     * Use for conditions that cannot be expressed through generated typed
+     * methods — e.g. filtering on JOIN columns not in the SELECT list.
      *
-     * ⚠️  No SQL injection protection is applied. The caller is responsible
-     *     for ensuring the SQL string is safe. Never interpolate user input
-     *     directly — use named placeholders and pass bindings instead.
+     * \u26a0\ufe0f  No SQL injection protection. Never interpolate user input directly —
+     *     use named placeholders and pass values through $bindings.
      *
-     * Usage — static value (safe, no user input):
-     *   $criteria->addRawCondition('reserve.id IS NOT NULL')
-     *
-     * Usage — with named placeholder and binding:
-     *   $criteria->addRawCondition(
-     *       'reserve.id = :reserveId',
-     *       [':reserveId' => [42, PDO::PARAM_INT]]
-     *   )
-     *
-     * Usage — multiple placeholders:
-     *   $criteria->addRawCondition(
-     *       'reserve.status IN (:st1, :st2)',
-     *       [':st1' => ['pending', PDO::PARAM_STR], ':st2' => ['active', PDO::PARAM_STR]]
-     *   )
-     *
-     * Placeholder naming: use unique names per call to avoid conflicts
-     * with other filters. A safe convention is to prefix with the table/column:
-     *   ':reserveId', ':reserveStatus', ':joinedAt', etc.
-     *
-     * @param  string                                       $sql      Raw SQL condition
-     * @param  array<string, array{0: mixed, 1: int}>       $bindings Named placeholder → [value, PDO::PARAM_*]
+     * @param  string                                  $sql      Raw SQL condition (verbatim)
+     * @param  array<string, array{0: mixed, 1: int}>  $bindings Named placeholder → [value, PDO::PARAM_*]
      * @return static
      */
-    public function addRawCondition(string $sql, array $bindings = []): static
+    public function andRawCondition(string $sql, array $bindings = []): static
     {
-        $clone                  = clone $this;
-        $clone->rawConditions   = [...$this->rawConditions, ['sql' => $sql, 'bindings' => $bindings]];
+        $clone                = clone $this;
+        $clone->rawConditions = [
+            ...$this->rawConditions,
+            ['sql' => $sql, 'bindings' => $bindings, 'connector' => 'AND'],
+        ];
         return $clone;
     }
 
+    /**
+     * Add a raw SQL condition joined with OR to the WHERE clause.
+     *
+     * Injects the condition verbatim, OR-ed against the rest of the WHERE
+     * clause. The full expression is parenthesized to preserve operator
+     * precedence:
+     *   WHERE (typed_filters AND ...) OR (raw_condition)
+     *
+     * \u26a0\ufe0f  No SQL injection protection. Never interpolate user input directly —
+     *     use named placeholders and pass values through $bindings.
+     *
+     * @param  string                                  $sql      Raw SQL condition (verbatim)
+     * @param  array<string, array{0: mixed, 1: int}>  $bindings Named placeholder → [value, PDO::PARAM_*]
+     * @return static
+     */
+    public function orRawCondition(string $sql, array $bindings = []): static
+    {
+        $clone                = clone $this;
+        $clone->rawConditions = [
+            ...$this->rawConditions,
+            ['sql' => $sql, 'bindings' => $bindings, 'connector' => 'OR'],
+        ];
+        return $clone;
+    }
     /**
      * Add an OR group via a closure that receives a fresh instance of the
      * same Criteria subclass. Filters inside the closure are combined with AND;
@@ -200,42 +206,63 @@ class Criteria
      */
     public function toFilterClause(bool $appendMode = false): string
     {
-        $hasTopLevel  = !empty($this->filters);
-        $hasOrGroups  = !empty($this->orGroups);
-        $hasRaw       = !empty($this->rawConditions);
+        $hasTopLevel = !empty($this->filters);
+        $hasOrGroups = !empty($this->orGroups);
+        $hasRaw      = !empty($this->rawConditions);
 
         if (!$hasTopLevel && !$hasOrGroups && !$hasRaw) return '';
 
-        // Counter shared across all filters and OR groups for unique placeholders
+        // Separate raw conditions by connector
+        $andRaw = array_values(array_filter(
+            $this->rawConditions,
+            fn($r) => ($r['connector'] ?? 'AND') === 'AND'
+        ));
+        $orRaw = array_values(array_filter(
+            $this->rawConditions,
+            fn($r) => ($r['connector'] ?? 'AND') === 'OR'
+        ));
+
+        // Shared counter for unique placeholder suffixes across all filters/groups
         $idx = 0;
 
-        if (!$hasOrGroups) {
-            // Backward-compatible path: no OR groups → plain AND chain (no parens)
+        if (!$hasOrGroups && empty($orRaw)) {
+            // Fast path: no OR groups, no OR raw conditions → plain AND chain (no parens)
             $parts = [];
             foreach ($this->filters as $filter) {
                 $parts[] = $this->renderCondition($filter, $idx++);
             }
-            // Raw conditions are appended as-is to the AND chain
-            foreach ($this->rawConditions as $raw) {
+            foreach ($andRaw as $raw) {
                 $parts[] = $raw['sql'];
             }
             $keyword = $appendMode ? ' AND ' : ' WHERE ';
             return $keyword . implode(' AND ', $parts);
         }
 
-        // OR-group path: wrap everything in parens and join with OR
+        // General path: build segments to be joined with OR.
+        // AND-typed filters + andRaw form one block; orGroups and orRaw are OR segments.
         $segments = [];
 
+        // 1. Typed AND filters
         if ($hasTopLevel) {
             $parts = [];
             foreach ($this->filters as $filter) {
                 $parts[] = $this->renderCondition($filter, $idx++);
             }
+            // Inline AND raw conditions into the same AND block
+            foreach ($andRaw as $raw) {
+                $parts[] = $raw['sql'];
+            }
             $segments[] = count($parts) === 1
                 ? $parts[0]
                 : '(' . implode(' AND ', $parts) . ')';
+        } elseif (!empty($andRaw)) {
+            // No typed filters but there are AND raw conditions
+            foreach ($andRaw as $raw) {
+                $segments[] = $raw['sql'];
+            }
         }
 
+        // 2. orGroup() closures — each is its own OR segment
         foreach ($this->orGroups as $group) {
             $parts = [];
             foreach ($group as $filter) {
@@ -248,16 +275,14 @@ class Criteria
             }
         }
 
-        // Raw conditions are always AND-ed with the whole expression
-        // (they are not OR-able via this path — use addRawCondition on the criteria)
-        foreach ($this->rawConditions as $raw) {
-            $segments[] = $raw['sql'];
+        // 3. orRawCondition() — each is its own parenthesized OR segment
+        foreach ($orRaw as $raw) {
+            $segments[] = '(' . $raw['sql'] . ')';
         }
 
         if (empty($segments)) return '';
 
         $keyword = $appendMode ? ' AND ' : ' WHERE ';
-
         return $keyword . implode(' OR ', $segments);
     }
 
@@ -303,7 +328,7 @@ class Criteria
             }
         }
 
-        // Raw conditions — merge their explicit bindings
+        // Raw conditions (AND and OR) — merge their explicit bindings
         foreach ($this->rawConditions as $raw) {
             foreach ($raw['bindings'] as $placeholder => $binding) {
                 $result[$placeholder] = $binding;

@@ -1524,7 +1524,53 @@ sqlc-php/
 
 ## Changelog
 
-### [2.16.0] — `@type` unified: scalar + JSON DTO + nullable
+### [2.17.0] — `@param` unified: type hint + nullable + optional
+
+`@param` is now the single annotation for all input parameter configuration. Replaces `@optional` and `@nullable`.
+
+```sql
+-- Legacy (unchanged — type hint from schema):
+-- @param userId users.id
+
+-- Explicit PHP type (new):
+-- @param count int
+-- @param label string
+
+-- Nullable — passes null to DB, sets column to NULL (replaces @nullable):
+-- @param avatarUrl ?string
+-- @param deletedAt ?string
+
+-- Optional — passes null to skip the WHERE condition (replaces @optional):
+-- @param role   ?string:optional
+-- @param active ?int:optional
+
+-- Both forms can coexist in the same query:
+-- @param avatarUrl ?string           ← nullable SET
+-- @param role      ?string:optional  ← optional WHERE
+```
+
+**Generated signatures:**
+
+```php
+// @param avatarUrl ?string
+public function updateAvatar(?string $avatarUrl, int $id): void
+
+// @param role ?string:optional
+public function listUsers(?string $role = null): array
+```
+
+**Migration:**
+
+| Before | After |
+|---|---|
+| `@nullable avatarUrl` | `@param avatarUrl ?string` |
+| `@nullable x, y` | Two `@param` lines — one per param |
+| `@optional status` | `@param status ?string:optional` |
+| `@optional count` | `@param count ?int:optional` |
+
+**`@optional` and `@nullable` are deprecated** — both still work but emit a stderr warning.
+
+
 
 `@type` is now the single annotation for all result column type overrides. The `json:Class` suffix activates JSON DTO deserialization — replacing `@json`, `@json:one`, and `@json:many`. The `?` prefix handles nullability — replacing `@nillable`.
 

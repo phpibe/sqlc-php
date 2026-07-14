@@ -314,9 +314,64 @@ class QueryParser
                     $group ??= $m[1];
                 } elseif (preg_match('/@returns\s+(:[a-z-]+)/i', $comment, $m)) {
                     $returns = ReturnType::from($m[1]);
-                } elseif (preg_match('/@param\s+(\w+)\s+([\w.]+)/i', $comment, $m)) {
-                    $paramAnnotations[$m[1]] = $m[2];
+                } elseif (preg_match('/^@param\s+(\w+)\s+(\S+)/i', $comment, $m)) {
+                    // Unified @param syntax (v2.17.0):
+                    //
+                    //   @param name table.col           → type hint from schema (legacy, unchanged)
+                    //   @param name phpType             → explicit PHP type (e.g. string, int)
+                    //   @param name ?phpType            → nullable PHP type (replaces @nullable)
+                    //   @param name phpType:optional    → optional param — SQL rewritten (replaces @optional)
+                    //   @param name ?phpType:optional   → nullable + optional
+                    //
+                    // Disambiguation rule:
+                    //   If the type token contains a '.' → it is a table.col hint (legacy path).
+                    //   Otherwise → it is a PHP type with optional modifiers.
+                    //
+                    // :optional modifier may appear as a suffix on the type token:
+                    //   ?string:optional  →  nullable + optional
+                    //   string:optional   →  optional (type becomes ?string implicitly)
+                    //   int               →  just an explicit type, no modifier
+                    $paramName = $m[1];
+                    $rawToken  = $m[2];  // e.g. "?string:optional" or "users.id"
+
+                    if (str_contains($rawToken, '.')) {
+                        // Legacy: table.col type hint — unchanged behaviour
+                        $paramAnnotations[$paramName] = $rawToken;
+                    } else {
+                        // New unified syntax — parse type + :optional modifier
+                        $parts      = explode(':', $rawToken);
+                        $phpType    = $parts[0];                                   // e.g. "?string"
+                        $modifiers  = array_map('strtolower', array_slice($parts, 1)); // e.g. ["optional"]
+
+                        $isOptional = in_array('optional', $modifiers, true);
+                        $isNullable = str_starts_with($phpType, '?') || $isOptional;
+
+                        // Ensure the phpType has '?' when either nullable or optional
+                        if ($isNullable && !str_starts_with($phpType, '?')) {
+                            $phpType = '?' . $phpType;
+                        }
+
+                        // Store the explicit PHP type as a param annotation override
+                        // so the Analyzer can use it in applyNullableParams / resolve
+                        if ($phpType !== '') {
+                            // We map this to paramAnnotations with a special "php:Type" prefix
+                            // so ParamResolver can distinguish it from a table.col hint.
+                            $paramAnnotations[$paramName] = 'php:' . $phpType;
+                        }
+
+                        if ($isOptional) {
+                            $optionalParams[] = $paramName;
+                        } elseif ($isNullable) {
+                            $nullableParams[] = $paramName;
+                        }
+                    }
                 } elseif (preg_match('/@optional\s+(\w+)/i', $comment, $m)) {
+                    // @optional — DEPRECATED since v2.17.0.
+                    // Use: -- @param name ?phpType:optional
+                    fwrite(STDERR,
+                        "sqlc-php: @optional is deprecated since v2.17.0. " .
+                        "Replace '-- @optional {$m[1]}' with '-- @param {$m[1]} ?<type>:optional'.\n"
+                    );
                     $optionalParams[] = $m[1];
                 } elseif (preg_match('/@nillable\s+(.+)/i', $comment, $m)) {
                     // @nillable — DEPRECATED since v2.16.0.
@@ -411,13 +466,16 @@ class QueryParser
                         }
                     }
                 } elseif (preg_match('/@nullable\s+(.+)/i', $comment, $m)) {
-                    // @nullable paramName
-                    // @nullable param1, param2   (comma-separated list)
+                    // @nullable — DEPRECATED since v2.17.0.
+                    // Use: -- @param name ?phpType
                     foreach (preg_split('/\s*,\s*/', trim($m[1])) as $paramName) {
                         $paramName = trim($paramName);
-                        if ($paramName !== '') {
-                            $nullableParams[] = $paramName;
-                        }
+                        if ($paramName === '') continue;
+                        fwrite(STDERR,
+                            "sqlc-php: @nullable is deprecated since v2.17.0. " .
+                            "Replace '-- @nullable {$paramName}' with '-- @param {$paramName} ?<type>'.\n"
+                        );
+                        $nullableParams[] = $paramName;
                     }
                 } elseif (preg_match('/@cursor\s+(.+)/i', $comment, $m)) {
                     // @cursor col [ASC|DESC], col [ASC|DESC], ...

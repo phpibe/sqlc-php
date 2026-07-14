@@ -347,6 +347,6 @@ class CteDuplicateParamTest extends TestCase
 
     public function test_version_is_2_9_7(): void
     {
-        $this->assertSame('2.16.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.17.0', \SqlcPhp\Version::VERSION);
     }
 }

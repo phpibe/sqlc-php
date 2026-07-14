@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.16.0</span>
+    <span class="brand-ver">v2.17.0</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -552,8 +552,7 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
         <tr><td><span class="ann ar">@returns</span></td><td>Yes</td><td>Return type — <code>:many</code> <code>:one</code> <code>:opt</code> <code>:exec</code> <code>:cursor</code> <code>:many-paginated</code> <code>:paginated</code> <code>:batch</code> <code>:transaction</code></td></tr>
         <tr><td><span class="ann ao">@class</span></td><td>No</td><td>Query class group name — inferred from table name when absent. <code>@group</code> is the deprecated alias.</td></tr>
         <tr><td><span class="ann ao">@comment</span></td><td>No</td><td>Description added to the generated method docblock before <code>@param</code> / <code>@return</code>. Multiple lines supported.</td></tr>
-        <tr><td><span class="ann ao">@optional</span></td><td>No</td><td>Make a WHERE param skippable — passing <code>null</code> omits the condition. SQL is rewritten at compile time.</td></tr>
-        <tr><td><span class="ann ao">@nullable</span></td><td>No</td><td>Force PHP param type to <code>?type</code> without rewriting SQL. For SET columns that accept NULL.</td></tr>
+        <tr><td><span class="ann ao">@param</span></td><td>No</td><td>Unified input parameter annotation. <code>@param name table.col</code> (type hint), <code>@param name ?string</code> (nullable), <code>@param name ?string:optional</code> (nullable + skippable WHERE). Replaces <code>@optional</code> and <code>@nullable</code>.</td></tr>
         <tr><td><span class="ann ao">@partial</span></td><td>No</td><td>In UPDATE queries, passing <code>null</code> for a SET param skips updating that column.</td></tr>
         <tr><td><span class="ann ao">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the created row by <code>lastInsertId()</code>. Only for <code>:one</code> INSERT.</td></tr>
         <tr><td><span class="ann ao">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name.</td></tr>
@@ -642,64 +641,95 @@ public function getActiveUser(int $id): ?User</code></pre>
   </div>
 </section>
 
-<!-- ── @optional ── -->
-<section id="ann-optional">
-  <h3><i class="bi bi-toggles me-2"></i>@optional</h3>
-  <p class="ds">Makes a WHERE parameter optional. When the caller passes <code>null</code>, the condition is skipped entirely — no PHP-side <code>if</code> required. The SQL is rewritten at compile time to <code>(:param_chk IS NULL OR col OP :param)</code>.</p>
-  <pre><code class="language-sql">-- @name ListUsers
--- @class Users
--- @returns :many
--- @optional status       ← passing null skips this condition
--- @optional country_id
-SELECT * FROM users
-WHERE status     = :status
-  AND country_id = :country_id;</code></pre>
-  <pre><code class="language-php">// All users
-$query->listUsers();
+<!-- ── @param ── -->
+<section id="ann-param">
+  <h3><i class="bi bi-input-cursor-text me-2"></i>@param — unified input parameter annotation <span class="new-badge">v2.17.0 unified</span></h3>
+  <p class="ds"><code>@param</code> is the single annotation for configuring input parameters. It covers all cases — type hints, nullable types, and optional (skippable) WHERE conditions — using one consistent syntax.</p>
 
-// Active users only
-$query->listUsers(status: 'active');
-
-// Active users in country 164
-$query->listUsers(status: 'active', country_id: 164);</code></pre>
-  <h4>Supported operators</h4>
-  <p class="ds"><code>=</code> <code>!=</code> <code>&lt;&gt;</code> <code>&gt;</code> <code>&lt;</code> <code>&gt;=</code> <code>&lt;=</code> <code>LIKE</code> <code>ILIKE</code></p>
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    Safe with JOINs when the optional param is in the <code>WHERE</code> clause — not in an <code>ON</code> condition. Using <code>@optional</code> in an <code>ON</code> clause produces a generation error.
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Syntax</th><th>PHP type</th><th>SQL rewrite</th><th>Use case</th></tr></thead>
+      <tbody>
+        <tr><td><code>@param name table.col</code></td><td>From schema</td><td>No</td><td>Explicit type hint — resolve from <code>table.col</code> in schema</td></tr>
+        <tr><td><code>@param name phpType</code></td><td><code>phpType</code></td><td>No</td><td>Explicit PHP type (e.g. <code>int</code>, <code>string</code>, <code>float</code>)</td></tr>
+        <tr><td><code>@param name ?phpType</code></td><td><code>?phpType</code></td><td>No</td><td>Nullable — passes <code>null</code> to set the column to NULL</td></tr>
+        <tr><td><code>@param name phpType:optional</code></td><td><code>?phpType</code></td><td><code>(:p_chk IS NULL OR col OP :p)</code></td><td>Optional WHERE filter — <code>null</code> skips the condition</td></tr>
+        <tr><td><code>@param name ?phpType:optional</code></td><td><code>?phpType</code></td><td>Same as above</td><td>Explicit nullable + optional (equivalent to <code>phpType:optional</code>)</td></tr>
+      </tbody>
+    </table>
   </div>
-</section>
 
-<!-- ── @nullable ── -->
-<section id="ann-nullable">
-  <h3><i class="bi bi-question-square me-2"></i>@nullable <span class="new-badge">v2.15.0</span></h3>
-  <p class="ds">Forces the PHP type of one or more query parameters to <code>?type</code>, allowing the caller to pass <code>null</code>. Unlike <code>@optional</code>, the SQL is <em>not</em> rewritten — null is bound to PDO and sets the column to <code>NULL</code> in the database. Ideal for <code>UPDATE SET nullable_col = :param</code> patterns.</p>
+  <h4>Nullable param — SET column to NULL</h4>
+  <p class="ds">Use <code>?phpType</code> when the column accepts NULL and you want to allow the caller to pass <code>null</code>. The SQL is unchanged — null is bound to PDO and sets the column to NULL.</p>
   <pre><code class="language-sql">-- @name UpdateUserProfile
 -- @class Users
 -- @returns :exec
--- @nullable avatarUrl          ← single param
--- @nullable deletedAt, bio     ← comma-separated list
+-- @comment Set avatar and deletion timestamp. Pass null to clear either.
+-- @param avatarUrl ?string
+-- @param deletedAt ?string
 UPDATE users
 SET avatar_url = :avatarUrl,
-    deleted_at = :deletedAt,
-    bio        = :bio
+    deleted_at = :deletedAt
 WHERE id = :id;</code></pre>
   <pre><code class="language-php">public function updateUserProfile(
-    ?string              $avatarUrl,  // forced nullable
-    ?\DateTimeImmutable  $deletedAt,  // forced nullable
-    ?string              $bio,        // forced nullable
-    int                  $id,
-): void</code></pre>
-  <div class="tw" style="margin-top:1rem">
-    <table class="dt">
-      <thead><tr><th></th><th>@nullable</th><th>@optional</th></tr></thead>
-      <tbody>
-        <tr><td>PHP type</td><td><code>?type</code></td><td><code>?type</code></td></tr>
-        <tr><td>SQL rewrite</td><td>None — SQL unchanged</td><td><code>(:p IS NULL OR col = :p)</code></td></tr>
-        <tr><td>Passing null</td><td>Sets the column to NULL</td><td>Skips the condition entirely</td></tr>
-        <tr><td>Use case</td><td><code>UPDATE SET col = :p</code></td><td><code>WHERE optional_filter = :p</code></td></tr>
-      </tbody>
-    </table>
+    ?string $avatarUrl,   // null → sets avatar_url to NULL
+    ?string $deletedAt,   // null → sets deleted_at to NULL
+    int     $id,
+): void
+
+// Clear avatar:
+$query->updateUserProfile(avatarUrl: null, deletedAt: null, id: 1);
+
+// Set avatar:
+$query->updateUserProfile(avatarUrl: 'https://cdn.example.com/1.jpg', deletedAt: null, id: 1);</code></pre>
+
+  <h4>Optional param — skip WHERE condition</h4>
+  <p class="ds">Use <code>?phpType:optional</code> when the parameter is an optional WHERE filter — passing <code>null</code> omits the condition entirely. The SQL is rewritten at compile time to <code>(:p_chk IS NULL OR col OP :p)</code>.</p>
+  <pre><code class="language-sql">-- @name ListUsers
+-- @class Users
+-- @returns :many
+-- @param role   ?string:optional
+-- @param active ?int:optional
+SELECT * FROM users WHERE role = :role AND active = :active;</code></pre>
+  <pre><code class="language-php">public function listUsers(
+    ?string $role   = null,   // null → condition skipped entirely
+    ?int    $active = null,   // null → condition skipped entirely
+): array
+
+// All users:
+$query->listUsers();
+
+// Active clients only:
+$query->listUsers(role: 'client', active: 1);
+
+// All active users regardless of role:
+$query->listUsers(active: 1);</code></pre>
+
+  <h4>Type hint — resolve from schema</h4>
+  <p class="ds">When the resolver cannot determine the correct type automatically (typically with ambiguous JOIN params), use the <code>table.col</code> syntax to pin the type to a specific schema column.</p>
+  <pre><code class="language-sql">-- @name GetOrderByUser
+-- @class Orders
+-- @returns :opt
+-- @param userId users.id     ← explicit: :userId is users.id type (int)
+SELECT * FROM orders
+JOIN users ON users.id = orders.user_id
+WHERE orders.user_id = :userId;</code></pre>
+
+  <h4>Explicit PHP type</h4>
+  <p class="ds">When the resolved type is wrong and you want to specify the exact PHP type without a schema hint, use a plain PHP type name.</p>
+  <pre><code class="language-sql">-- @param total  float   ← force float even if schema says DECIMAL
+-- @param count  int
+-- @param label  string</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Disambiguation rule:</strong> if the second token contains a <code>.</code> it is a <code>table.col</code> type hint (legacy). Otherwise it is a PHP type with optional <code>:optional</code> modifier. Both forms can coexist in the same query.
+  </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>Difference between <code>?phpType</code> and <code>?phpType:optional</code>:</strong>
+    <code>?string</code> passes null to the database (sets the column to NULL). <code>?string:optional</code> skips the WHERE condition entirely when null — the row is not filtered at all.
   </div>
 </section>
 
@@ -1007,17 +1037,6 @@ SELECT * FROM users WHERE id = :id;</code></pre>
 -- no SQL body required for :transaction</code></pre>
 </section>
 
-<!-- ── @param ── -->
-<section id="ann-param">
-  <h3><i class="bi bi-input-cursor-text me-2"></i>@param</h3>
-  <p class="ds">Provides an explicit <code>table.column</code> type hint for a named parameter when the resolver cannot determine the type automatically — typically when the same column name appears in multiple tables in a JOIN.</p>
-  <pre><code class="language-sql">-- @name GetOrderByUser
--- @param userId users.id     ← explicit: :userId is users.id (not orders.user_id)
--- @returns :opt
-SELECT * FROM orders
-JOIN users ON users.id = orders.user_id
-WHERE orders.user_id = :userId;</code></pre>
-</section>
 
 <hr class="div">
 
@@ -1800,6 +1819,18 @@ class UserQueryTest extends TestCase
 <!-- ═══ CHANGELOG ═══ -->
 <section id="changelog">
   <h2><i class="bi bi-clock-history me-2" style="color:var(--accent2)"></i>Changelog</h2>
+
+  <div class="cl-item">
+    <div class="cl-ver">v2.17.0 — <code>@param</code> unified: type hint + nullable + optional in one annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
+    <ul>
+      <li><strong><code>@param name ?phpType</code></strong> — nullable param. Passes <code>null</code> to set the column to NULL. Replaces <code>@nullable</code>.</li>
+      <li><strong><code>@param name ?phpType:optional</code></strong> — nullable + optional WHERE filter. Passing <code>null</code> skips the condition entirely. Replaces <code>@optional</code>.</li>
+      <li><strong><code>@param name phpType</code></strong> — explicit PHP type override (e.g. <code>int</code>, <code>float</code>, <code>string</code>).</li>
+      <li><strong><code>@param name table.col</code></strong> — legacy type hint from schema, unchanged.</li>
+      <li><strong><code>@optional</code> and <code>@nullable</code> deprecated</strong> — both still work but emit a stderr warning with the exact <code>@param</code> replacement.</li>
+      <li>Disambiguation rule: if the second token contains a <code>.</code> it is a legacy <code>table.col</code> hint; otherwise it is a PHP type with optional <code>:optional</code> modifier.</li>
+    </ul>
+  </div>
 
   <div class="cl-item">
     <div class="cl-ver">v2.16.0 — <code>@type</code> unified: scalar + JSON DTO + nullable <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>

@@ -62,7 +62,33 @@ class ParamResolver
 
             // 1. Explicit annotation overrides everything
             if (isset($annotations[$paramName])) {
-                [$tbl, $col] = explode('.', $annotations[$paramName], 2);
+                $annotation = $annotations[$paramName];
+
+                // New unified @param syntax: php:?string, php:?int:optional, etc.
+                // The 'php:' prefix was set by the parser for @param name phpType[:modifier]
+                if (str_starts_with($annotation, 'php:')) {
+                    $phpType  = substr($annotation, 4);   // e.g. "?string" or "?int"
+                    $nullable = str_starts_with($phpType, '?');
+                    $base     = ltrim($phpType, '?');
+                    // Map PHP base type to a PDO param type
+                    $pdoParam = match ($base) {
+                        'int', 'integer'  => 'PDO::PARAM_INT',
+                        'bool', 'boolean' => 'PDO::PARAM_BOOL',
+                        default           => 'PDO::PARAM_STR',
+                    };
+                    $resolved[$paramName] = new QueryParam(
+                        name:     $paramName,
+                        sqlType:  $base,
+                        nullable: $nullable,
+                        pdoParam: $pdoParam,
+                        phpType:  $phpType,
+                        inList:   $isInList,
+                    );
+                    continue;
+                }
+
+                // Legacy: table.col type hint
+                [$tbl, $col] = explode('.', $annotation, 2);
                 $found = $this->findColumn($tbl, $col);
                 if ($found !== null) {
                     [$realTable, $colDef] = $found;

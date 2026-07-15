@@ -13,8 +13,9 @@ use SqlcPhp\Resolver\ResolvedColumn;
 enum ReturnType: string
 {
     case Many          = ':many';
-    case ManyPaginated = ':many-paginated';
-    case Paginated     = ':paginated';
+    case ManyPaginated = ':many-paginated';  // deprecated — use Many + @with paginated
+    case Paginated     = ':paginated';        // deprecated — use Paginator
+    case Paginator     = ':paginator';
     case Cursor        = ':cursor';
     case One           = ':one';
     case Opt           = ':opt';
@@ -107,6 +108,13 @@ class QueryDefinition
          * :many-paginated queries. A companion {Group}Criteria class is generated.
          */
         public readonly bool       $searchable = false,
+        /**
+         * When true, the method accepts ?int $limit and int $offset params,
+         * and LIMIT :limit OFFSET :offset is auto-injected into the SQL.
+         * Declared via @with paginated. Valid on :many queries.
+         * Replaces the :many-paginated return type.
+         */
+        public readonly bool       $paginated = false,
         /**
          * When true, a companion {name}Exists() method is generated that returns
          * bool — true when at least one row matches. Declared via @with exists.
@@ -291,6 +299,7 @@ class QueryParser
         $counted          = false;
         $searchable       = false;
         $exists           = false;
+        $paginated        = false;
         $partial          = false;
         $returning        = false;        $columnAliases    = [];   // @column originalName alias
         $typeOverrides    = [];           // @type alias phpType
@@ -320,7 +329,28 @@ class QueryParser
                     );
                     $group ??= $m[1];
                 } elseif (preg_match('/@returns\s+(:[a-z-]+)/i', $comment, $m)) {
-                    $returns = ReturnType::from($m[1]);
+                    $rt = $m[1];
+                    if ($rt === ':many-paginated') {
+                        // :many-paginated — DEPRECATED since v2.19.2.
+                        // Use: -- @returns :many  +  -- @with paginated
+                        fwrite(STDERR,
+                            "sqlc-php: :many-paginated is deprecated since v2.19.2. " .
+                            "Replace '-- @returns :many-paginated' with " .
+                            "'-- @returns :many' + '-- @with paginated'.\n"
+                        );
+                        $returns   = ReturnType::Many;
+                        $paginated = true;
+                    } elseif ($rt === ':paginated') {
+                        // :paginated — DEPRECATED since v2.19.3.
+                        // Use: -- @returns :paginator
+                        fwrite(STDERR,
+                            "sqlc-php: :paginated is deprecated since v2.19.3. " .
+                            "Replace '-- @returns :paginated' with '-- @returns :paginator'.\n"
+                        );
+                        $returns = ReturnType::Paginator;
+                    } else {
+                        $returns = ReturnType::from($rt);
+                    }
                 } elseif (preg_match('/^@param\s+(\w+)\s+(\S+)/i', $comment, $m)) {
                     // Unified @param syntax (v2.17.0):
                     //
@@ -425,12 +455,14 @@ class QueryParser
                     foreach (preg_split('/\s*,\s*/', trim($m[1])) as $modifier) {
                         $modifier = strtolower(trim($modifier));
                         match ($modifier) {
-                            'criteria' => $searchable = true,
-                            'count'    => $counted    = true,
-                            'exists'   => $exists     = true,
-                            default    => fwrite(STDERR,
+                            'criteria'  => $searchable = true,
+                            'count'     => $counted    = true,
+                            'exists'    => $exists     = true,
+                            'returning' => $returning  = true,
+                            'paginated' => $paginated  = true,
+                            default     => fwrite(STDERR,
                                 "sqlc-php: @with unknown modifier '{$modifier}' — " .
-                                "supported: criteria, count, exists.\n"
+                                "supported: criteria, count, exists, returning, paginated.\n"
                             ),
                         };
                     }
@@ -451,6 +483,11 @@ class QueryParser
                 } elseif (preg_match('/^@partial\b/i', $comment)) {
                     $partial = true;
                 } elseif (preg_match('/^@returning\b/i', $comment)) {
+                    // @returning — DEPRECATED since v2.19.1. Use: -- @with returning
+                    fwrite(STDERR,
+                        "sqlc-php: @returning is deprecated since v2.19.1. " .
+                        "Replace '-- @returning' with '-- @with returning'.\n"
+                    );
                     $returning = true;
                 } elseif (preg_match('/@calls\s+(.+)$/i', $comment, $m)) {
                     // @calls query1,query2,query3 — used by :transaction
@@ -621,6 +658,7 @@ class QueryParser
             columnAliases:    $columnAliases,
             counted:          $counted,
             searchable:       $searchable,
+            paginated:        $paginated,
             exists:           $exists,
             partial:          $partial,
             returning:        $returning,

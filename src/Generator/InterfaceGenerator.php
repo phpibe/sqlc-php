@@ -55,7 +55,7 @@ class InterfaceGenerator
         $cursorImport = $hasCursor ? "\nuse SqlcPhp\\Query\\CursorResult;" : '';
         $hasPaginated = !empty(array_filter(
             $queries,
-            fn($q) => $q->returns === ReturnType::Paginated
+            fn($q) => $q->returns === ReturnType::Paginator
         ));
         $paginatedImport = $hasPaginated
             ? "\nuse SqlcPhp\\Query\\PaginatedResult;"
@@ -99,7 +99,13 @@ PHP;
             return $this->renderReturningSignature($query, $queryGen);
         }
 
+        // @with paginated on :many routes to the many-paginated signature
+        if ($query->paginated && $query->returns === ReturnType::Many) {
+            return $this->renderManyPaginatedSignature($query, $queryGen);
+        }
+
         return match ($query->returns) {
+            ReturnType::Paginator,
             ReturnType::Paginated     => $this->renderPaginatedSignature($query, $queryGen),
             ReturnType::ManyPaginated => $this->renderManyPaginatedSignature($query, $queryGen),
             ReturnType::Cursor        => $this->renderCursorSignature($query, $queryGen),

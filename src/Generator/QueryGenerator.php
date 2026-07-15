@@ -227,7 +227,7 @@ PHP;
             : '';
 
         // PaginatedResult import only when the class has :paginated queries
-        $hasPaginate     = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Paginated));
+        $hasPaginate     = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Paginator || $q->returns === ReturnType::Paginated));
         $hasCursor       = !empty(array_filter($queries, fn($q) => $q->returns === ReturnType::Cursor));
         $prNs            = $this->paginatedResultNamespace();
         $prFqcn          = $prNs !== $this->namespace ? $prNs . '\\PaginatedResult' : null;
@@ -322,7 +322,7 @@ PHP;
         }
 
         // :paginated: returns a PaginatedResult object with items + metadata
-        if ($query->returns === ReturnType::Paginated) {
+        if ($query->returns === ReturnType::Paginator) {
             return $query->searchable
                 ? $this->renderSearchablePaginateMethod($query)
                 : $this->renderPaginateMethod($query);
@@ -351,11 +351,11 @@ PHP;
 
         // @with criteria queries get their own render path
         if ($query->searchable) {
-            $main = $query->returns === ReturnType::ManyPaginated
+            $main = ($query->paginated || $query->returns === ReturnType::ManyPaginated)
                 ? $this->renderSearchablePaginatedMethod($query)
                 : $this->renderSearchableManyMethod($query);
 
-            if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
+            if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated)) {
                 $main .= "\n\n" . $this->renderSearchableCountMethod($query);
             }
 
@@ -367,19 +367,22 @@ PHP;
             return $main;
         }
 
-        $main = match ($query->returns->value) {
-            ':many'           => $this->renderManyMethod($query),
-            ':many-paginated' => $this->renderManyPaginatedMethod($query),
-            ':one'            => $this->renderOneMethod($query),
-            ':opt'            => $this->renderOptMethod($query),
-            ':exec'           => $this->renderExecMethod($query),
-            ':batch'          => $this->renderBatchMethod($query),
-            ':transaction'    => $this->renderTransactionMethod($query),
-            default           => $this->renderManyMethod($query),
+        $main = match (true) {
+            // @with paginated on :many — behaves like :many-paginated
+            $query->paginated && $query->returns === ReturnType::Many
+                                                  => $this->renderManyPaginatedMethod($query),
+            $query->returns->value === ':many'     => $this->renderManyMethod($query),
+            $query->returns->value === ':many-paginated' => $this->renderManyPaginatedMethod($query), // legacy
+            $query->returns->value === ':one'      => $this->renderOneMethod($query),
+            $query->returns->value === ':opt'      => $this->renderOptMethod($query),
+            $query->returns->value === ':exec'     => $this->renderExecMethod($query),
+            $query->returns->value === ':batch'    => $this->renderBatchMethod($query),
+            $query->returns->value === ':transaction' => $this->renderTransactionMethod($query),
+            default                                => $this->renderManyMethod($query),
         };
 
         // @with count on :many-paginated
-        if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
+        if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated)) {
             $main .= "\n\n" . $this->renderCountMethod($query);
         }
 
@@ -772,7 +775,7 @@ PHP;
      */
     private function buildBindingsExpr(QueryDefinition $query): string
     {
-        $isPaginated    = $query->returns->value === ':many-paginated';
+        $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
         $isCursor       = $query->returns->value === ':cursor';
         $paginationKeys = ['limit', 'offset'];
 
@@ -1953,7 +1956,8 @@ PHP;
     {
         return match ($query->returns->value) {
             ':many', ':many-paginated' => 'array',
-            ':paginated'               => 'PaginatedResult',
+            ':paginated'               => 'PaginatedResult',   // deprecated alias
+            ':paginator'               => 'PaginatedResult',
             ':one'                     => $this->resolveReturnClass($query),
             ':opt'                     => '?' . $this->resolveReturnClass($query),
             ':exec'                    => 'void',
@@ -2020,7 +2024,7 @@ PHP;
 
         // :limit and :offset are auto-injected for :many-paginated — skip them here
         // :limit is also managed internally for :cursor (as :__limit) — skip it too
-        $isPaginated    = $query->returns->value === ':many-paginated';
+        $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
         $isCursor       = $query->returns->value === ':cursor';
         $paginationKeys = ['limit', 'offset'];
 
@@ -2165,7 +2169,7 @@ PHP;
             // For :many-paginated, :limit and :offset are bound separately in the
             // main render method — skip them here so they don't double-bind and
             // so the count method doesn't bind them at all.
-            $isPaginated    = $query->returns->value === ':many-paginated';
+            $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
             $isCursor       = $query->returns->value === ':cursor';
             $paginationKeys = ['limit', 'offset'];
 
@@ -2211,7 +2215,7 @@ PHP;
         $lines[] = "        {$stmtVar} = \$this->pdo->prepare(\$__sql);";
 
         // Bind regular named params (excluding auto-injected limit/offset for paginated)
-        $isPaginated    = $query->returns->value === ':many-paginated';
+        $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
         $paginationKeys = ['limit', 'offset'];
 
         foreach ($regularParams as $param) {

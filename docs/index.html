@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.0</span>
+    <span class="brand-ver">v2.19.3</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -177,7 +177,6 @@
   <a class="sl" href="#ann-returns"><i class="bi bi-arrow-return-right"></i> @returns</a>
   <a class="sl" href="#ann-comment"><i class="bi bi-chat-left-text"></i> @comment</a>
   <a class="sl" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
-  <a class="sl" href="#ann-returning"><i class="bi bi-box-arrow-in-down"></i> @returning</a>
   <a class="sl" href="#ann-dto"><i class="bi bi-box"></i> @dto / @column</a>
   <a class="sl" href="#ann-embed"><i class="bi bi-boxes"></i> @embed</a>
   <a class="sl" href="#ann-type"><i class="bi bi-type"></i> @type</a>
@@ -190,8 +189,7 @@
 
   <div class="sg-label">Return Types</div>
   <a class="sl" href="#rt-many"><i class="bi bi-collection"></i> :many</a>
-  <a class="sl" href="#rt-many-paginated"><i class="bi bi-layout-text-window-reverse"></i> :many-paginated</a>
-  <a class="sl" href="#rt-paginated"><i class="bi bi-grid-3x3-gap"></i> :paginated</a>
+  <a class="sl" href="#rt-paginator"><i class="bi bi-grid-3x3-gap"></i> :paginator</a>
   <a class="sl" href="#rt-cursor"><i class="bi bi-cursor"></i> :cursor</a>
   <a class="sl" href="#rt-one"><i class="bi bi-person"></i> :one</a>
   <a class="sl" href="#rt-opt"><i class="bi bi-question-diamond"></i> :opt</a>
@@ -551,7 +549,7 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
       <thead><tr><th>Annotation</th><th>Required</th><th>Description</th></tr></thead>
       <tbody>
         <tr><td><span class="ann ar">@name</span></td><td>Yes</td><td>PHP method name (camelCase)</td></tr>
-        <tr><td><span class="ann ar">@returns</span></td><td>Yes</td><td>Return type — <code>:many</code> <code>:one</code> <code>:opt</code> <code>:exec</code> <code>:cursor</code> <code>:many-paginated</code> <code>:paginated</code> <code>:batch</code> <code>:transaction</code></td></tr>
+        <tr><td><span class="ann ar">@returns</span></td><td>Yes</td><td>Return type — <code>:many</code> <code>:one</code> <code>:opt</code> <code>:exec</code> <code>:cursor</code> <code>:paginator</code> <code>:batch</code> <code>:transaction</code>. Legacy: <code>:many-paginated</code> <code>:paginated</code> (deprecated).</td></tr>
         <tr><td><span class="ann ao">@class</span></td><td>No</td><td>Query class group name — inferred from table name when absent. <code>@group</code> is the deprecated alias.</td></tr>
         <tr><td><span class="ann ao">@comment</span></td><td>No</td><td>Description added to the generated method docblock before <code>@param</code> / <code>@return</code>. Multiple lines supported.</td></tr>
         <tr><td><span class="ann ao">@param</span></td><td>No</td><td>Unified input parameter annotation. <code>@param name table.col</code> (type hint), <code>@param name ?string</code> (nullable), <code>@param name ?string:optional</code> (nullable + skippable WHERE). Replaces <code>@optional</code> and <code>@nullable</code>.</td></tr>
@@ -561,7 +559,7 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
         <tr><td><span class="ann ao">@column</span></td><td>No</td><td>Rename a result column in the DTO without using SQL <code>AS</code>.</td></tr>
         <tr><td><span class="ann ao">@embed</span></td><td>No</td><td>Group prefixed columns from a JOIN into a nested readonly object.</td></tr>
         <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Universal column type override. Scalar: <code>@type col float</code> / <code>@type col ?float</code>. JSON DTO: <code>@type col json:City[]</code> / <code>@type col ?json:City</code>. Covers all cases previously handled by <code>@json</code> and <code>@nillable</code>.</td></tr>
-        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions. <code>@with criteria</code> — typed Criteria + dynamic filters. <code>@with count</code> — companion <code>{name}Count(): int</code>. <code>@with exists</code> — companion <code>{name}Exists(): bool</code>. Combinable: <code>@with criteria, count, exists</code>.</td></tr>
+        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions: <code>criteria</code> — typed Criteria. <code>count</code> — <code>Count(): int</code>. <code>exists</code> — <code>Exists(): bool</code>. <code>returning</code> — fetch row after INSERT. <code>paginated</code> — <code>?$limit/$offset</code> params. Combinable: <code>@with criteria, paginated, count</code>.</td></tr>
         <tr><td><span class="ann ao">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination. Required with <code>:cursor</code>. Supports <code>table.col</code> qualified names.</td></tr>
         <tr><td><span class="ann ao">@use</span></td><td>No</td><td>Inject shared CTEs from <code>ctes:</code> files as a <code>WITH</code> clause.</td></tr>
         <tr><td><span class="ann ao">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the generated method docblock.</td></tr>
@@ -610,8 +608,7 @@ SELECT * FROM users WHERE id = :id;</code></pre>
 -- @returns :one             → single typed object (throws if not found)
 -- @returns :opt             → single typed object or null
 -- @returns :exec            → void (INSERT / UPDATE / DELETE)
--- @returns :many-paginated  → array with optional LIMIT/OFFSET params
--- @returns :paginated       → PaginatedResult (items + total + page metadata)
+-- @returns :paginator      → PaginatedResult (items + total + page metadata)
 -- @returns :cursor          → CursorResult (keyset pagination)
 -- @returns :batch           → run the same query N times in one transaction
 -- @returns :transaction     → call multiple methods in one transaction</code></pre>
@@ -815,18 +812,7 @@ $query->updateUserProfile(name: 'Alice', email: 'alice@x.com', avatarUrl: '/img/
 </section>
 
 <!-- ── @returning ── -->
-<section id="ann-returning">
-  <h3><i class="bi bi-box-arrow-in-down me-2"></i>@returning</h3>
-  <p class="ds">After an INSERT, fetches and returns the newly created row by its primary key using <code>lastInsertId()</code>. Only valid on <code>:one</code> INSERT queries without <code>ON DUPLICATE KEY</code>. The primary key is detected from the schema automatically (<code>PRIMARY KEY</code>, <code>AUTO_INCREMENT</code>, or a column named <code>id</code>).</p>
-  <pre><code class="language-sql">-- @name CreateUser
--- @class Users
--- @returns :one
--- @returning
-INSERT INTO users (email, name, active) VALUES (:email, :name, 1);</code></pre>
-  <pre><code class="language-php">// Inserts the row and returns the full hydrated User object
-$user = $query->createUser(email: 'alice@example.com', name: 'Alice');
-echo $user->id; // the auto-increment ID</code></pre>
-</section>
+
 
 <!-- ── @dto / @column ── -->
 <section id="ann-dto">
@@ -995,9 +981,11 @@ WHERE orders.id = :id GROUP BY orders.id;</code></pre>
     <table class="dt">
       <thead><tr><th>Modifier</th><th>Generates</th><th>Valid with</th></tr></thead>
       <tbody>
-        <tr><td><code>criteria</code></td><td>Typed <code>XxxCriteria</code> class + <code>$criteria</code> param on the method</td><td><code>:many</code> <code>:many-paginated</code> <code>:paginated</code> <code>:cursor</code></td></tr>
-        <tr><td><code>count</code></td><td><code>{name}Count(): int</code> companion method</td><td><code>:many-paginated</code> <code>:cursor</code></td></tr>
-        <tr><td><code>exists</code></td><td><code>{name}Exists(): bool</code> companion method</td><td><code>:many</code> <code>:many-paginated</code> <code>:cursor</code></td></tr>
+        <tr><td><code>criteria</code></td><td>Typed <code>XxxCriteria</code> class + <code>$criteria</code> param on the method</td><td><code>:many</code> <code>:paginator</code> <code>:cursor</code></td></tr>
+        <tr><td><code>count</code></td><td><code>{name}Count(): int</code> companion method</td><td><code>:many</code> + <code>paginated</code>, <code>:cursor</code></td></tr>
+        <tr><td><code>exists</code></td><td><code>{name}Exists(): bool</code> companion method</td><td><code>:many</code> <code>:cursor</code></td></tr>
+        <tr><td><code>returning</code></td><td>After INSERT, fetches and returns the created row by <code>lastInsertId()</code></td><td><code>:one</code> INSERT</td></tr>
+        <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> params and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. Replaces <code>:many-paginated</code>.</td><td><code>:many</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -1038,8 +1026,8 @@ $orders = $query->listOrders(userId: 1, criteria: $criteria);</code></pre>
   <h4>count — total row count</h4>
   <pre><code class="language-sql">-- @name ListOrders
 -- @class Orders
--- @returns :many-paginated
--- @with count
+-- @returns :many
+-- @with paginated, count
 SELECT orders.id, orders.status FROM orders WHERE user_id = :userId
 ORDER BY created_at DESC;</code></pre>
   <pre><code class="language-php">// Generated: listOrdersCount() companion method
@@ -1057,6 +1045,47 @@ SELECT orders.id FROM orders WHERE user_id = :userId;</code></pre>
 if ($query->listOrdersExists(userId: 1)) {
     // user has at least one order
 }</code></pre>
+
+  <h4>paginated — LIMIT / OFFSET params <span class="new-badge">v2.19.2</span></h4>
+  <p class="ds">Adds <code>?int $limit = null</code> and <code>int $offset = 0</code> parameters and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. When <code>$limit</code> is <code>null</code>, no LIMIT is applied and all rows are returned. Replaces <code>:many-paginated</code>.</p>
+  <pre><code class="language-sql">-- @name ListOrders
+-- @class Orders
+-- @returns :many
+-- @with paginated
+SELECT orders.id, orders.status, orders.total
+FROM orders
+WHERE user_id = :userId
+ORDER BY created_at DESC;</code></pre>
+  <pre><code class="language-php">// Generated signature:
+public function listOrders(int $userId, ?int $limit = null, int $offset = 0): array
+
+// All rows:
+$all    = $query->listOrders(userId: 1);
+
+// Page 2 (20 per page):
+$page2  = $query->listOrders(userId: 1, limit: 20, offset: 20);</code></pre>
+
+  <p class="ds">Combine with <code>count</code> for pagination UI:</p>
+  <pre><code class="language-sql">-- @with paginated, count, criteria</code></pre>
+  <pre><code class="language-php">$criteria = (new ListOrdersCriteria())->whereStatusEq('pending');
+$total  = $query->listOrdersCount(criteria: $criteria);
+$orders = $query->listOrders(criteria: $criteria, limit: 20, offset: 0);</code></pre>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong><code>:many-paginated</code> is deprecated since v2.19.2.</strong> It still works but emits a stderr deprecation warning. Replace with <code>-- @returns :many</code> + <code>-- @with paginated</code>.
+  </div>
+
+  <h4>returning — fetch created row after INSERT</h4>
+  <p class="ds">After an INSERT, fetches and returns the newly created row using <code>lastInsertId()</code>. Only valid on <code>:one</code> INSERT queries.</p>
+  <pre><code class="language-sql">-- @name CreateUser
+-- @class Users
+-- @returns :one
+-- @with returning
+INSERT INTO users (email, name, active) VALUES (:email, :name, 1);</code></pre>
+  <pre><code class="language-php">// Inserts and immediately returns the full hydrated User object
+$user = $query->createUser(email: 'alice@example.com', name: 'Alice');
+echo $user->id;   // the auto-increment ID</code></pre>
 
   <h4>Combining modifiers</h4>
   <pre><code class="language-sql">-- @name ListOrders
@@ -1168,27 +1197,12 @@ SELECT * FROM users WHERE active = 1 ORDER BY name;</code></pre>
 public function listActiveUsers(): array</code></pre>
 </section>
 
-<section id="rt-many-paginated">
-  <h3><span class="rt rt-pag">:many-paginated</span> — array with LIMIT / OFFSET</h3>
-  <p class="ds">Adds <code>?int $limit = null</code> and <code>int $offset = 0</code> parameters. When <code>$limit</code> is <code>null</code>, all rows are returned. Add <code>@counted</code> for a companion total-count method.</p>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :many-paginated
--- @counted
-SELECT * FROM orders WHERE user_id = :userId ORDER BY created_at DESC;</code></pre>
-  <pre><code class="language-php">/** @return Order[] */
-public function listOrders(int $userId, ?int $limit = null, int $offset = 0): array
-
-/** Total rows (no pagination) */
-public function listOrdersCount(int $userId): int</code></pre>
-</section>
-
-<section id="rt-paginated">
-  <h3><span class="rt rt-pag">:paginated</span> — PaginatedResult with metadata</h3>
-  <p class="ds">Returns a <code>PaginatedResult</code> object that includes <code>items</code>, <code>total</code>, <code>perPage</code>, <code>currentPage</code>, and <code>lastPage</code> — everything a pagination UI needs in one call.</p>
+<section id="rt-paginator">
+  <h3><span class="rt rt-pag">:paginator</span> — PaginatedResult with metadata</h3>
+  <p class="ds">Returns a <code>PaginatedResult</code> object with <code>items</code>, <code>total</code>, <code>perPage</code>, <code>currentPage</code>, and <code>lastPage</code> — everything a pagination UI needs in one call. The total count is computed automatically via a companion <code>SELECT COUNT(*)</code>.</p>
   <pre><code class="language-sql">-- @name ListProductsPaginated
 -- @class Products
--- @returns :paginated
+-- @returns :paginator
 SELECT products.id, products.name, products.price FROM products ORDER BY name;</code></pre>
   <pre><code class="language-php">public function listProductsPaginated(int $limit = 10, int $offset = 0): PaginatedResult
 
@@ -1198,6 +1212,13 @@ SELECT products.id, products.name, products.price FROM products ORDER BY name;</
 // $result->perPage     — rows per page
 // $result->currentPage — current page number (1-indexed)
 // $result->lastPage    — last page number</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Difference from <code>:many + @with paginated</code>:</strong>
+    <code>:paginator</code> returns a rich <code>PaginatedResult</code> object with <code>total</code> and page metadata computed automatically.
+    <code>:many + @with paginated</code> returns a plain <code>array</code> — you manage the count separately via <code>@with count</code>.
+  </div>
 </section>
 
 <section id="rt-cursor">
@@ -1246,7 +1267,7 @@ SELECT * FROM users WHERE email = :email AND active = 1;</code></pre>
 
 <section id="rt-exec">
   <h3><span class="rt rt-exec">:exec</span> — INSERT / UPDATE / DELETE</h3>
-  <p class="ds">Returns <code>void</code>. Use for any query that modifies data without needing a return value. Combine with <code>@returning</code> on INSERT queries when you need the created row.</p>
+  <p class="ds">Returns <code>void</code>. Use for any query that modifies data without needing a return value. Combine with <code>@with returning</code> on INSERT queries when you need the created row.</p>
   <pre><code class="language-sql">-- @name UpdateUserName
 -- @class Users
 -- @returns :exec
@@ -1491,7 +1512,7 @@ SELECT * FROM users WHERE active = 1 ORDER BY name;
 -- @name CreateUser
 -- @class Users
 -- @returns :one
--- @returning
+-- @with returning
 INSERT INTO users (email, name, active) VALUES (:email, :name, 1);
 
 -- @name UpdateUserName
@@ -2119,7 +2140,7 @@ class UserQueryTest extends TestCase
     <div class="cl-ver">v2.9.0 — OR groups + UNION queries <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
     <ul>
       <li><strong><code>Criteria::orGroup()</code></strong> — AND/OR mixed filter logic via closures.</li>
-      <li><strong>UNION / UNION ALL</strong> — detected automatically, compatible with <code>:many</code>, <code>:many-paginated</code>.</li>
+      <li><strong>UNION / UNION ALL</strong> — detected automatically, compatible with <code>:many</code>.</li>
     </ul>
   </div>
 
@@ -2133,7 +2154,7 @@ class UserQueryTest extends TestCase
   <div class="cl-item">
     <div class="cl-ver">v2.5.0 — <code>@counted</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
     <ul>
-      <li><strong><code>@counted</code></strong> — companion <code>{name}Count(): int</code> for <code>:many-paginated</code>.</li>
+      <li><strong><code>@counted</code></strong> — companion <code>{name}Count(): int</code>.</li>
     </ul>
   </div>
 

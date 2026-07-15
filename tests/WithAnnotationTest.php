@@ -193,7 +193,7 @@ class WithAnnotationTest extends TestCase
     public function test_with_count_on_many_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/@with count.*:many-paginated/');
+        $this->expectExceptionMessageMatches('/@with count.*:many.*@with paginated/');
         $this->analyze(
             "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with count\n" .
             "SELECT orders.id FROM orders;"
@@ -392,5 +392,134 @@ class WithAnnotationTest extends TestCase
         );
         $this->assertTrue($q[0]->searchable);
         $this->assertTrue($q[0]->counted);
+    }
+
+    // =========================================================================
+    // @with returning
+    // =========================================================================
+
+    public function test_with_returning_sets_returning_flag(): void
+    {
+        $q = $this->analyze(
+            "-- @name CreateOrder\n-- @class Orders\n-- @returns :one\n-- @with returning\n" .
+            "INSERT INTO orders (user_id, total, status) VALUES (:userId, :total, 'pending');"
+        );
+        $this->assertTrue($q[0]->returning);
+    }
+
+    public function test_with_returning_generates_select_after_insert(): void
+    {
+        $q    = $this->analyze(
+            "-- @name CreateOrder\n-- @class Orders\n-- @returns :one\n-- @with returning\n" .
+            "INSERT INTO orders (user_id, total, status) VALUES (:userId, :total, 'pending');"
+        );
+        $code = $this->code($q);
+        // Must fetch the created row by lastInsertId
+        $this->assertStringContainsString('lastInsertId', $code);
+    }
+
+    public function test_with_returning_combined_with_other_modifiers_is_invalid(): void
+    {
+        // @with returning only valid on :one INSERT — combining with criteria makes no sense
+        // but the parser should still set both flags (validation in Analyzer)
+        $q = $this->analyze(
+            "-- @name CreateOrder\n-- @class Orders\n-- @returns :one\n-- @with returning\n" .
+            "INSERT INTO orders (user_id, total) VALUES (:userId, :total);"
+        );
+        $this->assertTrue($q[0]->returning);
+        $this->assertFalse($q[0]->searchable);
+    }
+
+    public function test_deprecated_returning_still_works(): void
+    {
+        $q = $this->analyze(
+            "-- @name CreateOrder\n-- @class Orders\n-- @returns :one\n-- @returning\n" .
+            "INSERT INTO orders (user_id, total, status) VALUES (:userId, :total, 'pending');"
+        );
+        $this->assertTrue($q[0]->returning);
+    }
+
+    // =========================================================================
+    // @with paginated
+    // =========================================================================
+
+    public function test_with_paginated_sets_paginated_flag(): void
+    {
+        $q = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with paginated\n" .
+            "SELECT orders.id, orders.status FROM orders WHERE user_id = :userId;"
+        );
+        $this->assertTrue($q[0]->paginated);
+        $this->assertSame(':many', $q[0]->returns->value);
+    }
+
+    public function test_with_paginated_injects_limit_offset_into_sql(): void
+    {
+        $q = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with paginated\n" .
+            "SELECT orders.id FROM orders WHERE user_id = :userId;"
+        );
+        $this->assertStringContainsString('LIMIT :limit OFFSET :offset', $q[0]->sql);
+    }
+
+    public function test_with_paginated_generates_limit_offset_params(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with paginated\n" .
+            "SELECT orders.id, orders.status FROM orders WHERE user_id = :userId;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('?int $limit = null', $code);
+        $this->assertStringContainsString('int $offset = 0', $code);
+    }
+
+    public function test_with_paginated_generates_array_return(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with paginated\n" .
+            "SELECT orders.id, orders.status FROM orders WHERE user_id = :userId;"
+        );
+        $code = $this->code($q);
+        $this->assertStringContainsString('): array', $code);
+    }
+
+    public function test_with_paginated_null_limit_skips_limit_clause(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with paginated\n" .
+            "SELECT orders.id FROM orders WHERE user_id = :userId;"
+        );
+        $code = $this->code($q);
+        // null path must use SQL without LIMIT
+        $this->assertStringContainsString('$limit === null', $code);
+    }
+
+    public function test_with_paginated_combined_with_criteria_and_count(): void
+    {
+        $q    = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with criteria, paginated, count\n" .
+            "SELECT orders.id, orders.status, orders.total FROM orders;"
+        );
+        $this->assertTrue($q[0]->paginated);
+        $this->assertTrue($q[0]->searchable);
+        $this->assertTrue($q[0]->counted);
+        $code = $this->code($q);
+        $this->assertStringContainsString('?int $limit = null', $code);
+        $this->assertStringContainsString('ListOrdersCriteria', $code);
+        $this->assertStringContainsString('function listOrdersCount(', $code);
+    }
+
+    public function test_deprecated_many_paginated_maps_to_many_with_paginated(): void
+    {
+        $q = $this->analyze(
+            "-- @name ListOrders\n-- @class Orders\n-- @returns :many-paginated\n" .
+            "SELECT orders.id FROM orders WHERE user_id = :userId;"
+        );
+        // :many-paginated deprecated — maps to :many + paginated=true
+        $this->assertSame(':many', $q[0]->returns->value);
+        $this->assertTrue($q[0]->paginated);
+        // Generated code should still have limit/offset
+        $code = $this->code($q);
+        $this->assertStringContainsString('?int $limit = null', $code);
     }
 }

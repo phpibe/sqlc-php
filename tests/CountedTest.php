@@ -115,7 +115,7 @@ class CountedTest extends TestCase
     public function test_counted_on_many_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/@with count.*:many-paginated/');
+        $this->expectExceptionMessageMatches('/@with count.*:many.*@with paginated/');
 
         $this->analyze(
             "-- @name ListUsers\n-- @counted\n-- @returns :many\nSELECT * FROM users;"

@@ -49,9 +49,9 @@ class QueryAnalyzer
         // 2. Rewrite SQL for optional parameters (validates unsafe constructs first)
         $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
 
-        // For :many-paginated only, append LIMIT / OFFSET to the SQL
-        // :paginated handles LIMIT internally in the generator (two separate queries)
-        if ($query->returns->value === ':many-paginated') {
+        // For @with paginated, auto-inject LIMIT :limit OFFSET :offset into the SQL.
+        // This was previously tied to :many-paginated; now it is a standalone flag.
+        if ($query->paginated) {
             $rewrittenSql = $this->injectPagination($rewrittenSql, $query->name);
         }
 
@@ -125,19 +125,19 @@ class QueryAnalyzer
         }
 
         // Validate @counted / @with count: valid on :many-paginated and :cursor
-        if ($query->counted
-            && $query->returns !== ReturnType::ManyPaginated
-            && $query->returns !== ReturnType::Cursor
-        ) {
-            if ($query->returns === ReturnType::Paginated) {
+        // @with paginated makes :many behave like :many-paginated for validation purposes
+        $isManyPaginated = $query->returns === ReturnType::ManyPaginated || $query->paginated;
+
+        if ($query->counted && !$isManyPaginated && $query->returns !== ReturnType::Cursor) {
+            if ($query->returns === ReturnType::Paginator) {
                 throw new \RuntimeException(
-                    "Query '{$query->name}': :paginated and @with count cannot be combined. " .
-                    ":paginated already includes an internal COUNT query. " .
-                    "Use :many-paginated with @with count for a separate count method."
+                    "Query '{$query->name}': :paginator and @with count cannot be combined. " .
+                    ":paginator already includes an internal COUNT query. " .
+                    "Use :many with @with paginated, count for a separate count method."
                 );
             }
             throw new \RuntimeException(
-                "Query '{$query->name}': @with count is only valid on :many-paginated and :cursor queries. " .
+                "Query '{$query->name}': @with count is only valid on :many + @with paginated, and :cursor queries. " .
                 "Got: {$query->returns->value}"
             );
         }
@@ -145,11 +145,11 @@ class QueryAnalyzer
         // Validate @with exists: valid on :many, :many-paginated, and :cursor
         if ($query->exists
             && $query->returns !== ReturnType::Many
-            && $query->returns !== ReturnType::ManyPaginated
+            && !$isManyPaginated
             && $query->returns !== ReturnType::Cursor
         ) {
             throw new \RuntimeException(
-                "Query '{$query->name}': @with exists is only valid on :many, :many-paginated, " .
+                "Query '{$query->name}': @with exists is only valid on :many, :many (+ @with paginated), " .
                 "and :cursor queries. Got: {$query->returns->value}"
             );
         }
@@ -166,8 +166,8 @@ class QueryAnalyzer
                 );
             }
             if ($query->returns !== ReturnType::Many
-                && $query->returns !== ReturnType::ManyPaginated
-                && $query->returns !== ReturnType::Paginated
+                && !$isManyPaginated
+                && $query->returns !== ReturnType::Paginator
                 && $query->returns !== ReturnType::Cursor
             ) {
                 throw new \RuntimeException(
@@ -202,7 +202,7 @@ class QueryAnalyzer
         }
 
         // Validate :paginated: cannot combine with @counted
-        if ($query->returns === ReturnType::Paginated && $query->counted) {
+        if ($query->returns === ReturnType::Paginator && $query->counted) {
             throw new \RuntimeException(
                 "Query '{$query->name}': :paginated and @counted cannot be combined. " .
                 "Use :paginated for a single PaginatedResult object, " .
@@ -296,6 +296,7 @@ class QueryAnalyzer
             columnAliases:        $query->columnAliases,
             counted:              $query->counted,
             searchable:           $query->searchable,
+            paginated:            $query->paginated,
             exists:               $query->exists,
             partial:              $query->partial,
             returning:            $query->returning,

@@ -161,15 +161,15 @@ class PaginateReturningTest extends TestCase
 
     // =========================================================================
     // =========================================================================
-    // :paginated — parser
+    // :paginator — parser
     // =========================================================================
 
     public function test_paginated_return_type_parsed(): void
     {
         $q = $this->parser->parse(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
-        $this->assertSame(':paginated', $q[0]->returns->value);
+        $this->assertSame(':paginator', $q[0]->returns->value);
     }
 
     public function test_many_paginated_is_not_paginated(): void
@@ -177,41 +177,41 @@ class PaginateReturningTest extends TestCase
         $q = $this->parser->parse(
             "-- @name ListUsers\n-- @returns :many-paginated\nSELECT * FROM users;"
         );
-        $this->assertNotSame(':paginated', $q[0]->returns->value);
+        $this->assertNotSame(':paginator', $q[0]->returns->value);
     }
 
     // =========================================================================
-    // :paginated — analyzer validations
+    // :paginator — analyzer validations
     // =========================================================================
 
     public function test_paginated_on_exec_throws(): void
     {
-        // :paginated is only valid for SELECT queries (not :exec)
+        // :paginator is only valid for SELECT queries (not :exec)
         // The query generates no result columns → should still be parseable,
-        // but :paginated on a DELETE makes no sense. The generator would fail.
+        // but :paginator on a DELETE makes no sense. The generator would fail.
         // We test that a valid SELECT does NOT throw.
         $q = $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
-        $this->assertSame(':paginated', $q[0]->returns->value);
+        $this->assertSame(':paginator', $q[0]->returns->value);
     }
 
     public function test_paginated_on_one_throws(): void
     {
-        // :one is a distinct return type — should not be confused with :paginated
+        // :one is a distinct return type — should not be confused with :paginator
         $q = $this->parser->parse(
             "-- @name GetUser\n-- @returns :one\nSELECT * FROM users WHERE id = :id;"
         );
         $this->assertSame(':one', $q[0]->returns->value);
-        $this->assertNotSame(':paginated', $q[0]->returns->value);
+        $this->assertNotSame(':paginator', $q[0]->returns->value);
     }
 
     public function test_paginated_with_counted_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/:paginated.*@with count/');
+        $this->expectExceptionMessageMatches('/:paginator.*@with count/');
         $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\n-- @counted\n" .
+            "-- @name ListUsers\n-- @returns :paginator\n-- @counted\n" .
             "SELECT * FROM users;"
         );
     }
@@ -219,19 +219,19 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_return_type_does_not_throw(): void
     {
         $q = $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
-        $this->assertSame(':paginated', $q[0]->returns->value);
+        $this->assertSame(':paginator', $q[0]->returns->value);
     }
 
     // =========================================================================
-    // :paginated — generated method
+    // :paginator — generated method
     // =========================================================================
 
     public function test_paginated_method_returns_paginated_result(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('): PaginatedResult', $code);
     }
@@ -239,7 +239,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_has_limit_default_10(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('int $limit = 10', $code);
         $this->assertStringContainsString('int $offset = 0', $code);
@@ -248,16 +248,16 @@ class PaginateReturningTest extends TestCase
     public function test_paginate_limit_is_required_not_nullable(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
-        // Should NOT have ?int $limit (nullable) — :paginated requires a real limit
+        // Should NOT have ?int $limit (nullable) — :paginator requires a real limit
         $this->assertStringNotContainsString('?int $limit', $code);
     }
 
     public function test_paginated_method_runs_count_query(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('COUNT(*) AS _total', $code);
         $this->assertStringContainsString('_paginate_total', $code);
@@ -266,7 +266,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_adds_limit_offset_to_page_sql(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('LIMIT :limit OFFSET :offset', $code);
     }
@@ -274,7 +274,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_constructs_paginated_result(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('new PaginatedResult(', $code);
         $this->assertStringContainsString('items:',   $code);
@@ -288,7 +288,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_computes_has_more(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('$offset + count($__items) < $__total', $code);
     }
@@ -296,7 +296,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_computes_pages(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('ceil($__total / $limit)', $code);
     }
@@ -304,7 +304,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_imports_paginated_result(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $this->assertStringContainsString('use SqlcPhp\\Query\\PaginatedResult', $code);
     }
@@ -312,7 +312,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_with_user_params(): void
     {
         $code = $this->code(
-            "-- @name ListActiveUsers\n-- @returns :paginated\n" .
+            "-- @name ListActiveUsers\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
         $this->assertStringContainsString('int $active', $code);
@@ -322,9 +322,9 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_method_binds_to_count_stmt_not_stmt(): void
     {
         // Regression: @optional params were bound to $stmt (undefined) instead of
-        // $__countStmt and $__stmt which are the variable names used in :paginated.
+        // $__countStmt and $__stmt which are the variable names used in :paginator.
         $code = $this->code(
-            "-- @name ListUsers\n-- @optional active\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @optional active\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
 
@@ -351,9 +351,9 @@ class PaginateReturningTest extends TestCase
 
     public function test_paginated_without_optional_has_no_bare_stmt(): void
     {
-        // Ensure no query with :paginated (no @optional) references bare $stmt
+        // Ensure no query with :paginator (no @optional) references bare $stmt
         $code = $this->code(
-            "-- @name ListActiveUsers\n-- @returns :paginated\n" .
+            "-- @name ListActiveUsers\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
 
@@ -369,7 +369,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_strips_order_by_from_count(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @returns :paginator\n" .
             "SELECT * FROM users ORDER BY id DESC;"
         );
         // The COUNT subquery should NOT include ORDER BY
@@ -379,13 +379,13 @@ class PaginateReturningTest extends TestCase
     }
 
     // =========================================================================
-    // :paginated + @searchable
+    // :paginator + @searchable
     // =========================================================================
 
     public function test_paginated_with_searchable_has_criteria_param(): void
     {
         $q    = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\n" .
             "SELECT * FROM users;"
         );
         $code = $this->qg->generate($q)['UserQuery']['code'];
@@ -397,7 +397,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_with_searchable_generates_criteria_class(): void
     {
         $q     = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\n" .
             "SELECT * FROM users;"
         );
         $files = $this->qg->generate($q);
@@ -408,7 +408,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_with_searchable_applies_criteria_to_count(): void
     {
         $q    = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\n" .
             "SELECT * FROM users;"
         );
         $code = $this->qg->generate($q)['UserQuery']['code'];
@@ -417,7 +417,7 @@ class PaginateReturningTest extends TestCase
     }
 
     // =========================================================================
-    // :paginated interface — not in interface (PaginatedResult is runtime, not domain)
+    // :paginator interface — not in interface (PaginatedResult is runtime, not domain)
     // =========================================================================
 
     public function test_paginated_signature_in_interface(): void
@@ -426,7 +426,7 @@ class PaginateReturningTest extends TestCase
         $ig     = new InterfaceGenerator('App');
         $qg     = new QueryGenerator($this->catalog, $this->mapper, $dtoGen, 'App', true, $ig);
         $q      = $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $files = $qg->generateInterfaces($q);
         $iface = $files['UserQueryInterface']['code'];
@@ -442,14 +442,14 @@ class PaginateReturningTest extends TestCase
         $ig     = new InterfaceGenerator('App');
         $qg     = new QueryGenerator($this->catalog, $this->mapper, $dtoGen, 'App', true, $ig);
         $q      = $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $files = $qg->generateInterfaces($q);
         $iface = $files['UserQueryInterface']['code'];
         $this->assertStringContainsString(
             'use SqlcPhp\\Query\\PaginatedResult;',
             $iface,
-            'Interface must import PaginatedResult when a :paginated method is declared'
+            'Interface must import PaginatedResult when a :paginator method is declared'
         );
     }
 
@@ -477,7 +477,7 @@ class PaginateReturningTest extends TestCase
             'App\\Database\\Repositories', true, $ig
         );
         $q    = $this->analyze(
-            "-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $files = $qg->generateInterfaces($q);
         $iface = $files['UserQueryInterface']['code'];
@@ -651,7 +651,7 @@ class PaginateReturningTest extends TestCase
     }
 
     // =========================================================================
-    // Non-:paginated / non-@returning unchanged
+    // Non-:paginator / non-@returning unchanged
     // =========================================================================
 
     public function test_regular_exec_unchanged(): void
@@ -679,6 +679,6 @@ class PaginateReturningTest extends TestCase
 
     public function test_version_is_2_8_0(): void
     {
-        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.3', \SqlcPhp\Version::VERSION);
     }
 }

@@ -109,7 +109,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_a_paginated_count_binds_to_count_stmt(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @optional active\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @optional active\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
 
@@ -126,7 +126,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_a_paginated_page_binds_to_page_stmt(): void
     {
         $code = $this->code(
-            "-- @name ListUsers\n-- @optional active\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @optional active\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
 
@@ -145,7 +145,7 @@ class TechDebtRefactorTest extends TestCase
         // @optional generates both :param and :param_chk bindings.
         // Both must target the correct statement variable in :paginated.
         $code = $this->code(
-            "-- @name ListUsers\n-- @optional active\n-- @returns :paginated\n" .
+            "-- @name ListUsers\n-- @optional active\n-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active;"
         );
 
@@ -159,7 +159,7 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_a_paginated_no_params_emits_no_bare_stmt(): void
     {
-        $code        = $this->code("-- @name ListAll\n-- @returns :paginated\nSELECT * FROM users;");
+        $code        = $this->code("-- @name ListAll\n-- @returns :paginator\nSELECT * FROM users;");
         $methodStart = (int) strpos($code, 'function listAll');
         $stripped    = str_replace(['$__countStmt', '$__stmt'], '', substr($code, $methodStart));
         $this->assertStringNotContainsString('$stmt', $stripped);
@@ -168,7 +168,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_a_searchable_paginated_criteria_bound_to_correct_stmts(): void
     {
         $q    = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $code = $this->qg->generate($q)['UserQuery']['code'];
         $this->assertStringContainsString('$criteria?->bindAll($__countStmt)', $code);
@@ -181,7 +181,7 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_b_plain_paginated_count_before_page(): void
     {
-        $code = $this->code("-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;");
+        $code = $this->code("-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;");
 
         $countPos  = strpos($code, '$__countStmt = $this->pdo->prepare(');
         $pagePos   = strpos($code, '$__stmt = $this->pdo->prepare(');
@@ -197,7 +197,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_b_searchable_paginated_same_structure(): void
     {
         $q    = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $code = $this->qg->generate($q)['UserQuery']['code'];
 
@@ -211,9 +211,9 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_b_identical_paginated_result_fields_both_variants(): void
     {
-        $plain = $this->code("-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;");
+        $plain = $this->code("-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;");
         $q     = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $searchable = $this->qg->generate($q)['UserQuery']['code'];
 
@@ -225,9 +225,9 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_b_identical_formulas_both_variants(): void
     {
-        $plain = $this->code("-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;");
+        $plain = $this->code("-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;");
         $q     = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $searchable = $this->qg->generate($q)['UserQuery']['code'];
 
@@ -242,9 +242,9 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_b_each_method_has_exactly_one_paginated_result_construction(): void
     {
-        $plain = $this->code("-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;");
+        $plain = $this->code("-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;");
         $q     = $this->analyze(
-            "-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;"
+            "-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;"
         );
         $searchable = $this->qg->generate($q)['UserQuery']['code'];
 
@@ -305,7 +305,7 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_c_paginated_signature_has_use_and_type(): void
     {
-        $iface = $this->iface("-- @name ListUsers\n-- @returns :paginated\nSELECT * FROM users;");
+        $iface = $this->iface("-- @name ListUsers\n-- @returns :paginator\nSELECT * FROM users;");
         $this->assertStringContainsString('use SqlcPhp\\Query\\PaginatedResult;', $iface);
         $this->assertStringContainsString('int $limit = 10, int $offset = 0', $iface);
         $this->assertStringContainsString('): PaginatedResult;', $iface);
@@ -359,7 +359,7 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_fix_c_searchable_paginated_has_criteria_limit_offset(): void
     {
-        $iface = $this->iface("-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;");
+        $iface = $this->iface("-- @name ListUsers\n-- @searchable\n-- @returns :paginator\nSELECT * FROM users;");
         $this->assertStringContainsString('?ListUsersCriteria $criteria = null', $iface);
         $this->assertStringContainsString('int $limit = 10', $iface);
         $this->assertStringContainsString('): PaginatedResult;', $iface);
@@ -373,7 +373,7 @@ class TechDebtRefactorTest extends TestCase
     {
         $q = $this->analyze(
             "-- @name ListActiveUsers\n-- @optional active\n-- @optional country_id\n" .
-            "-- @returns :paginated\n" .
+            "-- @returns :paginator\n" .
             "SELECT * FROM users WHERE active = :active AND country_id = :country_id;"
         );
 
@@ -401,6 +401,6 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_version_is_2_8_5(): void
     {
-        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.3', \SqlcPhp\Version::VERSION);
     }
 }

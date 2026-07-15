@@ -61,7 +61,9 @@ class ManyPaginatedTest extends TestCase
         $queries = $this->parser->parse(
             "-- @name List\n-- @returns :many-paginated\nSELECT users.* FROM users;"
         );
-        $this->assertSame(':many-paginated', $queries[0]->returns->value);
+        // :many-paginated is deprecated — maps to :many + $paginated=true
+        $this->assertSame(':many', $queries[0]->returns->value);
+        $this->assertTrue($queries[0]->paginated);
     }
 
     // -------------------------------------------------------------------------

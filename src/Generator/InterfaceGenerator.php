@@ -128,7 +128,7 @@ PHP;
         $sep         = $paramList !== '' ? ', ' : '';
 
         if ($query->searchable) {
-            $criteriaClass = $query->group . 'Criteria';
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
             $paramList     = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?string \$after = null, ?string \$before = null, int \$limit = 20";
         } else {
             $paramList = $paramList . $sep . '?string $after = null, ?string $before = null, int $limit = 20';
@@ -141,16 +141,28 @@ PHP;
             $countParams = $queryGen->buildParamListPublic($query);
             $countSep    = $countParams !== '' ? ', ' : '';
             if ($query->searchable) {
-                $criteriaClass = $query->group . 'Criteria';
+                $criteriaClass = ucfirst($query->name) . 'Criteria';
                 $countParams  .= "{$countSep}?{$criteriaClass} \$criteria = null";
             }
             $countMethod  = "\n\n    /**\n     * @return int Total rows matching filters (criteria + fixed params), independent of cursor position.\n     */\n";
             $countMethod .= "    public function {$query->name}Count({$countParams}): int;";
         }
 
+        $existsMethod = '';
+        if ($query->exists) {
+            $existsParams = $queryGen->buildParamListPublic($query);
+            $existsSep    = $existsParams !== '' ? ', ' : '';
+            if ($query->searchable) {
+                $criteriaClass = ucfirst($query->name) . 'Criteria';
+                $existsParams .= "{$existsSep}?{$criteriaClass} \$criteria = null";
+            }
+            $existsMethod  = "\n\n    /**\n     * @return bool True when at least one row matches.\n     */\n";
+            $existsMethod .= "    public function {$query->name}Exists({$existsParams}): bool;";
+        }
+
         return <<<PHP
 {$docblock}
-    public function {$query->name}({$paramList}): CursorResult;{$countMethod}
+    public function {$query->name}({$paramList}): CursorResult;{$countMethod}{$existsMethod}
 PHP;
     }
 
@@ -183,7 +195,7 @@ PHP;
         $paramList   = $queryGen->buildParamListPublic($query);
 
         if ($query->searchable) {
-            $criteriaClass = $query->group . 'Criteria';
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
             $sep       = $paramList !== '' ? ', ' : '';
             $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, int \$limit = 10, int \$offset = 0";
         } else {
@@ -209,7 +221,7 @@ PHP;
         $paramList   = $queryGen->buildParamListPublic($query);
 
         if ($query->searchable) {
-            $criteriaClass = $query->group . 'Criteria';
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
             $sep       = $paramList !== '' ? ', ' : '';
             $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null, ?int \$limit = null, int \$offset = 0";
 
@@ -221,6 +233,14 @@ PHP;
                 $countParams = $countParams . $sep2 . "?{$criteriaClass} \$criteria = null";
                 $countName   = $query->name . 'Count';
                 $main .= "\n\n    public function {$countName}({$countParams}): int;";
+            }
+
+            if ($query->exists) {
+                $existsParams = $queryGen->buildParamListPublic($query);
+                $sep3         = $existsParams !== '' ? ', ' : '';
+                $existsParams = $existsParams . $sep3 . "?{$criteriaClass} \$criteria = null";
+                $existsName   = $query->name . 'Exists';
+                $main .= "\n\n    public function {$existsName}({$existsParams}): bool;";
             }
 
             return $main;
@@ -249,6 +269,20 @@ PHP;
 PHP;
         }
 
+        if ($query->exists) {
+            $existsParamList = $queryGen->buildParamListPublic($query);
+            $existsName      = $query->name . 'Exists';
+            $main .= <<<PHP
+
+
+    /**
+     * True when at least one row matches the filter conditions.
+     * @return bool
+     */
+    public function {$existsName}({$existsParamList}): bool;
+PHP;
+        }
+
         return $main;
     }
 
@@ -261,17 +295,34 @@ PHP;
         $paramList   = $queryGen->buildParamListPublic($query);
 
         if ($query->searchable) {
-            $criteriaClass = $query->group . 'Criteria';
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
             $sep       = $paramList !== '' ? ', ' : '';
             $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null";
-            return "    /** @searchable */\n    public function {$query->name}({$paramList}): array;";
+            $main      = "    /** @searchable */\n    public function {$query->name}({$paramList}): array;";
+
+            if ($query->exists) {
+                $existsParams = $queryGen->buildParamListPublic($query);
+                $existsSep    = $existsParams !== '' ? ', ' : '';
+                $existsParams = $existsParams . $existsSep . "?{$criteriaClass} \$criteria = null";
+                $main .= "\n\n    public function {$query->name}Exists({$existsParams}): bool;";
+            }
+
+            return $main;
         }
 
         $docblock = $this->buildDocblock($query, $queryGen, "@return {$returnClass}[]");
-        return <<<PHP
+        $main     = <<<PHP
 {$docblock}
     public function {$query->name}({$paramList}): array;
 PHP;
+
+        if ($query->exists) {
+            $existsParamList = $queryGen->buildParamListPublic($query);
+            $existsName      = $query->name . 'Exists';
+            $main .= "\n\n    public function {$existsName}({$existsParamList}): bool;";
+        }
+
+        return $main;
     }
 
     /**

@@ -209,7 +209,7 @@ class PaginateReturningTest extends TestCase
     public function test_paginated_with_counted_throws(): void
     {
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/:paginated.*@counted/');
+        $this->expectExceptionMessageMatches('/:paginated.*@with count/');
         $this->analyze(
             "-- @name ListUsers\n-- @returns :paginated\n-- @counted\n" .
             "SELECT * FROM users;"
@@ -389,7 +389,7 @@ class PaginateReturningTest extends TestCase
             "SELECT * FROM users;"
         );
         $code = $this->qg->generate($q)['UserQuery']['code'];
-        $this->assertStringContainsString('?UserCriteria $criteria = null', $code);
+        $this->assertStringContainsString('?ListUsersCriteria $criteria = null', $code);
         $this->assertStringContainsString('int $limit = 10', $code);
         $this->assertStringContainsString('new PaginatedResult(', $code);
     }
@@ -401,7 +401,7 @@ class PaginateReturningTest extends TestCase
             "SELECT * FROM users;"
         );
         $files = $this->qg->generate($q);
-        $hasCriteria = array_filter($files, fn($f) => ($f['className'] ?? '') === 'UserCriteria');
+        $hasCriteria = array_filter($files, fn($f) => ($f['className'] ?? '') === 'ListUsersCriteria');
         $this->assertNotEmpty($hasCriteria, 'UserCriteria must be generated');
     }
 
@@ -679,6 +679,6 @@ class PaginateReturningTest extends TestCase
 
     public function test_version_is_2_8_0(): void
     {
-        $this->assertSame('2.17.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
     }
 }

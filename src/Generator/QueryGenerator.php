@@ -159,9 +159,14 @@ PHP;
             $code = $this->renderClass($className, $groupQueries);
             $files[$className] = ['className' => $className, 'code' => $code, 'relPath' => "{$className}.php"];
 
-            // Generate Criteria classes for @searchable queries
+            // Generate Criteria classes for @with criteria queries.
+            // The Criteria class name is always derived from @name (not @class),
+            // so multiple @with criteria queries in the same @class group each
+            // produce a distinct file (e.g. ListProfilesCriteria, SearchProfilesCriteria).
             foreach ($groupQueries as $query) {
                 if ($query->searchable && !empty($query->resultColumns)) {
+                    // In scoped mode: place in a subdirectory named after the query.
+                    // In flat mode: no subdirectory — class name uniqueness from @name is enough.
                     $scopeName       = $this->scopedCriterias ? ucfirst($query->name) : '';
                     $suppressOrderBy = ($query->returns === \SqlcPhp\Parser\ReturnType::Cursor);
                     $criteriaResult  = $this->criteriaGen->generate(
@@ -329,17 +334,22 @@ PHP;
                 ? $this->renderSearchableCursorMethod($query)
                 : $this->renderCursorMethod($query);
 
-            // @counted on :cursor — emit an additional {name}Count() method.
-            // The COUNT uses the original user SQL (without cursor WHERE injection),
-            // wrapped in a subquery: SELECT COUNT(*) FROM (...) AS _cursor_total
+            // @with count on :cursor
             if ($query->counted) {
                 $main .= "\n\n" . $this->renderCursorCountMethod($query);
+            }
+
+            // @with exists on :cursor
+            if ($query->exists) {
+                $main .= "\n\n" . ($query->searchable
+                    ? $this->renderSearchableExistsMethod($query)
+                    : $this->renderExistsMethod($query));
             }
 
             return $main;
         }
 
-        // @searchable queries get their own render path
+        // @with criteria queries get their own render path
         if ($query->searchable) {
             $main = $query->returns === ReturnType::ManyPaginated
                 ? $this->renderSearchablePaginatedMethod($query)
@@ -347,6 +357,11 @@ PHP;
 
             if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
                 $main .= "\n\n" . $this->renderSearchableCountMethod($query);
+            }
+
+            // @with exists on searchable :many / :many-paginated
+            if ($query->exists) {
+                $main .= "\n\n" . $this->renderSearchableExistsMethod($query);
             }
 
             return $main;
@@ -363,9 +378,14 @@ PHP;
             default           => $this->renderManyMethod($query),
         };
 
-        // @counted on :many-paginated — emit an additional {name}Count() method
+        // @with count on :many-paginated
         if ($query->counted && $query->returns === ReturnType::ManyPaginated) {
             $main .= "\n\n" . $this->renderCountMethod($query);
+        }
+
+        // @with exists on non-searchable :many / :many-paginated
+        if ($query->exists) {
+            $main .= "\n\n" . $this->renderExistsMethod($query);
         }
 
         return $main;
@@ -377,7 +397,10 @@ PHP;
 
     private function criteriaClass(QueryDefinition $query): string
     {
-        return $query->group . 'Criteria';
+        // Always derived from @name (method name), not @class (group).
+        // This ensures two @searchable queries in the same @class group
+        // produce distinct Criteria classes and never overwrite each other.
+        return ucfirst($query->name) . 'Criteria';
     }
 
     /**
@@ -1617,7 +1640,97 @@ PHP;
     }
 
     // -------------------------------------------------------------------------
-    // :cursor + @counted — separate Count() method
+    // @with exists — {name}Exists() companion methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render a {name}Exists(): bool method for non-searchable queries.
+     * Uses SELECT EXISTS(SELECT 1 FROM (...) AS _exists_subquery) for efficiency —
+     * the DB stops scanning as soon as one row is found.
+     */
+    private function renderExistsMethod(QueryDefinition $query): string
+    {
+        $userParams  = $this->buildParamList($query);
+        $existsName  = $query->name . 'Exists';
+        $signature   = "{$existsName}({$userParams}): bool";
+        $docblock    = $this->buildDocblock($query, '@return bool True when at least one row matches.');
+
+        $innerSql   = preg_replace('/\s+/', ' ', trim($query->sql)) ?? $query->sql;
+        $innerSql   = rtrim($innerSql, ';');
+        $innerSql   = preg_replace('/\s+LIMIT\s+:\w+\s+OFFSET\s+:\w+\s*$/i', '', $innerSql);
+        $existsSql  = "SELECT EXISTS(SELECT 1 FROM ({$innerSql}) AS _exists_subquery) AS _exists";
+        $sqlLiteral = $this->renderSqlLiteral($existsSql);
+
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$existsName}'");
+
+        $prepare = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+
+        return <<<PHP
+{$docblock}
+    public function {$signature}
+    {
+{$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (bool) ((\$row !== false ? \$row['_exists'] : null) ?? false);
+    }
+PHP;
+    }
+
+    /**
+     * Render a {name}Exists(): bool method for @searchable queries.
+     * Uses the same dynamic SQL assembly as the searchable count method, but
+     * wraps in SELECT EXISTS(...) instead of SELECT COUNT(*).
+     */
+    private function renderSearchableExistsMethod(QueryDefinition $query): string
+    {
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams    = $this->buildParamList($query);
+        $critParam     = "?{$criteriaClass} \$criteria = null";
+        $allParams     = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
+        $existsName    = $query->name . 'Exists';
+
+        $bindings     = $this->renderBindings($query);
+        $bindingsStr  = rtrim($bindings);
+        $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr = $this->buildBindingsExpr($query);
+
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+
+        return <<<PHP
+    /**
+     * Returns true when at least one row matches the current criteria.
+     * @param ?{$criteriaClass} \$criteria Same criteria as the main method — pass the same instance.
+     * @return bool
+     */
+    public function {$existsName}({$allParams}): bool
+    {
+{$sqlBlock}
+        \$__existsSql = 'SELECT EXISTS(SELECT 1 FROM (' . \$__sql . ') AS _exists_subquery) AS _exists';
+        \$stmt = \$this->pdo->prepare(\$__existsSql);
+{$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$this->lastQuery = new QueryObject(\$__existsSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$existsName}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
+
+        return (bool) ((\$row !== false ? \$row['_exists'] : null) ?? false);
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // :cursor + @with count — separate Count() method
     // -------------------------------------------------------------------------
 
     /**
@@ -1658,7 +1771,7 @@ PHP;
         if ($query->searchable) {
             // @counted + @searchable: accept $criteria and apply its WHERE filters
             // to the COUNT query so the total matches the filtered dataset.
-            $criteriaClass = $query->group . 'Criteria';
+            $criteriaClass = $this->criteriaClass($query);
             $signature     = "{$countName}({$userParams}{$sep}?{$criteriaClass} \$criteria = null): int";
             $docblock       = $this->buildDocblock($query,
                 '@return int Total rows matching the filter conditions (criteria + fixed params). ' .

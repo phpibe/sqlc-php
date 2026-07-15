@@ -60,7 +60,11 @@ class CriteriaGenerator
         string          $scopeName       = '',
         bool            $suppressOrderBy = false,
     ): array {
-        $className = $query->group . 'Criteria';
+        // Class name is based on the query @name (method name), not @class (group).
+        // This guarantees uniqueness across all queries in the same @class group —
+        // two queries with different @name but the same @class produce distinct
+        // Criteria files (e.g. ListProfilesCriteria, SearchProfilesCriteria).
+        $className = ucfirst($query->name) . 'Criteria';
 
         // When scoped, namespace mirrors the query name subdirectory
         $namespace = $scopeName !== ''

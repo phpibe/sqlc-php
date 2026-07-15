@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.17.1</span>
+    <span class="brand-ver">v2.19.0</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -449,6 +449,11 @@ php vendor/bin/sqlc-php --generate-schema sqlc.yaml
 # Write to a custom path
 php vendor/bin/sqlc-php --generate-schema --schema-output=database/schema.sql sqlc.yaml</code></pre>
 
+  <div class="callout ci-tip">
+    <i class="bi bi-lightbulb ci-icon"></i>
+    <strong>Keep the schema complete.</strong> Every table referenced in any query — including JOINed tables — must appear in the schema. Missing tables cause columns to resolve as <code>mixed</code>, which silently suppresses <code>where*</code> methods in <code>@searchable</code> Criteria classes. When in doubt, regenerate the schema from the live database.
+  </div>
+
   <h3>Typical workflow</h3>
   <pre><code class="language-bash"># 1. Pull schema from live DB
 php vendor/bin/sqlc-php --generate-schema sqlc.yaml
@@ -551,14 +556,13 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
         <tr><td><span class="ann ao">@class</span></td><td>No</td><td>Query class group name — inferred from table name when absent. <code>@group</code> is the deprecated alias.</td></tr>
         <tr><td><span class="ann ao">@comment</span></td><td>No</td><td>Description added to the generated method docblock before <code>@param</code> / <code>@return</code>. Multiple lines supported.</td></tr>
         <tr><td><span class="ann ao">@param</span></td><td>No</td><td>Unified input parameter annotation. <code>@param name table.col</code> (type hint), <code>@param name ?string</code> (nullable), <code>@param name ?string:optional</code> (nullable + skippable WHERE). Replaces <code>@optional</code> and <code>@nullable</code>.</td></tr>
-        <tr><td><span class="ann ao">@partial</span></td><td>No</td><td>In UPDATE queries, passing <code>null</code> for a SET param skips updating that column.</td></tr>
+        <tr><td><span class="ann ao">@partial</span></td><td>No</td><td>Query-level flag for UPDATE statements. Params wrapped in <code>COALESCE(:p, col)</code> become nullable — passing <code>null</code> preserves the existing column value instead of updating it. Requires <code>COALESCE</code> in the SQL. See comparison with <code>@param ?type</code> in the <a href="#ann-partial">@partial section</a>.</td></tr>
         <tr><td><span class="ann ao">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the created row by <code>lastInsertId()</code>. Only for <code>:one</code> INSERT.</td></tr>
         <tr><td><span class="ann ao">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name.</td></tr>
         <tr><td><span class="ann ao">@column</span></td><td>No</td><td>Rename a result column in the DTO without using SQL <code>AS</code>.</td></tr>
         <tr><td><span class="ann ao">@embed</span></td><td>No</td><td>Group prefixed columns from a JOIN into a nested readonly object.</td></tr>
         <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Universal column type override. Scalar: <code>@type col float</code> / <code>@type col ?float</code>. JSON DTO: <code>@type col json:City[]</code> / <code>@type col ?json:City</code>. Covers all cases previously handled by <code>@json</code> and <code>@nillable</code>.</td></tr>
-        <tr><td><span class="ann ao">@counted</span></td><td>No</td><td>Generate a companion <code>{name}Count(): int</code> method. Valid with <code>:many-paginated</code> and <code>:cursor</code>.</td></tr>
-        <tr><td><span class="ann ao">@searchable</span></td><td>No</td><td>Generate a typed Criteria class for dynamic WHERE filters. Valid with <code>:many</code>, <code>:many-paginated</code>, <code>:paginated</code>, <code>:cursor</code>.</td></tr>
+        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions. <code>@with criteria</code> — typed Criteria + dynamic filters. <code>@with count</code> — companion <code>{name}Count(): int</code>. <code>@with exists</code> — companion <code>{name}Exists(): bool</code>. Combinable: <code>@with criteria, count, exists</code>.</td></tr>
         <tr><td><span class="ann ao">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination. Required with <code>:cursor</code>. Supports <code>table.col</code> qualified names.</td></tr>
         <tr><td><span class="ann ao">@use</span></td><td>No</td><td>Inject shared CTEs from <code>ctes:</code> files as a <code>WITH</code> clause.</td></tr>
         <tr><td><span class="ann ao">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the generated method docblock.</td></tr>
@@ -726,22 +730,89 @@ WHERE orders.user_id = :userId;</code></pre>
 
   <div class="callout ci-warn">
     <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>Difference between <code>?phpType</code> and <code>?phpType:optional</code>:</strong>
-    <code>?string</code> passes null to the database (sets the column to NULL). <code>?string:optional</code> skips the WHERE condition entirely when null — the row is not filtered at all.
+    <strong>Difference between <code>?phpType</code>, <code>?phpType:optional</code>, and <code>@partial</code>:</strong>
+    <br><br>
+    <code>@param col ?string</code> — passes null to PDO; sets the column to NULL in the database.<br>
+    <code>@param col ?string:optional</code> — skips the WHERE condition entirely when null.<br>
+    <code>@partial</code> (query-level) — preserves the existing column value when null, via <code>COALESCE(:p, col)</code> in the SET clause.<br>
+    <br>
+    See <a href="#ann-partial">@partial</a> for the full comparison table.
   </div>
 </section>
 
 <!-- ── @partial ── -->
 <section id="ann-partial">
   <h3><i class="bi bi-pencil-square me-2"></i>@partial</h3>
-  <p class="ds">Marks SET parameters in an UPDATE query as optional. Passing <code>null</code> for a param skips updating that column — only provided values are written. Only valid on <code>:exec</code> UPDATE queries.</p>
-  <pre><code class="language-sql">-- @name UpdateUser
+  <p class="ds">A query-level flag for UPDATE statements where some columns should only be updated when a value is explicitly provided. Passing <code>null</code> for a partial param leaves the column unchanged — the existing database value is preserved via <code>COALESCE</code>.</p>
+
+  <p class="ds">Only valid on <code>:exec</code> UPDATE queries. The SQL <strong>must</strong> use <code>COALESCE(:param, col)</code> for each partial column — sqlc-php detects the partial params by scanning for this pattern in the SET clause.</p>
+
+  <pre><code class="language-sql">-- @name UpdateUserProfile
 -- @class Users
 -- @returns :exec
 -- @partial
-UPDATE users SET name = :name, email = :email WHERE id = :id;</code></pre>
-  <pre><code class="language-php">// Only updates name; email column is left unchanged
-$query->updateUser(name: 'Alice', email: null, id: 1);</code></pre>
+UPDATE users
+SET name      = COALESCE(:name,      name),
+    email     = COALESCE(:email,     email),
+    avatar_url = COALESCE(:avatarUrl, avatar_url)
+WHERE id = :id;</code></pre>
+
+  <pre><code class="language-php">// Generated signature — all partial params are nullable with default null:
+public function updateUserProfile(
+    ?string $name      = null,
+    ?string $email     = null,
+    ?string $avatarUrl = null,
+    int     $id,
+): void
+
+// Update only the email — name and avatar_url are left unchanged:
+$query->updateUserProfile(email: 'new@example.com', id: 1);
+
+// Update all three fields:
+$query->updateUserProfile(name: 'Alice', email: 'alice@x.com', avatarUrl: '/img/a.png', id: 1);
+
+// Set avatar_url to NULL in the database — pass a non-null sentinel (not supported via @partial).
+// Use @param avatarUrl ?string for that case instead.</code></pre>
+
+  <h4>How it works</h4>
+  <p class="ds">sqlc-php rewrites nothing — the <code>COALESCE(:param, col)</code> is your SQL. The analyzer scans the SET clause for the pattern, marks those params as <code>optional = true</code> and <code>phpType = ?type</code>, and generates the nullable method signature. At runtime, passing <code>null</code> lets MySQL's <code>COALESCE</code> fall back to the current column value.</p>
+
+  <h4>Choosing the right mechanism for nullable UPDATE params</h4>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Goal</th><th>Mechanism</th><th>SQL pattern</th><th>null means</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Skip updating a column</td>
+          <td><code>@partial</code></td>
+          <td><code>SET col = COALESCE(:p, col)</code></td>
+          <td>Column keeps its current value</td>
+        </tr>
+        <tr>
+          <td>Set a column to NULL</td>
+          <td><code>@param p ?string</code></td>
+          <td><code>SET col = :p</code></td>
+          <td>Column is set to NULL in the database</td>
+        </tr>
+        <tr>
+          <td>Skip a WHERE condition</td>
+          <td><code>@param p ?string:optional</code></td>
+          <td><code>WHERE col = :p</code> → rewritten</td>
+          <td>Condition is omitted entirely</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong><code>@partial</code> is a query-level flag</strong>, not a per-param modifier. It activates COALESCE detection across the entire SET clause. This is intentionally different from <code>@param</code> modifiers — a single <code>-- @partial</code> line covers all partial columns in the query, which is more ergonomic than one <code>@param</code> line per column for large UPDATE statements.
+  </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <code>@partial</code> cannot set a column to NULL — <code>COALESCE(:p, col)</code> will always fall back to <code>col</code> when <code>:p</code> is null. If you need both "skip update" and "set to NULL" semantics on the same column, split into two separate query methods.
+  </div>
 </section>
 
 <!-- ── @returning ── -->
@@ -916,54 +987,100 @@ WHERE orders.id = :id GROUP BY orders.id;</code></pre>
   </div>
 </section>
 
-<!-- ── @counted ── -->
-<section id="ann-counted">
-  <h3><i class="bi bi-hash me-2"></i>@counted</h3>
-  <p class="ds">Generates a companion <code>{name}Count(): int</code> method that returns the total number of matching rows, without pagination or cursor constraints. Valid with <code>:many-paginated</code> and <code>:cursor</code>.</p>
+<!-- ── @with ── -->
+<section id="ann-with">
+  <h3><i class="bi bi-plus-circle me-2"></i>@with — query capability extensions <span class="new-badge">v2.18.0</span></h3>
+  <p class="ds">Declares additional capabilities for a query. One annotation replaces multiple — modifiers are comma-separated and order-independent.</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Modifier</th><th>Generates</th><th>Valid with</th></tr></thead>
+      <tbody>
+        <tr><td><code>criteria</code></td><td>Typed <code>XxxCriteria</code> class + <code>$criteria</code> param on the method</td><td><code>:many</code> <code>:many-paginated</code> <code>:paginated</code> <code>:cursor</code></td></tr>
+        <tr><td><code>count</code></td><td><code>{name}Count(): int</code> companion method</td><td><code>:many-paginated</code> <code>:cursor</code></td></tr>
+        <tr><td><code>exists</code></td><td><code>{name}Exists(): bool</code> companion method</td><td><code>:many</code> <code>:many-paginated</code> <code>:cursor</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>criteria — dynamic WHERE filters</h4>
   <pre><code class="language-sql">-- @name ListOrders
 -- @class Orders
--- @returns :many-paginated
--- @counted               ← adds listOrdersCount() method
-SELECT * FROM orders WHERE user_id = :userId ORDER BY created_at DESC;</code></pre>
-  <pre><code class="language-php">// Get total count (for pagination UI)
-$total = $query->listOrdersCount(userId: $userId);
-
-// Get one page
-$orders = $query->listOrders(userId: $userId, limit: 20, offset: 0);</code></pre>
-  <p class="ds">With <code>@searchable</code>, the <code>Count()</code> method accepts the same <code>?Criteria $criteria</code> so the total matches the filtered dataset:</p>
-  <pre><code class="language-php">$criteria = (new OrdersCriteria())->whereStatusEq('pending');
-$total   = $query->listOrdersCount(criteria: $criteria);
-$orders  = $query->listOrders(criteria: $criteria, limit: 20, offset: 0);</code></pre>
-</section>
-
-<!-- ── @searchable ── -->
-<section id="ann-searchable">
-  <h3><i class="bi bi-funnel me-2"></i>@searchable</h3>
-  <p class="ds">Generates a typed <code>Criteria</code> class that accepts dynamic WHERE filters, ORDER BY, and pagination. The generated method accepts an optional <code>?XxxCriteria $criteria = null</code> parameter. Valid with <code>:many</code>, <code>:many-paginated</code>, <code>:paginated</code>, and <code>:cursor</code>.</p>
-  <pre><code class="language-sql">-- @name ListUsers
--- @class Users
 -- @returns :many
--- @searchable
-SELECT users.id, users.email, users.name, users.active, users.created_at
-FROM users;</code></pre>
-  <pre><code class="language-php">// Generated criteria — typed methods for every SELECT column
-$criteria = (new UsersCriteria())
-    ->whereActiveEq(true)
-    ->whereEmailLike('alice')
+-- @with criteria
+SELECT orders.id, orders.status, orders.total, orders.created_at
+FROM orders
+WHERE user_id = :userId;</code></pre>
+  <pre><code class="language-php">// Generated: ListOrdersCriteria.php  ← named after @name, not @class
+$criteria = (new ListOrdersCriteria())
+    ->whereStatusEq('pending')
+    ->whereTotalGte(100.0)
     ->orderByCreatedAt('DESC');
 
-$users = $query->listUsers(criteria: $criteria);
-
-// Filter methods generated per column type:
-// string:  Eq, Neq, Like, StartsWith, EndsWith, In, NotIn, IsNull, IsNotNull
-// int:     Eq, Neq, Gt, Gte, Lt, Lte, In, NotIn, Between, IsNull, IsNotNull
-// bool:    Eq
-// date:    Eq, Gt, Gte, Lt, Lte, Between, IsNull, IsNotNull</code></pre>
+$orders = $query->listOrders(userId: 1, criteria: $criteria);</code></pre>
 
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
-    When used with <code>:cursor</code>, the <code>orderBy()</code> methods are omitted from the Criteria — ORDER BY is fixed by the <code>@cursor</code> columns.
+    <strong>Criteria class names are derived from <code>@name</code>, not <code>@class</code>.</strong>
+    <code>@name ListOrders</code> → <code>ListOrdersCriteria</code>. This guarantees uniqueness when multiple queries in the same <code>@class</code> group each use <code>@with criteria</code> — they produce distinct files rather than overwriting each other.
+    <br><br>
+    Example: two queries in <code>@class Profile</code>:
+    <ul style="margin:.4rem 0 0 1rem">
+      <li><code>@name ListProfiles</code> → <code>ListProfilesCriteria.php</code></li>
+      <li><code>@name SearchProfiles</code> → <code>SearchProfilesCriteria.php</code></li>
+    </ul>
   </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>All tables in the query must be in the schema</strong> for <code>where*</code> methods to be generated. Columns from tables missing in the schema resolve to <code>mixed</code> and produce no filter methods. Run <code>--generate-schema</code> to extract the full schema.
+  </div>
+
+  <h4>count — total row count</h4>
+  <pre><code class="language-sql">-- @name ListOrders
+-- @class Orders
+-- @returns :many-paginated
+-- @with count
+SELECT orders.id, orders.status FROM orders WHERE user_id = :userId
+ORDER BY created_at DESC;</code></pre>
+  <pre><code class="language-php">// Generated: listOrdersCount() companion method
+$total  = $query->listOrdersCount(userId: 1);
+$orders = $query->listOrders(userId: 1, limit: 20, offset: 0);</code></pre>
+
+  <h4>exists — presence check</h4>
+  <p class="ds">Generates a <code>{name}Exists(): bool</code> method using <code>SELECT EXISTS(SELECT 1 FROM (...) AS _exists_subquery)</code> — the database stops scanning at the first matching row, making it more efficient than <code>COUNT(*) &gt; 0</code>.</p>
+  <pre><code class="language-sql">-- @name ListOrders
+-- @class Orders
+-- @returns :many
+-- @with exists
+SELECT orders.id FROM orders WHERE user_id = :userId;</code></pre>
+  <pre><code class="language-php">// Generated: listOrdersExists() companion method
+if ($query->listOrdersExists(userId: 1)) {
+    // user has at least one order
+}</code></pre>
+
+  <h4>Combining modifiers</h4>
+  <pre><code class="language-sql">-- @name ListOrders
+-- @class Orders
+-- @returns :cursor
+-- @cursor created_at DESC, id DESC
+-- @with criteria, count, exists
+SELECT orders.id, orders.status, orders.total, orders.created_at
+FROM orders
+ORDER BY orders.created_at DESC, orders.id DESC;</code></pre>
+  <pre><code class="language-php">// Three additional methods alongside listOrders():
+public function listOrders(?OrdersCriteria $criteria, ?string $after, ?string $before, int $limit): CursorResult;
+public function listOrdersCount(?OrdersCriteria $criteria): int;
+public function listOrdersExists(?OrdersCriteria $criteria): bool;</code></pre>
+
+  <h4>criteria + exists — check before paginating</h4>
+  <p class="ds">When <code>criteria</code> and <code>exists</code> are both active, <code>Exists()</code> accepts the same <code>$criteria</code> parameter — check existence under the same filters before paginating.</p>
+  <pre><code class="language-php">$criteria = (new OrdersCriteria())->whereStatusEq('pending');
+
+if ($query->listOrdersExists(criteria: $criteria)) {
+    $count = $query->listOrdersCount(criteria: $criteria);
+    $page  = $query->listOrders(criteria: $criteria, limit: 20);
+}</code></pre>
 </section>
 
 <!-- ── @cursor ── -->
@@ -1172,7 +1289,12 @@ $query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
 <!-- ═══ CRITERIA ═══ -->
 <section id="criteria">
   <h2><i class="bi bi-funnel-fill me-2" style="color:var(--accent2)"></i>Criteria class</h2>
-  <p class="ds">Each <code>@searchable</code> query generates a typed <code>XxxCriteria</code> class extending the <code>Criteria</code> base. Criteria are immutable — every method returns a new instance.</p>
+  <p class="ds">Each <code>@with criteria</code> query generates a typed <code>XxxCriteria</code> class extending the <code>Criteria</code> base. Criteria are immutable — every method returns a new instance.</p>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>All tables in the query must be declared in the schema</strong> for <code>where*</code> methods to be generated. The generator resolves column types from the schema catalog — columns from tables not in the schema resolve to <code>mixed</code> and produce no filter methods. Use <code>--generate-schema</code> to extract the full schema from the live database.
+  </div>
 
   <h3>Generated filter methods per column type</h3>
   <div class="tw">

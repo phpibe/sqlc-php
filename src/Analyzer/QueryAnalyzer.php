@@ -124,21 +124,33 @@ class QueryAnalyzer
             }, $resultColumns);
         }
 
-        // Validate @counted: valid on :many-paginated and :cursor
+        // Validate @counted / @with count: valid on :many-paginated and :cursor
         if ($query->counted
             && $query->returns !== ReturnType::ManyPaginated
             && $query->returns !== ReturnType::Cursor
         ) {
             if ($query->returns === ReturnType::Paginated) {
                 throw new \RuntimeException(
-                    "Query '{$query->name}': :paginated and @counted cannot be combined. " .
+                    "Query '{$query->name}': :paginated and @with count cannot be combined. " .
                     ":paginated already includes an internal COUNT query. " .
-                    "Use :many-paginated with @counted for a separate count method."
+                    "Use :many-paginated with @with count for a separate count method."
                 );
             }
             throw new \RuntimeException(
-                "Query '{$query->name}': @counted is only valid on :many-paginated and :cursor queries. " .
+                "Query '{$query->name}': @with count is only valid on :many-paginated and :cursor queries. " .
                 "Got: {$query->returns->value}"
+            );
+        }
+
+        // Validate @with exists: valid on :many, :many-paginated, and :cursor
+        if ($query->exists
+            && $query->returns !== ReturnType::Many
+            && $query->returns !== ReturnType::ManyPaginated
+            && $query->returns !== ReturnType::Cursor
+        ) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @with exists is only valid on :many, :many-paginated, " .
+                "and :cursor queries. Got: {$query->returns->value}"
             );
         }
 
@@ -284,6 +296,7 @@ class QueryAnalyzer
             columnAliases:        $query->columnAliases,
             counted:              $query->counted,
             searchable:           $query->searchable,
+            exists:               $query->exists,
             partial:              $query->partial,
             returning:            $query->returning,
             isUnion:              $query->isUnion,

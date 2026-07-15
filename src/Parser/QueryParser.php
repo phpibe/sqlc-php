@@ -108,6 +108,12 @@ class QueryDefinition
          */
         public readonly bool       $searchable = false,
         /**
+         * When true, a companion {name}Exists() method is generated that returns
+         * bool — true when at least one row matches. Declared via @with exists.
+         * Valid on :many, :many-paginated, and :cursor queries.
+         */
+        public readonly bool       $exists = false,
+        /**
          * When true, params that appear inside COALESCE(:param, col) in the SET
          * clause are marked optional (nullable, default null). Params in the WHERE
          * clause remain required. Only valid on :exec UPDATE queries.
@@ -284,6 +290,7 @@ class QueryParser
         $dtoClassName     = null;
         $counted          = false;
         $searchable       = false;
+        $exists           = false;
         $partial          = false;
         $returning        = false;        $columnAliases    = [];   // @column originalName alias
         $typeOverrides    = [];           // @type alias phpType
@@ -400,9 +407,46 @@ class QueryParser
                     }
                 } elseif (preg_match('/@dto\s+(\w+)/i', $comment, $m)) {
                     $dtoClassName = $m[1];
+                } elseif (preg_match('/^@with\s+(.+)/i', $comment, $m)) {
+                    // @with modifier1, modifier2, ...
+                    // Unified annotation for query capability extensions.
+                    //
+                    // Supported modifiers:
+                    //   criteria  → generate a typed Criteria class + accept $criteria param
+                    //               (equivalent to @searchable)
+                    //   count     → generate a companion {name}Count(): int method
+                    //               (equivalent to @counted)
+                    //   exists    → generate a companion {name}Exists(): bool method
+                    //
+                    // Example:
+                    //   -- @with criteria, count
+                    //   -- @with criteria, count, exists
+                    //   -- @with exists
+                    foreach (preg_split('/\s*,\s*/', trim($m[1])) as $modifier) {
+                        $modifier = strtolower(trim($modifier));
+                        match ($modifier) {
+                            'criteria' => $searchable = true,
+                            'count'    => $counted    = true,
+                            'exists'   => $exists     = true,
+                            default    => fwrite(STDERR,
+                                "sqlc-php: @with unknown modifier '{$modifier}' — " .
+                                "supported: criteria, count, exists.\n"
+                            ),
+                        };
+                    }
                 } elseif (preg_match('/^@counted\b/i', $comment)) {
+                    // @counted — DEPRECATED since v2.18.0. Use: -- @with count
+                    fwrite(STDERR,
+                        "sqlc-php: @counted is deprecated since v2.18.0. " .
+                        "Replace '-- @counted' with '-- @with count'.\n"
+                    );
                     $counted = true;
                 } elseif (preg_match('/^@searchable\b/i', $comment)) {
+                    // @searchable — DEPRECATED since v2.18.0. Use: -- @with criteria
+                    fwrite(STDERR,
+                        "sqlc-php: @searchable is deprecated since v2.18.0. " .
+                        "Replace '-- @searchable' with '-- @with criteria'.\n"
+                    );
                     $searchable = true;
                 } elseif (preg_match('/^@partial\b/i', $comment)) {
                     $partial = true;
@@ -577,6 +621,7 @@ class QueryParser
             columnAliases:    $columnAliases,
             counted:          $counted,
             searchable:       $searchable,
+            exists:           $exists,
             partial:          $partial,
             returning:        $returning,
             isUnion:          $isUnion,

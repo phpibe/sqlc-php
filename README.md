@@ -1524,7 +1524,37 @@ sqlc-php/
 
 ## Changelog
 
-### [2.17.1] — `andRawCondition()` / `orRawCondition()` replace `addRawCondition()`
+### [2.19.0] — Criteria class names derived from `@name` ⚠️ breaking change
+
+Criteria classes are now named after the query `@name` (method name) instead of `@class` (group). This fixes a silent overwrite bug where multiple `@with criteria` queries in the same `@class` group generated the same filename, the second silently overwriting the first.
+
+```
+Before: @name listProfiles @class Profile → ProfileCriteria.php  ← collides with other queries
+After:  @name listProfiles @class Profile → ListProfilesCriteria.php ← unique, never collides
+```
+
+**Migration:** rename your Criteria usages from `XxxCriteria` (group-based) to `YyyMethodCriteria` (name-based) and regenerate with `php vendor/bin/sqlc-php sqlc.yaml`.
+
+
+
+`@with` is the single annotation for query capabilities that generate companion methods. Replaces `@searchable` and `@counted`.
+
+```sql
+-- @with criteria           → typed Criteria class + $criteria param (was @searchable)
+-- @with count              → {name}Count(): int                     (was @counted)
+-- @with exists             → {name}Exists(): bool                   (new)
+-- @with criteria, count, exists  → all three
+```
+
+**`exists` uses `SELECT EXISTS(SELECT 1 FROM (...) AS _exists_subquery)`** — stops at the first matching row. More efficient than `COUNT(*) > 0` for existence checks.
+
+**`@searchable` and `@counted` are deprecated** — both still work but emit a stderr warning:
+```
+sqlc-php: @searchable is deprecated since v2.18.0. Replace '-- @searchable' with '-- @with criteria'.
+sqlc-php: @counted is deprecated since v2.18.0. Replace '-- @counted' with '-- @with count'.
+```
+
+
 
 `addRawCondition()` has been replaced with two explicit methods that make the connector unambiguous:
 

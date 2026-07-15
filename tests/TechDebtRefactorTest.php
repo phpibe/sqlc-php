@@ -347,7 +347,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_c_searchable_adds_criteria_param(): void
     {
         $iface = $this->iface("-- @name ListUsers\n-- @searchable\n-- @returns :many\nSELECT * FROM users;");
-        $this->assertStringContainsString('?UserCriteria $criteria = null', $iface);
+        $this->assertStringContainsString('?ListUsersCriteria $criteria = null', $iface);
     }
 
     public function test_fix_c_counted_adds_count_method(): void
@@ -360,7 +360,7 @@ class TechDebtRefactorTest extends TestCase
     public function test_fix_c_searchable_paginated_has_criteria_limit_offset(): void
     {
         $iface = $this->iface("-- @name ListUsers\n-- @searchable\n-- @returns :paginated\nSELECT * FROM users;");
-        $this->assertStringContainsString('?UserCriteria $criteria = null', $iface);
+        $this->assertStringContainsString('?ListUsersCriteria $criteria = null', $iface);
         $this->assertStringContainsString('int $limit = 10', $iface);
         $this->assertStringContainsString('): PaginatedResult;', $iface);
     }
@@ -401,6 +401,6 @@ class TechDebtRefactorTest extends TestCase
 
     public function test_version_is_2_8_5(): void
     {
-        $this->assertSame('2.17.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
     }
 }

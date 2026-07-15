@@ -463,9 +463,9 @@ class CursorPaginationTest extends TestCase
         );
         $code = $this->code($q);
         $this->assertStringContainsString(
-            'function listOrdersCount(?OrderCriteria $criteria = null): int',
+            'function listOrdersCount(?ListOrdersCriteria $criteria = null): int',
             $code,
-            '@counted + @searchable must add ?OrderCriteria $criteria to Count method'
+            '@counted + @searchable must add ?ListOrdersCriteria $criteria to Count method'
         );
     }
 
@@ -501,7 +501,7 @@ class CursorPaginationTest extends TestCase
         $countMethod = substr($code, $countStart, 600);
 
         $this->assertStringContainsString(
-            'function listByUserCount(int $userId, ?OrderCriteria $criteria = null): int',
+            'function listByUserCount(int $userId, ?ListByUserCriteria $criteria = null): int',
             $code
         );
         $this->assertStringContainsString('__hasWhere      = true', $countMethod,
@@ -903,9 +903,9 @@ class CursorPaginationTest extends TestCase
 
         $criteria = null;
         foreach ($files as $f) {
-            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+            if (($f['className'] ?? '') === 'ListOrdersCriteria') { $criteria = $f; break; }
         }
-        $this->assertNotNull($criteria, 'OrderCriteria must be generated');
+        $this->assertNotNull($criteria, 'ListOrdersCriteria must be generated');
     }
 
     public function test_searchable_cursor_criteria_has_no_order_by_methods(): void
@@ -920,7 +920,7 @@ class CursorPaginationTest extends TestCase
 
         $criteria = null;
         foreach ($files as $f) {
-            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+            if (($f['className'] ?? '') === 'ListOrdersCriteria') { $criteria = $f; break; }
         }
 
         $this->assertStringNotContainsString('function orderBy', $criteria['code'],
@@ -938,7 +938,7 @@ class CursorPaginationTest extends TestCase
 
         $criteria = null;
         foreach ($files as $f) {
-            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+            if (($f['className'] ?? '') === 'ListOrdersCriteria') { $criteria = $f; break; }
         }
 
         $this->assertStringContainsString('function where', $criteria['code'],
@@ -956,7 +956,7 @@ class CursorPaginationTest extends TestCase
 
         $criteria = null;
         foreach ($files as $f) {
-            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+            if (($f['className'] ?? '') === 'ListOrdersCriteria') { $criteria = $f; break; }
         }
 
         $this->assertStringContainsString('fixed by @cursor', $criteria['code'],
@@ -990,7 +990,7 @@ class CursorPaginationTest extends TestCase
         $code = $this->code($q);
 
         $this->assertStringContainsString(
-            'function listOrders(?OrderCriteria $criteria = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
+            'function listOrders(?ListOrdersCriteria $criteria = null, ?string $after = null, ?string $before = null, int $limit = 20): CursorResult',
             $code
         );
     }
@@ -1048,7 +1048,7 @@ class CursorPaginationTest extends TestCase
 
         $criteria = null;
         foreach ($files as $f) {
-            if (($f['className'] ?? '') === 'OrderCriteria') { $criteria = $f; break; }
+            if (($f['className'] ?? '') === 'ListOrdersCriteria') { $criteria = $f; break; }
         }
 
         $this->assertStringContainsString(
@@ -1063,6 +1063,6 @@ class CursorPaginationTest extends TestCase
 
     public function test_version_is_2_11_0(): void
     {
-        $this->assertSame('2.17.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
     }
 }

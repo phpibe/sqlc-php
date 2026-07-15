@@ -837,14 +837,14 @@ class ScopedDtosTest extends TestCase
 
         $criteriaEntry = null;
         foreach ($files as $entry) {
-            if (($entry['className'] ?? '') === 'BillingCriteria') {
+            if (($entry['className'] ?? '') === 'GetByFilterCriteria') {
                 $criteriaEntry = $entry;
                 break;
             }
         }
 
         $this->assertNotNull($criteriaEntry, 'BillingCriteria must be generated');
-        $this->assertSame('GetByFilter/BillingCriteria.php', $criteriaEntry['relPath'],
+        $this->assertSame('GetByFilter/GetByFilterCriteria.php', $criteriaEntry['relPath'],
             'Scoped criteria must be in QueryName/ subdir');
         $this->assertStringContainsString(
             'namespace App\\Criterias\\GetByFilter;',
@@ -868,14 +868,14 @@ class ScopedDtosTest extends TestCase
 
         $criteriaEntry = null;
         foreach ($files as $entry) {
-            if (($entry['className'] ?? '') === 'BillingCriteria') {
+            if (($entry['className'] ?? '') === 'GetByFilterCriteria') {
                 $criteriaEntry = $entry;
                 break;
             }
         }
 
         $this->assertNotNull($criteriaEntry);
-        $this->assertSame('BillingCriteria.php', $criteriaEntry['relPath'],
+        $this->assertSame('GetByFilterCriteria.php', $criteriaEntry['relPath'],
             'Flat criteria must not be in a subdir');
         $this->assertStringContainsString(
             'namespace App\\Criterias;',
@@ -900,14 +900,14 @@ class ScopedDtosTest extends TestCase
         $files = $qg->generate($qs);
 
         $relPaths = array_column(array_values($files), 'relPath');
-        $this->assertContains('ListHighAmount/BillingCriteria.php', $relPaths,
+        $this->assertContains('ListHighAmount/ListHighAmountCriteria.php', $relPaths,
             'First query must have its own scoped dir');
-        $this->assertContains('ListLowAmount/BillingCriteria.php', $relPaths,
+        $this->assertContains('ListLowAmount/ListLowAmountCriteria.php', $relPaths,
             'Second query must have its own scoped dir');
     }
 
     public function test_version_is_2_9_4(): void
     {
-        $this->assertSame('2.17.5', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.0', \SqlcPhp\Version::VERSION);
     }
 }

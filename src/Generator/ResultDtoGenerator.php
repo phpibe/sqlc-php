@@ -28,8 +28,9 @@ class ResultDtoGenerator
 {
     public function __construct(
         private readonly string               $namespace,
-        private readonly ?TypeMapperInterface $typeMapper = null,
-        private readonly ?SchemaCatalog       $catalog    = null,
+        private readonly ?TypeMapperInterface $typeMapper       = null,
+        private readonly ?SchemaCatalog       $catalog          = null,
+        private readonly ?string              $modelsNamespace  = null,
     ) {}
 
     public function dtoClassName(QueryDefinition $query): string
@@ -120,21 +121,48 @@ class ResultDtoGenerator
         $sortedEmbeds = $embeds;
         usort($sortedEmbeds, fn($a, $b) => strlen($b->prefix) <=> strlen($a->prefix));
 
-        $flatColumns  = [];
-        $embedColumns = [];   // className → ResolvedColumn[]
+        // Collect @json and @type table.* mappings
+        $jsonColumns  = $query->jsonColumns ?? [];
+        $tableModels  = $query->tableModels  ?? [];
+
+        // Validate: same table twice in @type table.* → self-join ambiguity
+        $seenTables = [];
+        foreach ($tableModels as $tm) {
+            if (isset($seenTables[$tm['table']])) {
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @type '{$tm['table']}.*' is declared more than once. " .
+                    "Self-joins are not supported by @type table.* — use @embed with distinct prefixes instead."
+                );
+            }
+            $seenTables[$tm['table']] = $tm['class'];
+        }
+
+        // Split columns: flat | @embed groups | @type table.* groups
+        $flatColumns       = [];
+        $embedColumns      = [];  // embedClassName → ResolvedColumn[]
+        $tableModelColumns = [];  // tableName      → ResolvedColumn[]
 
         foreach ($embeds as $embed) {
             $embedColumns[$embed->className] = [];
         }
+        foreach ($tableModels as $tm) {
+            $tableModelColumns[$tm['table']] = [];
+        }
 
         foreach ($columns as $col) {
             $assigned = false;
+            // @embed prefix match takes priority
             foreach ($sortedEmbeds as $embed) {
                 if ($embed->matches($col->alias)) {
                     $embedColumns[$embed->className][] = $col;
                     $assigned = true;
                     break;
                 }
+            }
+            // @type table.* match by tableName
+            if (!$assigned && $col->tableName !== '' && isset($tableModelColumns[$col->tableName])) {
+                $tableModelColumns[$col->tableName][] = $col;
+                $assigned = true;
             }
             if (!$assigned) {
                 $flatColumns[] = $col;
@@ -145,11 +173,9 @@ class ResultDtoGenerator
         $props    = [];
         $fromArgs = [];
 
-        // Collect @json column mappings for this query
-        $jsonColumns = $query->jsonColumns ?? [];
-
+        // ── Flat columns (incl. @json) ──────────────────────────────────────
         foreach ($flatColumns as $col) {
-            if (isset($jsonColumns[$col->alias])) {
+                        if (isset($jsonColumns[$col->alias])) {
                 // @type alias json:Class / json:Class[] / ?json:Class / ?json:Class[]
                 // (also populated by legacy @json / @json:one / @json:many)
                 $jsonDef  = $jsonColumns[$col->alias];
@@ -205,9 +231,65 @@ class ResultDtoGenerator
             }
         }
 
+        // ── @type table.* — reutiliza modelo existente, hidratado con fromRow($row) ──
+        foreach ($tableModels as $tm) {
+            $cols       = $tableModelColumns[$tm['table']] ?? [];
+            if (empty($cols)) continue;
+            $rawClass   = $tm['class'];  // as written in the annotation
+            $propName   = $tm['table'];  // property named after table name
+
+            // Resolve the FQCN:
+            //   - FQCN (contains \) → use as-is; short name in code, add use import
+            //   - Short name + modelsNamespace set → prepend models namespace automatically
+            //   - Short name + no modelsNamespace → use as-is (same namespace or global)
+            if (str_contains($rawClass, '\\')) {
+                $modelFqcn  = $rawClass;
+                $modelShort = substr($rawClass, strrpos($rawClass, '\\') + 1);
+            } elseif ($this->modelsNamespace !== null) {
+                $modelFqcn  = $this->modelsNamespace . '\\' . $rawClass;
+                $modelShort = $rawClass;
+            } else {
+                $modelFqcn  = $rawClass;
+                $modelShort = $rawClass;
+            }
+
+            // If ALL matched columns are nullable (LEFT JOIN), the property is ?ModelClass
+            $allNullable = !empty($cols) && count(array_filter($cols, fn($c) => !$c->nullable)) === 0;
+
+            if ($allNullable) {
+                $firstCol   = $cols[0]->alias;
+                $props[]    = "        public ?{$modelShort} \${$propName},";
+                $fromArgs[] = "            isset(\$row['{$firstCol}']) && \$row['{$firstCol}'] !== null ? {$modelShort}::fromRow(\$row) : null,";
+            } else {
+                $props[]    = "        public {$modelShort} \${$propName},";
+                $fromArgs[] = "            {$modelShort}::fromRow(\$row),";
+            }
+        }
         $propsStr    = implode("\n", $props);
         $fromArgsStr = implode("\n", $fromArgs);
         $sourceDesc  = $this->buildSourceDescription($columns);
+
+        // Build use imports for @type table.* classes.
+        // Add when the resolved FQCN namespace differs from the current DTO namespace.
+        $useImports = '';
+        foreach ($tableModels as $tm) {
+            if (empty($tableModelColumns[$tm['table']])) continue;
+            $rawClass = $tm['class'];
+            if (str_contains($rawClass, '\\')) {
+                $fqcn = $rawClass;
+            } elseif ($this->modelsNamespace !== null) {
+                $fqcn = $this->modelsNamespace . '\\' . $rawClass;
+            } else {
+                continue;
+            }
+            $fqcnNs = implode('\\', array_slice(explode('\\', $fqcn), 0, -1));
+            if ($fqcnNs !== $namespace) {
+                $useImports .= "use {$fqcn};\n";
+            }
+        }
+        if ($useImports !== '') {
+            $useImports = "\n" . $useImports;
+        }
 
         $code = <<<PHP
 <?php
@@ -215,7 +297,7 @@ class ResultDtoGenerator
 declare(strict_types=1);
 
 namespace {$namespace};
-
+{$useImports}
 /**
  * Result DTO for the `{$query->name}` query.
  * {$sourceDesc}

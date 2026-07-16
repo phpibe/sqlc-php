@@ -397,7 +397,7 @@ function runGeneration(
         $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
         $queries       = $analyzer->analyze($rawQueries);
 
-        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper, $catalog);
+        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper, $catalog, $nsModels);
 
         // Extension trait scaffolding — activated by declaring `extensions:` in out:
         $extGen = $output->hasExtensions()
@@ -442,7 +442,14 @@ function runGeneration(
             }
         }
 
+        // Collect primary FROM tables + tables referenced in @type table.* annotations
         $tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
+        foreach ($queries as $query) {
+            foreach ($query->tableModels as $tm) {
+                $tablesUsed[] = $tm['table'];
+            }
+        }
+        $tablesUsed = array_unique(array_filter($tablesUsed));
         foreach ($tablesUsed as $tableName) {
             $tableDef = $catalog->getTable($tableName);
             if ($tableDef?->virtual) continue;

@@ -217,6 +217,15 @@ class QueryDefinition
          */
         public readonly array      $jsonColumns = [],
         /**
+         * Table-to-model mappings declared via @type table.* ClassName.
+         * Each entry groups all SELECT columns whose tableName matches 'table'
+         * into a nested property of type ClassName, hydrated via ClassName::fromRow($row).
+         * The model class must already exist — it is not generated, only imported.
+         *
+         * @var array<int, array{table: string, class: string}>
+         */
+        public readonly array      $tableModels = [],
+        /**
          * Extra columns to generate Criteria filter methods for, declared via @filter.
          * These are JOIN columns not in the SELECT list — their filter methods use
          * the table name as a prefix to avoid collision with SELECT-derived methods.
@@ -318,6 +327,7 @@ class QueryParser
         $typeOverrides    = [];           // @type alias phpType
         $cursorColumns    = [];           // @cursor col1 DIR, col2 DIR
         $jsonColumns      = [];           // @json alias ClassName
+        $tableModels      = [];           // @type table.* ClassName
         $usedCtes         = [];           // @use cte1, cte2
         $nullableParams   = [];           // @nullable param1, param2
         $sqlLines         = [];
@@ -539,6 +549,20 @@ class QueryParser
                 } elseif (preg_match('/@column\s+(\w+)\s+(\w+)/i', $comment, $m)) {
                     // @column originalName alias  — rename a result column in the DTO
                     $columnAliases[$m[1]] = $m[2];
+                } elseif (preg_match('/^@type\s+(\w+)\.\*\s+([A-Z][A-Za-z0-9_\\\\]*)$/i', $comment, $m)) {
+                    // @type table.* ClassName
+                    // Groups all SELECT columns whose tableName === 'table' into a
+                    // nested property of type ClassName, hydrated via ClassName::fromRow($row).
+                    // The model must already exist — it is imported, not generated.
+                    //
+                    // Example:
+                    //   -- @type countries.* Country
+                    //   SELECT cities.id, countries.id, countries.name FROM cities
+                    //   INNER JOIN countries ON ...
+                    //
+                    //   → DTO has: public Country $countries (property named after table)
+                    //   → fromRow: countries: Country::fromRow($row)
+                    $tableModels[] = ['table' => $m[1], 'class' => $m[2]];
                 } elseif (preg_match('/^@type\s+(\w+)\s+(\S+)$/i', $comment, $m)) {
                     $alias    = $m[1];
                     $rawType  = $m[2];
@@ -709,6 +733,7 @@ class QueryParser
             typeOverrides:    $typeOverrides,
             cursorColumns:    $cursorColumns,
             jsonColumns:      $jsonColumns,
+            tableModels:      $tableModels,
             filterColumns:    $filterColumns,
             usedCtes:         array_values(array_unique($usedCtes)),
             nullableParams:   array_values(array_unique($nullableParams)),

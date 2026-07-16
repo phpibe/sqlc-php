@@ -34,6 +34,7 @@ class CriteriaGenerator
     public function __construct(
         private readonly string                $namespace,
         private readonly ?TypeMapperInterface  $typeMapper = null,
+        private readonly ?SchemaCatalog        $catalog    = null,
     ) {}
 
     /**
@@ -148,6 +149,13 @@ class CriteriaGenerator
             if (!$suppressOrderBy) {
                 $methods[] = $this->orderByMethod($titleAlias, $alias);
             }
+        }
+
+        // ── @filter columns — JOIN columns not in SELECT ──────────────────
+        // Methods carry the table prefix: @filter accounts.email → whereAccountsEmailLike()
+        if (!empty($query->filterColumns) && $this->catalog !== null) {
+            $filterMethods = $this->buildFilterMethods($query->filterColumns, $enumUses);
+            $methods       = array_merge($methods, $filterMethods);
         }
 
         $allowedStr   = implode(', ', $allowedCols);
@@ -336,6 +344,107 @@ PHP;
         return \$this->add({$filterFactory});
     }
 PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // @filter — JOIN columns not in SELECT
+    // -------------------------------------------------------------------------
+
+    /**
+     * Build filter methods for @filter-declared columns.
+     * Methods always carry the table prefix to avoid collision with SELECT-derived methods:
+     *   @filter accounts.email → whereAccountsEmailLike(), whereAccountsEmailEq(), …
+     *   @filter accounts.*     → where* for every column in the accounts table
+     *
+     * @param  array<int, array{table: string, column: string, all: bool}> $filterSpecs
+     * @param  array<string, string>                                        &$enumUses   shared use-imports
+     * @return string[]
+     */
+    private function buildFilterMethods(array $filterSpecs, array &$enumUses): array
+    {
+        if ($this->catalog === null) return [];
+
+        $methods = [];
+        $seen    = []; // avoid duplicate methods for the same table.column
+
+        foreach ($filterSpecs as $spec) {
+            $table  = $spec['table'];
+            $colArg = $spec['column'];
+            $all    = $spec['all'];
+
+            // Resolve the list of column definitions from the catalog
+            $tableObj = $this->catalog->getTable($table);
+            if ($tableObj === null) {
+                $spec = $all ? "{$table}.*" : "{$table}.{$colArg}";
+                throw new \RuntimeException(
+                    "sqlc-php: @filter '{$spec}' — table '{$table}' not found in schema. " .
+                    "All tables referenced in @filter must be declared in the schema. " .
+                    "Run --generate-schema to extract the full schema from the live database."
+                );
+            }
+
+            $colDefs = $all
+                ? $tableObj->columns
+                : array_filter($tableObj->columns, fn($c) => $c->name === $colArg);
+
+            if (!$all && empty($colDefs)) {
+                throw new \RuntimeException(
+                    "sqlc-php: @filter '{$table}.{$colArg}' — column '{$colArg}' not found " .
+                    "in table '{$table}'. Available columns: " .
+                    implode(', ', array_map(fn($c) => $c->name, $tableObj->columns)) . "."
+                );
+            }
+
+            foreach ($colDefs as $colDef) {
+                $key = "{$table}.{$colDef->name}";
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                // Method title: Table + Column — e.g. AccountsEmail, ReserveStatus
+                $titlePrefix  = $this->titleCase($table);
+                $titleCol     = $this->titleCase($colDef->name);
+                $title        = $titlePrefix . $titleCol;
+
+                // SQL ref is always qualified
+                $filterColumn = "{$table}.{$colDef->name}";
+
+                // Resolve PHP type from the column definition
+                $phpTypeFull = $this->typeMapper !== null
+                    ? $this->typeMapper->toPhpType($colDef->sqlType, $colDef->nullable, $table, $colDef->name)
+                    : ($colDef->nullable ? '?string' : 'string');
+
+                $nullable = str_starts_with($phpTypeFull, '?');
+                $phpType  = ltrim($phpTypeFull, '?');
+
+                // ENUM columns — strip the values list from the SQL type e.g. ENUM('a','b') → ENUM
+                $sqlTypeBase   = (string) preg_replace('/\s*\(.*\)\s*/s', '', $colDef->sqlType);
+                $normalizedSql = strtoupper(trim($sqlTypeBase));
+                if ($normalizedSql === 'ENUM' && $this->typeMapper !== null) {
+                    $enumFqcn = $this->typeMapper->toPhpFqcn($colDef->sqlType, $table, $colDef->name);
+                    if ($enumFqcn !== null) {
+                        $short = ltrim(substr($enumFqcn, strrpos($enumFqcn, '\\') + 1), '\\');
+                        if (!isset($enumUses[$short])) {
+                            $enumUses[$short] = $enumFqcn;
+                        }
+                        $methods = array_merge($methods, $this->enumMethods($title, $filterColumn, $short, $nullable));
+                        continue;
+                    }
+                }
+
+                $isDate = str_ends_with($phpType, 'DateTimeImmutable');
+                $fm = match (true) {
+                    $phpType === 'int'    => $this->intMethods($title, $filterColumn, $nullable),
+                    $phpType === 'float'  => $this->floatMethods($title, $filterColumn, $nullable),
+                    $phpType === 'string' => $this->stringMethods($title, $filterColumn, $nullable),
+                    $phpType === 'bool'   => $this->boolMethods($title, $filterColumn),
+                    $isDate              => $this->dateMethods($title, $filterColumn, $nullable),
+                    default              => [],
+                };
+                $methods = array_merge($methods, $fm);
+            }
+        }
+
+        return $methods;
     }
 
     private function likeMethod(string $name, string $col, FilterOperator $op): string

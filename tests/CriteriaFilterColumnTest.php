@@ -72,7 +72,7 @@ class CriteriaFilterColumnTest extends TestCase
         $er             = new ExpressionTypeResolver($this->catalog, $this->mapper);
         $cr             = new ColumnResolver($this->catalog, $this->mapper, $pr, $er);
         $this->analyzer = new QueryAnalyzer($pr, $cr, $this->parser, new SqlRewriter(), $this->catalog);
-        $this->gen      = new CriteriaGenerator('App\\Criterias', $this->mapper);
+        $this->gen      = new CriteriaGenerator('App\\Criterias', $this->mapper, $this->catalog);
     }
 
     private function criteria(string $sql): string
@@ -332,7 +332,7 @@ class CriteriaFilterColumnTest extends TestCase
         $er2       = new ExpressionTypeResolver($catalog2, $mapper2);
         $cr2       = new ColumnResolver($catalog2, $mapper2, $pr2, $er2);
         $analyzer2 = new QueryAnalyzer($pr2, $cr2, $this->parser, new SqlRewriter(), $catalog2);
-        $gen2      = new CriteriaGenerator('App\\Criterias', $mapper2);
+        $gen2      = new CriteriaGenerator('App\\Criterias', $mapper2, $this->catalog);
 
         $queries = $analyzer2->analyze($this->parser->parse(<<<SQL
             -- @name ListOrders

@@ -216,6 +216,18 @@ class QueryDefinition
          * @var array<string, array{class: string, many: bool, nullable: bool}>
          */
         public readonly array      $jsonColumns = [],
+        /**
+         * Extra columns to generate Criteria filter methods for, declared via @filter.
+         * These are JOIN columns not in the SELECT list — their filter methods use
+         * the table name as a prefix to avoid collision with SELECT-derived methods.
+         *
+         * Format: [['table' => 'accounts', 'column' => 'email', 'all' => false], ...]
+         * When 'all' is true the 'column' is '*' and the generator expands all columns
+         * from that table using the schema catalog.
+         *
+         * @var array<int, array{table: string, column: string, all: bool}>
+         */
+        public readonly array      $filterColumns = [],
     ) {}
 }
 
@@ -300,6 +312,7 @@ class QueryParser
         $searchable       = false;
         $exists           = false;
         $paginated        = false;
+        $filterColumns    = [];
         $partial          = false;
         $returning        = false;        $columnAliases    = [];   // @column originalName alias
         $typeOverrides    = [];           // @type alias phpType
@@ -465,6 +478,36 @@ class QueryParser
                                 "supported: criteria, count, exists, returning, paginated.\n"
                             ),
                         };
+                    }
+                } elseif (preg_match('/^@filter\s+(.+)/i', $comment, $m)) {
+                    // @filter table.column   → filter methods for a specific JOIN column
+                    // @filter table.*        → filter methods for ALL columns of that table
+                    // @filter table.a, table.b  → list of specific columns
+                    //
+                    // Generated methods always carry the table prefix:
+                    //   @filter accounts.email → whereAccountsEmailLike(), whereAccountsEmailEq(), …
+                    //   @filter accounts.*     → whereAccounts* for every column in accounts
+                    //
+                    // This avoids collision with SELECT-derived where* methods which
+                    // are named after the alias without any table prefix.
+                    foreach (preg_split('/\s*,\s*/', trim($m[1])) as $token) {
+                        $token = trim($token);
+                        if ($token === '') continue;
+                        if (!str_contains($token, '.')) {
+                            fwrite(STDERR,
+                                "sqlc-php: @filter '{$token}' must include a table name " .
+                                "(e.g. -- @filter accounts.email or -- @filter accounts.*).\n"
+                            );
+                            continue;
+                        }
+                        [$tbl, $col] = explode('.', $token, 2);
+                        $tbl = trim($tbl);
+                        $col = trim($col);
+                        if ($col === '*') {
+                            $filterColumns[] = ['table' => $tbl, 'column' => '*', 'all' => true];
+                        } else {
+                            $filterColumns[] = ['table' => $tbl, 'column' => $col, 'all' => false];
+                        }
                     }
                 } elseif (preg_match('/^@counted\b/i', $comment)) {
                     // @counted — DEPRECATED since v2.18.0. Use: -- @with count
@@ -666,6 +709,7 @@ class QueryParser
             typeOverrides:    $typeOverrides,
             cursorColumns:    $cursorColumns,
             jsonColumns:      $jsonColumns,
+            filterColumns:    $filterColumns,
             usedCtes:         array_values(array_unique($usedCtes)),
             nullableParams:   array_values(array_unique($nullableParams)),
         );

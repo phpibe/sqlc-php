@@ -304,6 +304,7 @@ class QueryAnalyzer
             typeOverrides:        $query->typeOverrides,
             cursorColumns:        $query->cursorColumns,
             jsonColumns:          $query->jsonColumns,
+            filterColumns:        $query->filterColumns,
             usedCtes:             $query->usedCtes,
             nullableParams:       $query->nullableParams,
         );

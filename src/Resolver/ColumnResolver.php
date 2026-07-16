@@ -288,7 +288,9 @@ class ColumnResolver
         }
 
         // ---- expression with optional alias: expr [AS alias] ----
-        // expr can be: col, table.col, func(...) – we only type-resolve column refs
+        // Normalize internal whitespace so multi-line expressions (e.g. CASE WHEN ... END AS alias)
+        // are handled correctly — the alias regex uses '.' which doesn't cross newlines.
+        $item  = (string) preg_replace('/\s+/', ' ', trim($item));
         $alias = null;
         if (preg_match('/^(.*?)\s+AS\s+[`"]?(\w+)[`"]?\s*$/i', $item, $m)) {
             $expr  = trim($m[1]);

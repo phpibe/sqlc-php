@@ -348,11 +348,72 @@ class TypeAnnotationTest extends TestCase
     }
 
     // =========================================================================
+    // Multi-line expression alias — regression for CASE WHEN AS alias
+    // =========================================================================
+
+    public function test_case_when_multiline_alias_resolved_correctly(): void
+    {
+        // Before the fix: CASE ... END AS reserves → alias was 'case' (null value)
+        // After the fix: alias is correctly 'reserves'
+        $q = $this->analyze(
+            "-- @name ListProfiles\n-- @class Profiles\n-- @returns :many\n" .
+            "-- @type reserves array\n" .
+            "SELECT profiles.id, profiles.firstname,\n" .
+            "    CASE\n" .
+            "        WHEN COUNT(products.id) = 0 THEN JSON_ARRAY()\n" .
+            "        ELSE JSON_ARRAYAGG(products.id)\n" .
+            "    END AS reserves\n" .
+            "FROM profiles LEFT JOIN products ON products.id = profiles.id\n" .
+            "GROUP BY profiles.id;"
+        );
+
+        $aliases = array_column($q[0]->resultColumns, 'alias');
+
+        // Must have 'reserves', never 'case'
+        $this->assertContains('reserves', $aliases,
+            'CASE WHEN ... END AS reserves must resolve alias as "reserves"');
+        $this->assertNotContains('case', $aliases,
+            'Alias must not fall back to the SQL keyword "case"');
+    }
+
+    public function test_case_when_with_type_override_resolves_correctly(): void
+    {
+        $q = $this->analyze(
+            "-- @name ListProfiles\n-- @class Profiles\n-- @returns :many\n" .
+            "-- @type reserves array\n" .
+            "SELECT profiles.id,\n" .
+            "    CASE\n" .
+            "        WHEN COUNT(products.id) = 0 THEN JSON_ARRAY()\n" .
+            "        ELSE JSON_ARRAYAGG(products.id)\n" .
+            "    END AS reserves\n" .
+            "FROM profiles LEFT JOIN products ON products.id = profiles.id\n" .
+            "GROUP BY profiles.id;"
+        );
+
+        // @type reserves array must be applied to the CASE column
+        $this->assertSame('array', $this->colType($q, 'reserves'));
+    }
+
+    public function test_inline_case_alias_still_works(): void
+    {
+        // Single-line CASE must still work after the normalization
+        $q = $this->analyze(
+            "-- @name List\n-- @class Res\n-- @returns :many\n" .
+            "SELECT profiles.id, CASE WHEN profiles.id > 0 THEN 'yes' ELSE 'no' END AS status\n" .
+            "FROM profiles;"
+        );
+
+        $aliases = array_column($q[0]->resultColumns, 'alias');
+        $this->assertContains('status', $aliases);
+        $this->assertNotContains('case', $aliases);
+    }
+
+    // =========================================================================
     // Version
     // =========================================================================
 
     public function test_version_is_2_9_6(): void
     {
-        $this->assertSame('2.19.6', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.7', \SqlcPhp\Version::VERSION);
     }
 }

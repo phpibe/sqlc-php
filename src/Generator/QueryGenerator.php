@@ -355,13 +355,17 @@ PHP;
                 ? $this->renderSearchablePaginatedMethod($query)
                 : $this->renderSearchableManyMethod($query);
 
-            if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated)) {
+            if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated || $query->stream)) {
                 $main .= "\n\n" . $this->renderSearchableCountMethod($query);
             }
 
-            // @with exists on searchable :many / :many-paginated
             if ($query->exists) {
                 $main .= "\n\n" . $this->renderSearchableExistsMethod($query);
+            }
+
+            // @with stream on searchable :many
+            if ($query->stream) {
+                $main .= "\n\n" . $this->renderSearchableStreamMethod($query);
             }
 
             return $main;
@@ -381,14 +385,20 @@ PHP;
             default                                => $this->renderManyMethod($query),
         };
 
-        // @with count on :many-paginated
-        if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated)) {
+        // @with count on :many-paginated or :many + @with stream
+        $isManyPaginated = $query->paginated || $query->returns === ReturnType::ManyPaginated;
+        if ($query->counted && ($isManyPaginated || $query->stream)) {
             $main .= "\n\n" . $this->renderCountMethod($query);
         }
 
         // @with exists on non-searchable :many / :many-paginated
         if ($query->exists) {
             $main .= "\n\n" . $this->renderExistsMethod($query);
+        }
+
+        // @with stream on non-searchable :many
+        if ($query->stream) {
+            $main .= "\n\n" . $this->renderStreamMethod($query);
         }
 
         return $main;
@@ -1638,6 +1648,104 @@ PHP;
         \$row = \$stmt->fetch(PDO::FETCH_ASSOC);
 
         return (int) ((\$row !== false ? \$row['_total'] : null) ?? 0);
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // @with stream — {name}Stream() Generator methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render a stream{Name}(): \Generator method for non-searchable :many queries.
+     * Yields rows one at a time using PDO fetch — no full in-memory array.
+     *
+     * For true unbuffered streaming, the PDO connection must be configured with:
+     *   PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false
+     */
+    private function renderStreamMethod(QueryDefinition $query): string
+    {
+        $returnClass  = $this->resolveReturnClass($query);
+        $streamName   = 'stream' . ucfirst($query->name);
+        $userParams   = $this->buildParamList($query);
+        $signature    = $userParams !== ''
+            ? "{$streamName}({$userParams}): \\Generator"
+            : "{$streamName}(): \\Generator";
+
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$streamName}'");
+
+        $prepare = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+
+        return <<<PHP
+    /**
+     * Yields {$returnClass} rows one at a time — no full array in memory.
+     * Ideal for large datasets: exports, batch jobs, ETL pipelines.
+     *
+     * For true unbuffered streaming configure PDO with:
+     *   PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false
+     *
+     * @return \\Generator<int, {$returnClass}>
+     */
+    public function {$signature}
+    {
+{$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) {
+            yield {$returnClass}::fromRow(\$row);
+        }
+    }
+PHP;
+    }
+
+    /**
+     * Render a stream{Name}(): \Generator method for @with criteria :many queries.
+     * Accepts the same $criteria param as the main method.
+     */
+    private function renderSearchableStreamMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $criteriaClass = $this->criteriaClass($query);
+        $streamName    = 'stream' . ucfirst($query->name);
+        $userParams    = $this->buildParamList($query);
+        $critParam     = "?{$criteriaClass} \$criteria = null";
+        $allParams     = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
+
+        $bindings     = $this->renderBindings($query);
+        $bindingsStr  = rtrim($bindings);
+        $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr = $this->buildBindingsExpr($query);
+
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+
+        return <<<PHP
+    /**
+     * Yields {$returnClass} rows one at a time, applying the same criteria as the main method.
+     * Ideal for large datasets: exports, batch jobs, ETL pipelines.
+     *
+     * @param ?{$criteriaClass} \$criteria Same criteria as the main method — pass the same instance.
+     * @return \\Generator<int, {$returnClass}>
+     */
+    public function {$streamName}({$allParams}): \\Generator
+    {
+{$sqlBlock}
+        \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$streamName}');
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) {
+            yield {$returnClass}::fromRow(\$row);
+        }
     }
 PHP;
     }

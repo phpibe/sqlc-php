@@ -299,6 +299,7 @@ PHP;
     {
         $returnClass = $queryGen->resolveReturnClassPublic($query);
         $paramList   = $queryGen->buildParamListPublic($query);
+        $streamName  = 'stream' . ucfirst($query->name);
 
         if ($query->searchable) {
             $criteriaClass = ucfirst($query->name) . 'Criteria';
@@ -311,6 +312,13 @@ PHP;
                 $existsSep    = $existsParams !== '' ? ', ' : '';
                 $existsParams = $existsParams . $existsSep . "?{$criteriaClass} \$criteria = null";
                 $main .= "\n\n    public function {$query->name}Exists({$existsParams}): bool;";
+            }
+
+            if ($query->stream) {
+                $streamParams = $queryGen->buildParamListPublic($query);
+                $streamSep    = $streamParams !== '' ? ', ' : '';
+                $streamParams = $streamParams . $streamSep . "?{$criteriaClass} \$criteria = null";
+                $main .= "\n\n    /** @return \\Generator<int, {$returnClass}> */\n    public function {$streamName}({$streamParams}): \\Generator;";
             }
 
             return $main;
@@ -326,6 +334,11 @@ PHP;
             $existsParamList = $queryGen->buildParamListPublic($query);
             $existsName      = $query->name . 'Exists';
             $main .= "\n\n    public function {$existsName}({$existsParamList}): bool;";
+        }
+
+        if ($query->stream) {
+            $streamParamList = $queryGen->buildParamListPublic($query);
+            $main .= "\n\n    /** @return \\Generator<int, {$returnClass}> */\n    public function {$streamName}({$streamParamList}): \\Generator;";
         }
 
         return $main;

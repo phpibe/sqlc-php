@@ -562,7 +562,7 @@ INNER JOIN active_users ON active_users.id = orders.user_id;
         <tr><td><span class="ann ao">@embed</span></td><td>No</td><td>Group prefixed columns from a JOIN into a nested readonly object.</td></tr>
         <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Universal column type override. Scalar: <code>@type col float</code> / <code>@type col ?float</code>. JSON DTO: <code>@type col json:City[]</code> / <code>@type col ?json:City</code>. Covers all cases previously handled by <code>@json</code> and <code>@nillable</code>.</td></tr>
         <tr><td><span class="ann ao">@filter</span><td>No</td><td>Generate typed <code>where*</code> methods in the Criteria for JOIN columns not in the SELECT list. Table prefix always applied: <code>@filter accounts.email</code> → <code>whereAccountsEmailEq()</code>. Use <code>accounts.*</code> for all columns of a table.</td></tr>
-        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions: <code>criteria</code> — typed Criteria. <code>count</code> — <code>Count(): int</code>. <code>exists</code> — <code>Exists(): bool</code>. <code>returning</code> — fetch row after INSERT. <code>paginated</code> — <code>?$limit/$offset</code> params. Combinable: <code>@with criteria, paginated, count</code>.</td></tr>
+        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions: <code>criteria</code> — typed Criteria. <code>count</code> — <code>Count(): int</code>. <code>exists</code> — <code>Exists(): bool</code>. <code>returning</code> — fetch row after INSERT. <code>paginated</code> — <code>?$limit/$offset</code> params. Combinable: <code>@with criteria, stream, count, exists</code>.</td></tr>
         <tr><td><span class="ann ao">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination. Required with <code>:cursor</code>. Supports <code>table.col</code> qualified names.</td></tr>
         <tr><td><span class="ann ao">@use</span></td><td>No</td><td>Inject shared CTEs from <code>ctes:</code> files as a <code>WITH</code> clause.</td></tr>
         <tr><td><span class="ann ao">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the generated method docblock.</td></tr>
@@ -1138,6 +1138,7 @@ public Region  $regions,</code></pre>
         <tr><td><code>count</code></td><td><code>{name}Count(): int</code> companion method</td><td><code>:many</code> + <code>paginated</code>, <code>:cursor</code></td></tr>
         <tr><td><code>exists</code></td><td><code>{name}Exists(): bool</code> companion method</td><td><code>:many</code> <code>:cursor</code></td></tr>
         <tr><td><code>returning</code></td><td>After INSERT, fetches and returns the created row by <code>lastInsertId()</code></td><td><code>:one</code> INSERT</td></tr>
+        <tr><td><code>stream</code></td><td><code>stream{Name}(): \Generator</code> companion — yields rows one at a time without loading the full array in memory. Compatible with <code>criteria</code>, <code>count</code>, <code>exists</code>.</td><td><code>:many</code></td></tr>
         <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> params and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. Replaces <code>:many-paginated</code>.</td><td><code>:many</code></td></tr>
       </tbody>
     </table>
@@ -1239,6 +1240,32 @@ INSERT INTO users (email, name, active) VALUES (:email, :name, 1);</code></pre>
   <pre><code class="language-php">// Inserts and immediately returns the full hydrated User object
 $user = $query->createUser(email: 'alice@example.com', name: 'Alice');
 echo $user->id;   // the auto-increment ID</code></pre>
+
+  <h4>stream — row-by-row Generator <span class="new-badge">v2.19.8</span></h4>
+  <p class="ds">Generates a <code>stream{Name}(): \Generator</code> companion that yields rows one at a time using <code>PDO::fetch()</code>. No full array in memory — ideal for large datasets, exports, and ETL pipelines.</p>
+  <pre><code class="language-sql">-- @name ExportProfiles
+-- @class Profiles
+-- @returns :many
+-- @with stream, criteria, count
+SELECT profiles.id, profiles.firstname, accounts.email
+FROM profiles INNER JOIN accounts ON accounts.profile_id = profiles.id;</code></pre>
+  <pre><code class="language-php">// All three methods generated:
+public function exportProfiles(?ExportProfilesCriteria $criteria = null): array
+public function exportProfilesCount(?ExportProfilesCriteria $criteria = null): int
+public function streamExportProfiles(?ExportProfilesCriteria $criteria = null): \Generator
+
+// Usage — progress bar + streaming:
+$criteria = (new ExportProfilesCriteria())->whereCreatedAtGte($from);
+$total    = $query->exportProfilesCount(criteria: $criteria);
+
+foreach ($query->streamExportProfiles(criteria: $criteria) as $profile) {
+    $csv->write($profile); // only one ProfileRow in memory at a time
+}</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    For true unbuffered streaming (rows fetched one at a time from the database), configure PDO with <code>PDO::MYSQL_ATTR_USE_BUFFERED_QUERY =&gt; false</code>. Without this, the MySQL driver may still buffer all rows internally before PHP reads them.
+  </div>
 
   <h4>Combining modifiers</h4>
   <pre><code class="language-sql">-- @name ListOrders

@@ -122,6 +122,13 @@ class QueryDefinition
          */
         public readonly bool       $exists = false,
         /**
+         * When true, a companion stream{Name}(): \Generator method is generated
+         * that yields rows one at a time using PDO unbuffered fetching.
+         * Requires PDO::MYSQL_ATTR_USE_BUFFERED_QUERY = false for true streaming.
+         * Declared via @with stream. Valid on :many queries.
+         */
+        public readonly bool       $stream = false,
+        /**
          * When true, params that appear inside COALESCE(:param, col) in the SET
          * clause are marked optional (nullable, default null). Params in the WHERE
          * clause remain required. Only valid on :exec UPDATE queries.
@@ -320,6 +327,7 @@ class QueryParser
         $counted          = false;
         $searchable       = false;
         $exists           = false;
+        $stream           = false;
         $paginated        = false;
         $filterColumns    = [];
         $partial          = false;
@@ -483,9 +491,10 @@ class QueryParser
                             'exists'    => $exists     = true,
                             'returning' => $returning  = true,
                             'paginated' => $paginated  = true,
+                            'stream'    => $stream     = true,
                             default     => fwrite(STDERR,
                                 "sqlc-php: @with unknown modifier '{$modifier}' — " .
-                                "supported: criteria, count, exists, returning, paginated.\n"
+                                "supported: criteria, count, exists, returning, paginated, stream.\n"
                             ),
                         };
                     }
@@ -727,6 +736,7 @@ class QueryParser
             searchable:       $searchable,
             paginated:        $paginated,
             exists:           $exists,
+            stream:           $stream,
             partial:          $partial,
             returning:        $returning,
             isUnion:          $isUnion,

@@ -433,6 +433,14 @@ class QueryParser
                             $nullableParams[] = $paramName;
                         }
                     }
+                } elseif (preg_match('/^@param\s+(\w+)\s*$/i', $comment, $m)) {
+                    // @param name  — no type token.
+                    // The param will still be resolved from the schema, so this is harmless,
+                    // but the annotation has no effect. Warn the developer.
+                    fwrite(STDERR,
+                        "sqlc-php: '@param {$m[1]}' has no type — annotation ignored. " .
+                        "To declare a type use: '-- @param {$m[1]} int' or '-- @param {$m[1]} ?string:optional'.\n"
+                    );
                 } elseif (preg_match('/@optional\s+(\w+)/i', $comment, $m)) {
                     // @optional — DEPRECATED since v2.17.0.
                     // Use: -- @param name ?phpType:optional

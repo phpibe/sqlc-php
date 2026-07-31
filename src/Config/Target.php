@@ -60,8 +60,20 @@ readonly class Target
          *
          * When false (default) and a collision is detected, generation aborts
          * with a clear error message listing the conflicting queries.
+         *
+         * @deprecated Use dto_scope: method instead. Kept for backward compat.
          */
         public bool         $scopedDtos            = false,
+        /**
+         * DTO scoping mode — controls how generated DTO files are namespaced:
+         *
+         *   'none'   (default) — flat: all DTOs in App\DTOs\GetActiveRow
+         *   'class'  (new)     — grouped by @class: App\DTOs\CmsConfig\GetActiveRow
+         *   'method' (full)    — grouped by @class + @name: App\DTOs\CmsConfig\GetActive\GetActiveRow
+         *
+         * 'scoped_dtos: true' is a backward-compat alias for dto_scope: method.
+         */
+        public string       $dtoScope              = 'none',
         /**
          * Per-target CTE file paths — merged with global ctes at generation time.
          * @var string[]
@@ -125,6 +137,23 @@ readonly class Target
                                         ? DatabaseConfig::fromArray($data['database'])
                                         : null,
             scopedDtos:             filter_var($data['scoped_dtos'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            dtoScope:               (function() use ($data): string {
+                // dto_scope takes priority; scoped_dtos: true is alias for 'method'
+                $explicit = $data['dto_scope'] ?? null;
+                if ($explicit !== null) {
+                    $v = strtolower(trim((string) $explicit));
+                    if (!in_array($v, ['none', 'class', 'method'], true)) {
+                        throw new \InvalidArgumentException(
+                            "dto_scope must be 'none', 'class', or 'method'. Got: '{$v}'"
+                        );
+                    }
+                    return $v;
+                }
+                // Fall back to scoped_dtos alias
+                return filter_var($data['scoped_dtos'] ?? false, FILTER_VALIDATE_BOOLEAN)
+                    ? 'method'
+                    : 'none';
+            })(),
             ctePaths:               is_array($data['ctes'] ?? null)
                                         ? array_values(array_filter(array_map('strval', $data['ctes'])))
                                         : (is_string($data['ctes'] ?? null) && $data['ctes'] !== ''

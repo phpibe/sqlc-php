@@ -364,7 +364,7 @@ class ExtensionGeneratorTest extends TestCase
     public function test_dto_generate_with_extgen_injects_use(): void
     {
         $q = $this->analyze("-- @name GetOrders\n-- @class Order\n-- @dto OrderRow\n-- @returns :many\nSELECT * FROM orders;");
-        $r = $this->dtoGen->generate($q[0], scoped: false, extGen: $this->extGen);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'none', extGen: $this->extGen);
 
         $this->assertNotEmpty($r['extensions']);
         $this->assertStringContainsString('use App\\Database\\Extensions\\DTOs\\OrderRowExtension;', $r['code']);
@@ -377,7 +377,7 @@ class ExtensionGeneratorTest extends TestCase
     public function test_dto_generate_scoped_extension_mirrors_dto_path(): void
     {
         $q = $this->analyze("-- @name GetDetails\n-- @class Order\n-- @dto OrderDetails\n-- @returns :one\nSELECT * FROM orders WHERE id = :id;");
-        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method', extGen: $this->extGen);
 
         $this->assertArrayHasKey('Order/GetDetails/OrderDetailsExtension.php', $r['extensions']);
         $ext = $r['extensions']['Order/GetDetails/OrderDetailsExtension.php'];
@@ -396,7 +396,7 @@ class ExtensionGeneratorTest extends TestCase
             "SELECT orders.id, orders.total, orders.status, users.email as user__email, users.active as user__active\n" .
             "FROM orders INNER JOIN users ON orders.user_id = users.id WHERE orders.id = :id;"
         );
-        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method', extGen: $this->extGen);
 
         // Find the UserInfo extension
         $embedExtKey = null;
@@ -490,7 +490,7 @@ class ExtensionGeneratorTest extends TestCase
             "-- @name ListBilling\n-- @class Billing\n-- @dto BillingRow\n-- @returns :many\n" .
             "SELECT * FROM billing_configs;"
         ));
-        $r = $dg->generate($qs[0], scoped: true, extGen: $extGen);
+        $r = $dg->generate($qs[0], dtoScope: 'method', extGen: $extGen);
 
         $extKey   = array_key_first($r['extensions']);
         $scaffold = $r['extensions'][$extKey]->scaffoldCode;
@@ -521,7 +521,7 @@ class ExtensionGeneratorTest extends TestCase
             "       users.email as user__email, users.active as user__active\n" .
             "FROM orders INNER JOIN users ON orders.user_id = users.id WHERE orders.id = :id;"
         );
-        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method', extGen: $this->extGen);
 
         $extKey = null;
         foreach (array_keys($r['extensions']) as $k) {
@@ -546,7 +546,7 @@ class ExtensionGeneratorTest extends TestCase
             "SELECT orders.id, orders.total, users.email as opt__email, users.active as opt__active\n" .
             "FROM orders LEFT JOIN users ON orders.user_id = users.id WHERE orders.id = :id;"
         );
-        $r = $this->dtoGen->generate($q[0], scoped: true, extGen: $this->extGen);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method', extGen: $this->extGen);
 
         $extKey = null;
         foreach (array_keys($r['extensions']) as $k) {
@@ -716,6 +716,6 @@ class ExtensionGeneratorTest extends TestCase
 
     public function test_version_is_2_10_0(): void
     {
-        $this->assertSame('2.19.9', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.12', \SqlcPhp\Version::VERSION);
     }
 }

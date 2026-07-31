@@ -65,13 +65,23 @@ class ColumnResolver
             return [];
         }
 
+        // Resolve param types from the full SQL so that :param AS alias in the
+        // SELECT list can inherit the type inferred from WHERE/JOIN usage.
+        // e.g. SELECT :country_id AS country_id ... WHERE cc.country_id = :country_id
+        //      → country_id resolves as int (from cc.country_id schema type)
+        $resolvedParams = $this->paramResolver->resolve($outerSql);
+        $paramTypeMap   = [];   // ':paramName' → phpType (without leading '?')
+        foreach ($resolvedParams as $param) {
+            $paramTypeMap[':' . $param->name] = ltrim($param->phpType, '?');
+        }
+
         $columns = [];
 
         foreach ($selectList as $item) {
             $item = trim($item);
             if ($item === '') continue;
 
-            $resolved = $this->resolveItem($item, $tableAliases);
+            $resolved = $this->resolveItem($item, $tableAliases, $paramTypeMap);
             foreach ($resolved as $col) {
                 $columns[] = $col;
             }
@@ -267,7 +277,7 @@ class ColumnResolver
      *
      * @return ResolvedColumn[]
      */
-    private function resolveItem(string $item, array $tableAliases): array
+    private function resolveItem(string $item, array $tableAliases, array $paramTypeMap = []): array
     {
         // ---- table.* ----
         if (preg_match('/^[`"]?(\w+)[`"]?\.\*$/', $item, $m)) {
@@ -297,6 +307,21 @@ class ColumnResolver
             $alias = $m[2];
         } else {
             $expr = $item;
+        }
+
+        // ---- :param AS alias — parameter echoed as SELECT column ----
+        // e.g. SELECT :country_id AS country_id ... LEFT JOIN cc ON cc.country_id = :country_id
+        // Type is inferred from the param's resolved type (from WHERE/JOIN usage in same query).
+        if ($alias !== null && preg_match('/^:(\w+)$/', $expr, $pm)) {
+            $phpType = $paramTypeMap[':' . $pm[1]] ?? 'mixed';
+            return [new ResolvedColumn(
+                alias:      $alias,
+                columnName: $alias,
+                tableName:  '',
+                sqlType:    'PARAM',
+                nullable:   false,
+                phpType:    $phpType,
+            )];
         }
 
         // table.col

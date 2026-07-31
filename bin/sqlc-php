@@ -415,7 +415,7 @@ function runGeneration(
             $target->classSuffix,
             dtosNamespace:     '',
             criteriasNamespace: $nsCriterias,
-            scopedCriterias:    $target->scopedDtos,
+            scopedCriterias:    in_array($target->dtoScope, ['class', 'method'], true),
         );
         $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels);
 
@@ -475,7 +475,7 @@ function runGeneration(
         //   DTOs/GetBillingWithDate/BillingReserve.php
         // Collisions are impossible in this mode.
 
-        if (!$target->scopedDtos) {
+        if ($target->dtoScope === 'none') {
             // Build registry: embedClassName → ['shape' => string, 'queryName' => string]
             $embedRegistry = [];
             foreach ($queries as $query) {
@@ -501,8 +501,9 @@ function runGeneration(
                             $lines[] = "  {$query->name}  → {$shape}";
                             $lines[] = '';
                             $lines[] = 'Solutions:';
-                            $lines[] = "  1. Enable scoped_dtos: true in sqlc.yaml to isolate DTOs per query method.";
-                            $lines[] = "     Each method gets its own subdirectory (e.g. DTOs/GetBilling/BillingReserve.php).";
+                            $lines[] = "  1. Set 'dto_scope: class' in sqlc.yaml to group DTOs by @class (e.g. DTOs/CmsConfig/GetActiveRow.php).";
+                            $lines[] = "  2. Set 'dto_scope: method' (or 'scoped_dtos: true') to fully isolate each method.";
+                            $lines[] = "  3. Use '@dto UniqueName' on one of the conflicting queries.";
                             $lines[] = "  2. Use distinct class names for each query:";
                             $lines[] = "       -- @embed {$embed->className}Details {$embed->prefix}  (in {$existing['queryName']})";
                             $lines[] = "       -- @embed {$embed->className}Alt {$embed->prefix}      (in {$query->name})";
@@ -537,10 +538,10 @@ function runGeneration(
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
             if ($query->returns->value === ':exec') continue;
-            $r = $resultDtoGen->generate($query, $target->scopedDtos, $extGen);
+            $r = $resultDtoGen->generate($query, $target->dtoScope, $extGen);
 
-            if ($target->scopedDtos && $r['scopeSubdir'] !== null) {
-                // Place DTO and embeds in DTOs/{MethodPascalCase}/
+            if ($r['scopeSubdir'] !== null) {
+                // Place DTO and embeds in the scoped subdirectory (class: DTOs/CmsConfig/ or method: DTOs/CmsConfig/GetActive/)
                 $subdir = $r['scopeSubdir'];
                 $toWrite["{$subdir}/{$r['className']}.php"] = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
                 foreach ($r['embeds'] as $cls => ['className' => $ecls, 'code' => $ec]) {
@@ -601,7 +602,7 @@ function runGeneration(
             // different namespace. This covers both map-form out: and
             // scoped_dtos: true (where DTOs get deeper namespaces).
             $code = $entry['code'];
-            $needsInjection = $output->isMap() || $target->scopedDtos;
+            $needsInjection = $output->isMap() || $target->dtoScope !== 'none';
             if ($needsInjection) {
                 $code = injectUseStatements($code, $entry, $toWrite, $output);
             }

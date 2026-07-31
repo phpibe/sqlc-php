@@ -226,4 +226,66 @@ class QueryAnalyzerTest extends TestCase
         $col = $queries[0]->resultColumns[0];
         $this->assertSame('col_1', $col->alias);
     }
+
+    // =========================================================================
+    // :param AS alias — param echoed as SELECT column
+    // =========================================================================
+
+    public function test_param_as_alias_resolves_type_from_param(): void
+    {
+        // :role_id echoed in SELECT, inferred as int from users.role_id join condition
+        $queries = $this->analyze(
+            "-- @name GetUsers\n-- @returns :many\n" .
+            "SELECT users.id, users.email, :role_id AS role_id\n" .
+            "FROM users\n" .
+            "LEFT JOIN roles ON roles.id = users.role_id AND roles.id = :role_id;"
+        );
+
+        $col = array_values(array_filter(
+            $queries[0]->resultColumns,
+            fn($c) => $c->alias === 'role_id'
+        ))[0] ?? null;
+
+        $this->assertNotNull($col);
+        // Must be int (inferred from roles.id SMALLINT), not mixed
+        $this->assertNotSame('mixed', $col->phpType,
+            ':param AS alias must resolve type from param inference, not fall back to mixed');
+    }
+
+    public function test_param_as_alias_string_type(): void
+    {
+        // :search_email echoed back in SELECT, inferred as string from users.email
+        $queries = $this->analyze(
+            "-- @name SearchUsers\n-- @returns :many\n" .
+            "SELECT users.id, :search_email AS searched_email\n" .
+            "FROM users\n" .
+            "WHERE users.email = :search_email;"
+        );
+
+        $col = array_values(array_filter(
+            $queries[0]->resultColumns,
+            fn($c) => $c->alias === 'searched_email'
+        ))[0] ?? null;
+
+        $this->assertNotNull($col);
+        $this->assertSame('string', $col->phpType);
+    }
+
+    public function test_param_as_alias_without_schema_ref_falls_back_to_mixed(): void
+    {
+        // :arbitrary not tied to any schema column — falls back to mixed
+        $queries = $this->analyze(
+            "-- @name GetUsers\n-- @returns :many\n" .
+            "SELECT users.id, :arbitrary AS custom_value\n" .
+            "FROM users WHERE users.id = 1;"
+        );
+
+        $col = array_values(array_filter(
+            $queries[0]->resultColumns,
+            fn($c) => $c->alias === 'custom_value'
+        ))[0] ?? null;
+
+        $this->assertNotNull($col);
+        $this->assertSame('mixed', $col->phpType);
+    }
 }

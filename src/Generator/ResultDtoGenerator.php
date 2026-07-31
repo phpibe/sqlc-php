@@ -39,22 +39,44 @@ class ResultDtoGenerator
     }
 
     /**
-     * Derive the scoped namespace for a query method.
+     * Resolve the DTO namespace for a given scope mode.
      *
-     * Structure: {baseNamespace}\{Group}\{MethodPascalCase}
-     *
-     * Examples:
-     *   namespace "App\DTOs", group "ReserveBilling", method "getDetails"
-     *   → "App\DTOs\ReserveBilling\GetDetails"
-     *
-     *   namespace "App\DTOs", group "User", method "listActiveUsers"
-     *   → "App\DTOs\User\ListActiveUsers"
+     *   'none'   → App\DTOs                           (flat, default)
+     *   'class'  → App\DTOs\CmsConfig                 (grouped by @class)
+     *   'method' → App\DTOs\CmsConfig\GetActive        (grouped by @class + @name)
      */
-    public function scopedNamespace(QueryDefinition $query): string
+    public function scopedNamespace(QueryDefinition $query, string $dtoScope = 'none'): string
     {
-        $group  = $query->group;                // PascalCase group (@class)
-        $method = ucfirst($query->name);        // PascalCase method
-        return rtrim($this->namespace, '\\') . '\\' . $group . '\\' . $method;
+        $base   = rtrim($this->namespace, '\\');
+        $group  = $query->group;
+        $method = ucfirst($query->name);
+
+        return match ($dtoScope) {
+            'class'  => $base . '\\' . $group,
+            'method' => $base . '\\' . $group . '\\' . $method,
+            default  => $base,
+        };
+    }
+
+    /**
+     * @deprecated Use scopedNamespace($query, 'method') instead.
+     */
+    public function scopedNamespaceOld(QueryDefinition $query): string
+    {
+        return $this->scopedNamespace($query, 'method');
+    }
+
+    /**
+     * Resolve the DTO subdirectory path (relative to the DTOs base dir).
+     * Mirrors scopedNamespace() but returns a filesystem path.
+     */
+    public function scopeSubdir(QueryDefinition $query, string $dtoScope = 'none'): ?string
+    {
+        return match ($dtoScope) {
+            'class'  => $query->group,
+            'method' => $query->group . '/' . ucfirst($query->name),
+            default  => null,
+        };
     }
 
     /**
@@ -108,12 +130,12 @@ class ResultDtoGenerator
      *   extensions:    array<string, ExtensionData>,
      * }
      */
-    public function generate(QueryDefinition $query, bool $scoped = false, ?ExtensionGenerator $extGen = null): array
+    public function generate(QueryDefinition $query, string $dtoScope = 'none', ?ExtensionGenerator $extGen = null): array
     {
-        $namespace = $scoped ? $this->scopedNamespace($query) : $this->namespace;
-        $className = $this->dtoClassName($query);
-        $embeds    = $query->embeds;
-        $columns   = $query->resultColumns;
+        $namespace  = $this->scopedNamespace($query, $dtoScope);
+        $className  = $this->dtoClassName($query);
+        $embeds     = $query->embeds;
+        $columns    = $query->resultColumns;
 
         // Split columns into: flat (no embed match) + per-embed groups.
         // Sort embeds by prefix length DESC so that longer (more specific) prefixes
@@ -354,7 +376,7 @@ PHP;
             }
         }
 
-        $scopeSubdir = $scoped ? $this->scopeSubdirFor($query) : null;
+        $scopeSubdir = $this->scopeSubdir($query, $dtoScope);
 
         // ── Extension trait injection ────────────────────────────────────────
         $extensions = [];

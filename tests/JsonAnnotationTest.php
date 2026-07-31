@@ -361,7 +361,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false);
+        $r = $this->dtoGen->generate($queries[0], 'none');
 
         // scoped=false: no scopeSubdir, but jsonDtos still populated
         $this->assertNull($r['scopeSubdir']);
@@ -389,7 +389,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->scopedDtoGen->generate($queries[0], true);
+        $r = $this->scopedDtoGen->generate($queries[0], 'method');
 
         // When scoped, the scopeSubdir is set — the CLI uses it to place JSON DTOs
         $this->assertNotNull($r['scopeSubdir']);
@@ -414,7 +414,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->scopedDtoGen->generate($queries[0], true);
+        $r = $this->scopedDtoGen->generate($queries[0], 'method');
 
         // The City DTO must declare the scoped namespace so it can be found
         $this->assertStringContainsString(
@@ -489,7 +489,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false, $this->extGen);
+        $r = $this->dtoGen->generate($queries[0], 'none', $this->extGen);
 
         // Extension for City JSON DTO must exist
         $this->assertNotEmpty($r['extensions']);
@@ -515,7 +515,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false, $this->extGen);
+        $r = $this->dtoGen->generate($queries[0], 'none', $this->extGen);
 
         $cityExt = null;
         foreach ($r['extensions'] as $ext) {
@@ -546,7 +546,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false, $this->extGen);
+        $r = $this->dtoGen->generate($queries[0], 'none', $this->extGen);
 
         $cityExt = null;
         foreach ($r['extensions'] as $ext) {
@@ -577,7 +577,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false, $this->extGen);
+        $r = $this->dtoGen->generate($queries[0], 'none', $this->extGen);
 
         // The generated City.php code should have the extension trait injected
         $this->assertArrayHasKey('City', $r['jsonDtos']);
@@ -602,7 +602,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->dtoGen->generate($queries[0], false, $this->extGen);
+        $r = $this->dtoGen->generate($queries[0], 'none', $this->extGen);
 
         // The parent DTO extension should list `cities` as @property array
         $parentExt = null;
@@ -635,7 +635,7 @@ class JsonAnnotationTest extends TestCase
             GROUP BY countries.id;
         SQL);
 
-        $r = $this->scopedDtoGen->generate($queries[0], true, $this->extGen);
+        $r = $this->scopedDtoGen->generate($queries[0], 'method', $this->extGen);
 
         $cityExt = null;
         foreach ($r['extensions'] as $key => $ext) {

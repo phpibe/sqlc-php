@@ -81,19 +81,19 @@ class ScopedDtosTest extends TestCase
     public function test_scoped_namespace_adds_method_subdir(): void
     {
         $q = $this->analyze("-- @name GetBillingDetails\n-- @class Billing\n-- @returns :one\n-- @dto BillingDetails\nSELECT billing.* FROM billing WHERE id = :id;");
-        $ns = $this->dtoGen->scopedNamespace($q[0]);
+        $ns = $this->dtoGen->scopedNamespace($q[0], 'method');
         $this->assertSame('App\\DTOs\\Billing\\GetBillingDetails', $ns);
     }
 
     public function test_scoped_namespace_uses_pascal_case_of_method(): void
     {
         $q = $this->analyze("-- @name listBillingByDate\n-- @class Billing\n-- @returns :many\n-- @dto ListBillingByDateRow\nSELECT billing.* FROM billing;");
-        $ns = $this->dtoGen->scopedNamespace($q[0]);
+        $ns = $this->dtoGen->scopedNamespace($q[0], 'method');
         $this->assertSame('App\\DTOs\\Billing\\ListBillingByDate', $ns);
     }
 
     // =========================================================================
-    // ResultDtoGenerator — generate(scoped: true)
+    // ResultDtoGenerator — generate(dtoScope: 'method')
     // =========================================================================
 
     public function test_scoped_generate_uses_scoped_namespace(): void
@@ -106,7 +106,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         $this->assertSame('Billing/GetBillingDetails', $r['scopeSubdir']);
         $this->assertStringContainsString('namespace App\\DTOs\\Billing\\GetBillingDetails;', $r['code']);
@@ -122,7 +122,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         $this->assertArrayHasKey('BillingReserve', $r['embeds']);
         $embedCode = $r['embeds']['BillingReserve']['code'];
@@ -140,7 +140,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: false);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'none');
 
         $this->assertNull($r['scopeSubdir']);
         $this->assertStringContainsString('namespace App\\DTOs;', $r['code']);
@@ -163,8 +163,8 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
-        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+        $r1 = $this->dtoGen->generate($q1[0], dtoScope: 'method');
+        $r2 = $this->dtoGen->generate($q2[0], dtoScope: 'method');
 
         // Same class name — but different namespaces
         $this->assertSame('BillingReserve', $r1['embeds']['BillingReserve']['className']);
@@ -196,8 +196,8 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
-        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+        $r1 = $this->dtoGen->generate($q1[0], dtoScope: 'method');
+        $r2 = $this->dtoGen->generate($q2[0], dtoScope: 'method');
 
         // GetBillingDetails embed has $id + $total_price
         $embed1Code = $r1['embeds']['BillingReserve']['code'];
@@ -213,7 +213,7 @@ class ScopedDtosTest extends TestCase
     }
 
     // =========================================================================
-    // scopeSubdir is null when scoped: false
+    // scopeSubdir is null when dtoScope: 'none'
     // =========================================================================
 
     public function test_non_scoped_returns_null_scope_subdir(): void
@@ -226,7 +226,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: false);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'none');
         $this->assertNull($r['scopeSubdir']);
     }
 
@@ -390,7 +390,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         // scopeSubdir must be Group/Method — not just Method
         $this->assertSame('ReserveBilling/GetDetails', $r['scopeSubdir'],
@@ -416,7 +416,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         $embedCode = $r['embeds']['ReserveBillingReserve']['code'];
 
@@ -447,8 +447,8 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
-        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+        $r1 = $this->dtoGen->generate($q1[0], dtoScope: 'method');
+        $r2 = $this->dtoGen->generate($q2[0], dtoScope: 'method');
 
         $this->assertSame('ReserveBilling/GetDetails', $r1['scopeSubdir']);
         $this->assertSame('ReserveBilling/GetSummary', $r2['scopeSubdir']);
@@ -476,8 +476,8 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r1 = $this->dtoGen->generate($q1[0], scoped: true);
-        $r2 = $this->dtoGen->generate($q2[0], scoped: true);
+        $r1 = $this->dtoGen->generate($q1[0], dtoScope: 'method');
+        $r2 = $this->dtoGen->generate($q2[0], dtoScope: 'method');
 
         // Different groups → different paths even with same method name
         $this->assertSame('Billing/GetDetails', $r1['scopeSubdir']);
@@ -494,7 +494,7 @@ class ScopedDtosTest extends TestCase
             "-- @dto ReserveBilling\nSELECT billing.* FROM billing WHERE id = :id;"
         );
 
-        $ns = $this->dtoGen->scopedNamespace($q[0]);
+        $ns = $this->dtoGen->scopedNamespace($q[0], 'method');
 
         // Must be: baseNs\Group\Method
         $parts = explode('\\', $ns);
@@ -513,8 +513,8 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $rFlat   = $this->dtoGen->generate($q[0], scoped: false);
-        $rScoped = $this->dtoGen->generate($q[0], scoped: true);
+        $rFlat   = $this->dtoGen->generate($q[0], dtoScope: 'none');
+        $rScoped = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         $this->assertSame('App\\DTOs', $rFlat['namespace']);
         $this->assertSame('App\\DTOs\\Billing\\GetBillingDetails', $rScoped['namespace']);
@@ -537,7 +537,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r      = $this->dtoGen->generate($q[0], scoped: true);
+        $r      = $this->dtoGen->generate($q[0], dtoScope: 'method');
         $dtoNs  = $r['namespace'];    // App\DTOs\ReserveBilling\GetDetails (or Billing\GetDetails)
         $baseNs = 'App\\DTOs';
 
@@ -557,7 +557,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         $dtoNs = $r['namespace'];
         $embedNs = null;
@@ -582,7 +582,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         // The embed class lives in namespace ...DTOs\ReserveBilling\GetDetails
         // That namespace contains 'ReserveBilling' as a segment — it must NOT
@@ -608,7 +608,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r = $this->dtoGen->generate($q[0], scoped: true);
+        $r = $this->dtoGen->generate($q[0], dtoScope: 'method');
 
         // The DTO class is ReserveBilling in namespace ...DTOs\ReserveBilling\GetDetails
         // A Model class named ReserveBilling (in ...Models) must NOT import the DTO
@@ -642,7 +642,7 @@ class ScopedDtosTest extends TestCase
             "WHERE billing.id = :id;"
         );
 
-        $r       = $this->dtoGen->generate($q[0], scoped: true);
+        $r       = $this->dtoGen->generate($q[0], dtoScope: 'method');
         $dtoCls  = $r['className']; // 'ReserveBilling'
 
         // Simulate the toWrite map
@@ -908,6 +908,92 @@ class ScopedDtosTest extends TestCase
 
     public function test_version_is_2_9_4(): void
     {
-        $this->assertSame('2.19.9', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.12', \SqlcPhp\Version::VERSION);
+    }
+
+    // =========================================================================
+    // dto_scope: class — grouped by @class only
+    // =========================================================================
+
+    public function test_dto_scope_class_namespace_is_group_only(): void
+    {
+        $q   = $this->analyze("-- @name GetActive\n-- @class CmsConfig\n-- @returns :opt\nSELECT users.id FROM users WHERE id = :id;");
+        $r   = $this->dtoGen->generate($q[0], 'class');
+
+        $this->assertSame('App\\DTOs\\CmsConfig', $r['namespace']);
+        $this->assertSame('GetActiveRow',         $r['className']);
+        $this->assertSame('CmsConfig',            $r['scopeSubdir']);
+    }
+
+    public function test_dto_scope_class_two_classes_same_method_no_collision(): void
+    {
+        $q1 = $this->analyze("-- @name GetActive\n-- @class CmsConfig\n-- @returns :opt\nSELECT users.id FROM users WHERE id = :id;");
+        $q2 = $this->analyze("-- @name GetActive\n-- @class User\n-- @returns :opt\nSELECT users.id FROM users WHERE id = :id;");
+
+        $r1 = $this->dtoGen->generate($q1[0], 'class');
+        $r2 = $this->dtoGen->generate($q2[0], 'class');
+
+        // Same className but different namespaces — no collision
+        $this->assertSame('GetActiveRow',         $r1['className']);
+        $this->assertSame('GetActiveRow',         $r2['className']);
+        $this->assertSame('App\\DTOs\\CmsConfig', $r1['namespace']);
+        $this->assertSame('App\\DTOs\\User',      $r2['namespace']);
+        $this->assertSame('CmsConfig',            $r1['scopeSubdir']);
+        $this->assertSame('User',                 $r2['scopeSubdir']);
+    }
+
+    public function test_dto_scope_none_has_null_scopeSubdir(): void
+    {
+        $q = $this->analyze("-- @name GetActive\n-- @class CmsConfig\n-- @returns :opt\nSELECT users.id FROM users WHERE id = :id;");
+        $r = $this->dtoGen->generate($q[0], 'none');
+
+        $this->assertNull($r['scopeSubdir']);
+        $this->assertSame('App\\DTOs', $r['namespace']);
+    }
+
+    public function test_dto_scope_method_equals_scoped_dtos_true(): void
+    {
+        $q   = $this->analyze("-- @name GetActive\n-- @class CmsConfig\n-- @returns :opt\nSELECT users.id FROM users WHERE id = :id;");
+        $rm  = $this->dtoGen->generate($q[0], 'method');
+        $rsc = $this->dtoGen->generate($q[0], 'method'); // backward compat path
+
+        $this->assertSame('App\\DTOs\\CmsConfig\\GetActive', $rm['namespace']);
+        $this->assertSame('CmsConfig/GetActive',             $rm['scopeSubdir']);
+        $this->assertSame($rm['namespace'],                  $rsc['namespace']);
+    }
+
+    public function test_target_dto_scope_parsed_from_config(): void
+    {
+        $target = \SqlcPhp\Config\Target::fromArray([
+            'namespace' => 'App\\Database',
+            'dto_scope' => 'class',
+            'queries'   => ['queries.sql'],
+        ]);
+
+        $this->assertSame('class', $target->dtoScope);
+    }
+
+    public function test_target_scoped_dtos_true_maps_to_method(): void
+    {
+        $target = \SqlcPhp\Config\Target::fromArray([
+            'namespace'   => 'App\\Database',
+            'scoped_dtos' => true,
+            'queries'     => ['queries.sql'],
+        ]);
+
+        // scoped_dtos: true is backward compat alias for dto_scope: method
+        $this->assertSame('method', $target->dtoScope);
+    }
+
+    public function test_target_dto_scope_invalid_throws(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches("/dto_scope must be/");
+
+        \SqlcPhp\Config\Target::fromArray([
+            'namespace' => 'App\\Database',
+            'dto_scope' => 'group',
+            'queries'   => ['queries.sql'],
+        ]);
     }
 }

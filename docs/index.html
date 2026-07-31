@@ -165,6 +165,7 @@
 
   <div class="sg-label">Configuration</div>
   <a class="sl" href="#config"><i class="bi bi-gear"></i> sqlc.yaml reference</a>
+  <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
   <a class="sl" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP types</a>
   <a class="sl" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> type_overrides</a>
   <a class="sl" href="#generate-schema"><i class="bi bi-database-add"></i> --generate-schema</a>
@@ -356,7 +357,7 @@ targets:
         php_type: "float"
     ctes:                              # per-target CTEs (merged with global)
       - database/ctes/billing.sql
-    scoped_dtos: false                 # put DTOs in same namespace as queries</code></pre>
+    dto_scope: class                   # none | class | method (default: none)</code></pre>
 
   <h3>Configuration key reference</h3>
   <div class="tw">
@@ -377,7 +378,8 @@ targets:
         <tr><td><code>targets[].queries</code></td><td>target</td><td>—</td><td>SQL files with annotated queries</td></tr>
         <tr><td><code>targets[].generate_interfaces</code></td><td>target</td><td><code>true</code></td><td>Generate <code>*Interface.php</code> files</td></tr>
         <tr><td><code>targets[].prepared_statement_cache</code></td><td>target</td><td><code>false</code></td><td>Cache <code>PDOStatement</code> objects per method</td></tr>
-        <tr><td><code>targets[].scoped_dtos</code></td><td>target</td><td><code>false</code></td><td>Place DTOs in the same namespace as queries</td></tr>
+        <tr><td><code>targets[].dto_scope</code></td><td>target</td><td><code>none</code></td><td>DTO namespace scoping: <code>none</code> — flat (all DTOs in <code>App\DTOs\</code>), <code>class</code> — grouped by <code>@class</code> (e.g. <code>App\DTOs\CmsConfig\GetActiveRow</code>), <code>method</code> — fully isolated per method (e.g. <code>App\DTOs\CmsConfig\GetActive\GetActiveRow</code>). See <a href="#dto-scope">DTO scoping</a>.</td></tr>
+        <tr><td><code>targets[].scoped_dtos</code></td><td>target</td><td><code>false</code></td><td>Deprecated — alias for <code>dto_scope: method</code>. Use <code>dto_scope</code> instead.</td></tr>
       </tbody>
     </table>
   </div>
@@ -391,6 +393,71 @@ targets:
       queries:    generated/Queries     # → App\Database\Queries\UserQuery.php
       interfaces: generated/Interfaces  # → App\Database\Interfaces\UserQueryInterface.php
       dtos:       generated/DTOs        # → App\Database\DTOs\GetUserRow.php</code></pre>
+</section>
+
+<!-- ═══ DTO SCOPING ═══ -->
+<section id="dto-scope">
+  <h2><i class="bi bi-folder2-open me-2" style="color:var(--accent2)"></i>DTO scoping — <code>dto_scope</code> <span class="new-badge">v2.19.12</span></h2>
+  <p class="ds">Controls where generated DTO files are placed and what namespace they use. Solves DTO name collisions when multiple <code>@class</code> groups have queries with the same <code>@name</code>.</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Value</th><th>DTO location</th><th>Namespace</th><th>Use when</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>none</code> (default)</td>
+          <td><code>DTOs/GetActiveRow.php</code></td>
+          <td><code>App\DTOs</code></td>
+          <td>No name collisions between query classes</td>
+        </tr>
+        <tr>
+          <td><code>class</code> <span class="new-badge" style="font-size:.65em">new</span></td>
+          <td><code>DTOs/CmsConfig/GetActiveRow.php</code></td>
+          <td><code>App\DTOs\CmsConfig</code></td>
+          <td>Same <code>@name</code> used in different <code>@class</code> groups</td>
+        </tr>
+        <tr>
+          <td><code>method</code></td>
+          <td><code>DTOs/CmsConfig/GetActive/GetActiveRow.php</code></td>
+          <td><code>App\DTOs\CmsConfig\GetActive</code></td>
+          <td>Same <code>@embed</code> class name used in different methods</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Example — the collision problem</h3>
+  <pre><code class="language-sql">-- @name GetActive  @class CmsConfig  @returns :opt
+SELECT cms_configs.* FROM cms_configs WHERE status = 'active';
+
+-- @name GetActive  @class User  @returns :opt
+SELECT users.* FROM users WHERE status = 'active';</code></pre>
+
+  <p class="ds">With <code>dto_scope: none</code> (default), both generate <code>GetActiveRow.php</code> — the second silently overwrites the first. With <code>dto_scope: class</code>:</p>
+
+  <pre><code class="language-yaml">targets:
+  - namespace: "App\\Database"
+    dto_scope: class
+    out:
+      dtos: generated/DTOs</code></pre>
+
+  <pre><code class="language-php">// Generated files:
+// DTOs/CmsConfig/GetActiveRow.php  → namespace App\Database\DTOs\CmsConfig
+// DTOs/User/GetActiveRow.php       → namespace App\Database\DTOs\User
+
+// Usage in repository:
+public function getActive(): ?CmsConfig\GetActiveRow  // ← no collision</code></pre>
+
+  <h3>Migration from <code>scoped_dtos: true</code></h3>
+  <p class="ds"><code>scoped_dtos: true</code> is now an alias for <code>dto_scope: method</code> and still works. Migrate when convenient:</p>
+  <pre><code class="language-yaml"># Before:
+scoped_dtos: true
+
+# After (equivalent):
+dto_scope: method
+
+# Or use the new class-only grouping (less deep):
+dto_scope: class</code></pre>
 </section>
 
 <!-- ═══ TYPE MAPPING ═══ -->

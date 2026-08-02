@@ -442,6 +442,28 @@ function runGeneration(
             }
         }
 
+        // Generate enums declared via type_overrides enum_values (VARCHAR-as-enum)
+        $seenEnumOverrides = [];
+        foreach ($target->typeOverrides as $override) {
+            if (!$override->isEnumOverride() || $override->phpType === null) continue;
+            $className = $override->phpType;
+            if (isset($seenEnumOverrides[$className])) continue; // dedup
+            $seenEnumOverrides[$className] = true;
+
+            $e = $enumGen->generateFromValues($className, $override->enumValues, $extGen);
+            $toWrite["{$className}.php"] = ['type' => 'enums', 'label' => '[enum]   ', 'code' => $e['code']];
+            if ($extGen !== null && isset($e['extension'])) {
+                $relPath = $e['extension']->relPath;
+                if (!isset($scaffoldWrite[$relPath])) {
+                    $scaffoldWrite[$relPath] = [
+                        'type'  => 'extensions_enums',
+                        'label' => '[ext-e]  ',
+                        'ext'   => $e['extension'],
+                    ];
+                }
+            }
+        }
+
         // Collect primary FROM tables + tables referenced in @type table.* annotations
         $tablesUsed = array_unique(array_filter(array_column($queries, 'fromTable')));
         foreach ($queries as $query) {

@@ -12,11 +12,18 @@ namespace SqlcPhp\Config;
  *   - db_type : targets every column whose SQL type matches, e.g. "TINYINT"
  *
  * Optional fields:
- *   - php_type : the PHP type to use instead of the default mapping
- *   - nullable : force the nullability of the property regardless of the schema
- *                true  → always ?type
- *                false → always type (never nullable)
- *                null  → inherit nullability from the schema column (default)
+ *   - php_type    : the PHP type to use instead of the default mapping
+ *   - nullable    : force the nullability of the property regardless of the schema
+ *                   true  → always ?type
+ *                   false → always type (never nullable)
+ *                   null  → inherit nullability from the schema column (default)
+ *   - enum_values : when present, treat a VARCHAR/CHAR column as a PHP backed enum.
+ *                   The enum class is generated automatically. php_type becomes the
+ *                   enum class name.
+ *                   Example:
+ *                     column: pages.section
+ *                     php_type: SectionEnum
+ *                     enum_values: [hero, faq, contact]
  */
 readonly class TypeOverride
 {
@@ -34,6 +41,12 @@ readonly class TypeOverride
          *   null  → inherit from schema
          */
         public ?bool   $nullable,
+        /**
+         * When non-empty, this override declares a PHP backed enum for a VARCHAR column.
+         * The enum is generated with these as its cases.
+         * @var string[]
+         */
+        public array   $enumValues = [],
     ) {}
 
     /**
@@ -52,13 +65,27 @@ readonly class TypeOverride
         $column = isset($data['column']) ? trim((string) $data['column']) : null;
         $dbType = isset($data['db_type']) ? strtoupper(trim((string) $data['db_type'])) : null;
 
+        // enum_values — list of string values for a VARCHAR-as-enum override
+        $enumValues = [];
+        if (!empty($data['enum_values']) && is_array($data['enum_values'])) {
+            $enumValues = array_values(array_filter(array_map('strval', $data['enum_values'])));
+        }
+
         if ($column === null && $dbType === null) {
             throw new \InvalidArgumentException(
                 "type_override entry must specify either 'column' or 'db_type'."
             );
         }
 
-        if ($phpType === null && !isset($data['nullable'])) {
+        // When enum_values is provided, php_type is required (it becomes the enum class name)
+        if (!empty($enumValues) && $phpType === null) {
+            throw new \InvalidArgumentException(
+                "type_override entry with 'enum_values' must also specify 'php_type' " .
+                "(the generated enum class name). e.g. php_type: SectionEnum"
+            );
+        }
+
+        if ($phpType === null && !isset($data['nullable']) && empty($enumValues)) {
             throw new \InvalidArgumentException(
                 "type_override entry is missing 'php_type' (or 'type') key."
             );
@@ -71,11 +98,20 @@ readonly class TypeOverride
         }
 
         return new self(
-            column:   $column  ?: null,
-            dbType:   $dbType  ?: null,
-            phpType:  $phpType,
-            nullable: $nullable,
+            column:     $column  ?: null,
+            dbType:     $dbType  ?: null,
+            phpType:    $phpType,
+            nullable:   $nullable,
+            enumValues: $enumValues,
         );
+    }
+
+    /**
+     * Returns true when this override declares a backed enum for a VARCHAR column.
+     */
+    public function isEnumOverride(): bool
+    {
+        return !empty($this->enumValues);
     }
 
     /**

@@ -47,6 +47,11 @@ class MySQLTypeMapper implements TypeMapperInterface
         foreach ($this->overrides as $override) {
             if ($override->matches($tableName, $columnName, $sqlType)) {
                 $effectiveNullable = $override->nullable ?? $nullable;
+                // enum_values override — php_type is the enum class name
+                if ($override->isEnumOverride() && $override->phpType !== null) {
+                    $base = $override->phpType;
+                    return $effectiveNullable ? "?{$base}" : $base;
+                }
                 $base = $override->phpType ?? $this->resolveBaseType($sqlType);
                 return $effectiveNullable ? "?{$base}" : $base;
             }
@@ -81,6 +86,15 @@ class MySQLTypeMapper implements TypeMapperInterface
         string $columnName = '',
     ): ?string {
         $upper = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));
+
+        // enum_values override — php_type is the enum class name, FQCN via enumGen namespace
+        foreach ($this->overrides as $override) {
+            if ($override->matches($tableName, $columnName, $sqlType) && $override->isEnumOverride()) {
+                if ($override->phpType !== null && $this->enumGen !== null) {
+                    return $this->enumGen->enumFqcnFromClass($override->phpType);
+                }
+            }
+        }
 
         // ENUM → backed enum FQCN
         if ($upper === 'ENUM' && $this->enumGen !== null && $tableName !== '' && $columnName !== '') {

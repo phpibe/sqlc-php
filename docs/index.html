@@ -168,6 +168,7 @@
   <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
   <a class="sl" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP types</a>
   <a class="sl" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> type_overrides</a>
+  <a class="sl" href="#enum-values"><i class="bi bi-list-check"></i> enum_values</a>
   <a class="sl" href="#generate-schema"><i class="bi bi-database-add"></i> --generate-schema</a>
   <a class="sl" href="#shared-ctes"><i class="bi bi-link-45deg"></i> Shared CTEs</a>
 
@@ -484,7 +485,7 @@ dto_scope: class</code></pre>
 <!-- ═══ TYPE OVERRIDES ═══ -->
 <section id="type-overrides">
   <h2><i class="bi bi-arrow-left-right me-2" style="color:var(--accent)"></i>type_overrides</h2>
-  <p class="ds">Override the default SQL → PHP mapping globally or per-target. Useful for treating <code>TINYINT</code> as <code>bool</code>, or using <code>Carbon</code> instead of <code>DateTimeImmutable</code>.</p>
+  <p class="ds">Override the default SQL → PHP mapping globally or per-target. Useful for treating <code>TINYINT</code> as <code>bool</code>, using <code>Carbon</code> instead of <code>DateTimeImmutable</code>, or declaring a <code>VARCHAR</code> column as a PHP backed enum.</p>
   <pre><code class="language-yaml">type_overrides:
   - db_type:  "TINYINT"
     php_type: "bool"
@@ -501,6 +502,67 @@ dto_scope: class</code></pre>
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
     Per-target <code>type_overrides</code> are merged with global overrides — per-target takes precedence when the same <code>db_type</code> appears in both.
+  </div>
+
+  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.13</span></h3>
+  <p class="ds">When a <code>VARCHAR</code> or <code>CHAR</code> column holds a fixed set of values, declare them with <code>enum_values</code>. sqlc-php will generate a PHP 8.1 backed enum and use it everywhere that column appears — in DTOs, Criteria filter methods, and <code>fromRow()</code> casts.</p>
+
+  <pre><code class="language-yaml">type_overrides:
+  - column:      pages.section          # table.column
+    php_type:    SectionEnum            # generated enum class name
+    enum_values: [hero, faq, contact]   # allowed values
+
+  - column:      pages.status
+    php_type:    PageStatus
+    enum_values: [active, draft, archived]</code></pre>
+
+  <h4>What gets generated</h4>
+  <pre><code class="language-php">// Enums/SectionEnum.php — generated automatically
+enum SectionEnum: string
+{
+    case Hero    = 'hero';
+    case Faq     = 'faq';
+    case Contact = 'contact';
+}</code></pre>
+
+  <pre><code class="language-php">// DTOs/GetPagesRow.php — section typed as SectionEnum
+readonly class GetPagesRow
+{
+    public function __construct(
+        public int         $id,
+        public string      $title,
+        public SectionEnum $section,   // ← not string
+        public ?PageStatus $status,    // ← nullable enum
+    ) {}
+
+    public static function fromRow(array $row): self
+    {
+        return new self(
+            id:      (int) $row['id'],
+            title:   (string) $row['title'],
+            section: SectionEnum::from((string) $row['section']),     // ← ::from()
+            status:  isset($row['status'])
+                ? PageStatus::tryFrom((string) $row['status'])         // ← ::tryFrom()
+                : null,
+        );
+    }
+}</code></pre>
+
+  <h4>Criteria filter methods</h4>
+  <p class="ds">When the column also appears in a <code>@with criteria</code> query, the generated Criteria methods are typed with the enum:</p>
+  <pre><code class="language-php">// Generated Criteria methods:
+public function whereSectionEq(SectionEnum $value): static
+public function whereSectionIn(SectionEnum ...$values): static
+public function whereSectionNotIn(SectionEnum ...$values): static
+
+// Usage — fully type-safe:
+$criteria = (new GetPagesCriteria())
+    ->whereSectionEq(SectionEnum::Hero)
+    ->whereSectionIn(SectionEnum::Faq, SectionEnum::Contact);</code></pre>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>Nullable columns use <code>::tryFrom()</code></strong>, which returns <code>null</code> when the database value doesn't match any case. Non-nullable columns use <code>::from()</code>, which throws <code>\ValueError</code> on an unexpected value — useful as a runtime guard against schema drift.
   </div>
 </section>
 

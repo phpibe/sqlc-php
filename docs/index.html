@@ -504,7 +504,7 @@ dto_scope: class</code></pre>
     Per-target <code>type_overrides</code> are merged with global overrides — per-target takes precedence when the same <code>db_type</code> appears in both.
   </div>
 
-  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.13</span></h3>
+  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.14</span></h3>
   <p class="ds">When a <code>VARCHAR</code> or <code>CHAR</code> column holds a fixed set of values, declare them with <code>enum_values</code>. sqlc-php will generate a PHP 8.1 backed enum and use it everywhere that column appears — in DTOs, Criteria filter methods, and <code>fromRow()</code> casts.</p>
 
   <pre><code class="language-yaml">type_overrides:

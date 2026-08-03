@@ -13,6 +13,7 @@ use SqlcPhp\Parser\SchemaParser;
 use SqlcPhp\Resolver\ColumnResolver;
 use SqlcPhp\Resolver\ExpressionTypeResolver;
 use SqlcPhp\Resolver\ParamResolver;
+use SqlcPhp\Rewriter\SqlRewriter;
 use SqlcPhp\TypeMapper\MySQLTypeMapper;
 
 class QueryAnalyzerTest extends TestCase
@@ -45,7 +46,7 @@ class QueryAnalyzerTest extends TestCase
         $exprResolver     = new ExpressionTypeResolver($catalog, $mapper);
         $colResolver      = new ColumnResolver($catalog, $mapper, $paramResolver, $exprResolver);
 
-        $this->analyzer = new QueryAnalyzer($paramResolver, $colResolver, $this->queryParser);
+        $this->analyzer = new QueryAnalyzer($paramResolver, $colResolver, $this->queryParser, new SqlRewriter(), $catalog);
     }
 
     private function analyze(string $sql): array
@@ -136,13 +137,17 @@ class QueryAnalyzerTest extends TestCase
     // SELECT specific columns — still direct model (single table)
     // -------------------------------------------------------------------------
 
-    public function test_partial_select_from_single_table_returns_model(): void
+    public function test_partial_select_from_single_table_generates_dto(): void
     {
+        // Regression: previously a partial SELECT from one table returned the model
+        // directly, causing CmsConfig::fromRow() to fail because the constructor
+        // expects ALL columns. Now a partial SELECT always generates a DTO.
         $queries = $this->analyze(
             "-- @name Profile\n-- @returns :one\nSELECT users.id, users.email FROM users WHERE users.id = :id;"
         );
-        $this->assertTrue($queries[0]->returnsModelDirectly);
-        $this->assertSame('User', $queries[0]->modelClass);
+        $this->assertFalse($queries[0]->returnsModelDirectly,
+            'Partial SELECT (missing columns) must not return model directly — use DTO instead');
+        $this->assertNull($queries[0]->modelClass);
     }
 
     // -------------------------------------------------------------------------
@@ -162,6 +167,49 @@ class QueryAnalyzerTest extends TestCase
 
         $this->assertFalse($queries[0]->returnsModelDirectly);
         $this->assertNull($queries[0]->modelClass);
+    }
+
+    // =========================================================================
+    // Partial SELECT — must generate DTO, not return model directly
+    // =========================================================================
+
+    public function test_partial_select_does_not_return_model_directly(): void
+    {
+        // Only some columns selected — model constructor requires ALL columns,
+        // so returning the model would fail at runtime with missing args.
+        $queries = $this->analyze(
+            "-- @name GetPartial\n-- @returns :opt\n" .
+            "SELECT users.id, users.email FROM users WHERE users.id = :id;"
+        );
+
+        $this->assertFalse($queries[0]->returnsModelDirectly,
+            'Partial SELECT (missing columns) must not return model directly');
+        $this->assertNull($queries[0]->modelClass);
+    }
+
+    public function test_full_select_star_returns_model_directly(): void
+    {
+        // SELECT * or SELECT table.* with all columns → model is fine
+        $queries = $this->analyze(
+            "-- @name GetUser\n-- @returns :one\n" .
+            "SELECT users.* FROM users WHERE users.id = :id;"
+        );
+
+        $this->assertTrue($queries[0]->returnsModelDirectly,
+            'SELECT table.* (all columns) should still return model directly');
+    }
+
+    public function test_partial_select_explicit_columns_generates_dto(): void
+    {
+        // Explicit subset of columns — must generate a separate DTO
+        $queries = $this->analyze(
+            "-- @name GetSummary\n-- @returns :many\n" .
+            "SELECT users.id, users.email FROM users;"
+            // missing: users.role_id
+        );
+
+        $this->assertFalse($queries[0]->returnsModelDirectly);
+        $this->assertCount(2, $queries[0]->resultColumns);
     }
 
     public function test_join_query_resolves_columns_from_both_tables(): void

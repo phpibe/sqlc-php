@@ -702,6 +702,23 @@ class QueryAnalyzer
             $this->queryParser->toSingular($singleTable)
         );
 
+        // Only return the model directly when the query selects ALL columns of the table.
+        // A partial column list (e.g. SELECT id, name FROM users, omitting email) must
+        // generate a DTO — instantiating the model would fail because the constructor
+        // expects every column.
+        $tableDef = $this->catalog?->getTable($singleTable);
+        if ($tableDef !== null) {
+            $schemaColumnNames = array_map(fn($c) => strtolower($c->name), $tableDef->columns);
+            $resultAliases     = array_map(fn($c) => strtolower($c->alias),   $columnsToCheck);
+
+            // Check that every schema column is represented in the result set
+            foreach ($schemaColumnNames as $schemaCol) {
+                if (!in_array($schemaCol, $resultAliases, true)) {
+                    return [false, null];  // partial select → use DTO
+                }
+            }
+        }
+
         return [true, $modelClass];
     }
 

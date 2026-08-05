@@ -397,7 +397,7 @@ function runGeneration(
         $analyzer      = new QueryAnalyzer($paramResolver, $colResolver, $queryParser, new SqlRewriter(), $catalog);
         $queries       = $analyzer->analyze($rawQueries);
 
-        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper, $catalog, $nsModels);
+        $resultDtoGen = new ResultDtoGenerator($nsDtos, $typeMapper, $catalog, $nsModels, $config->datetimeFormat);
 
         // Extension trait scaffolding — activated by declaring `extensions:` in out:
         $extGen = $output->hasExtensions()
@@ -420,7 +420,7 @@ function runGeneration(
             extGen:             $extGen,
             dtoScope:           $target->dtoScope,
         );
-        $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels);
+        $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels, $config->datetimeFormat);
 
         $toWrite      = [];
         $scaffoldWrite = [];  // Extension scaffolds — written once, never overwritten

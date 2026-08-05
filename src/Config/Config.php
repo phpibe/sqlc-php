@@ -84,6 +84,12 @@ class Config
          */
         public readonly string          $classSuffix   = 'Query',
         /**
+         * Format string used when converting DateTimeImmutable values in toArray().
+         * Defaults to 'Y-m-d H:i:s' (MySQL DATETIME format).
+         * Override globally in sqlc.yaml: datetime_format: "Y-m-d\TH:i:sP"
+         */
+        public readonly string          $datetimeFormat = 'Y-m-d H:i:s',
+        /**
          * Optional database connection for --generate-schema.
          * Can be overridden per target.
          */
@@ -114,7 +120,8 @@ class Config
         // Scalar globals — includes cannot override these
         $globalEngine       = strtolower((string) ($data['engine']       ?? 'mysql'));
         $globalLanguage     = strtolower((string) ($data['language']     ?? 'english'));
-        $globalClassSuffix  = (string)            ($data['class_suffix'] ?? 'Query');
+        $globalClassSuffix  = (string)            ($data['class_suffix']     ?? 'Query');
+        $datetimeFormat     = (string)            ($data['datetime_format']  ?? 'Y-m-d H:i:s');
 
         // Load includes first — main file values are merged on top
         $includeData = self::loadIncludes(
@@ -182,6 +189,7 @@ class Config
             virtualTables:  $virtualTables,
             globalCtePaths: $globalCtePaths,
             classSuffix:    $globalClassSuffix,
+            datetimeFormat: $datetimeFormat,
             database:       isset($data['database']) && is_array($data['database'])
                                 ? DatabaseConfig::fromArray($data['database'])
                                 : null,

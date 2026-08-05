@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.17</span>
+    <span class="brand-ver">v2.19.18</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -166,6 +166,7 @@
   <div class="sg-label">Configuration</div>
   <a class="sl" href="#config"><i class="bi bi-gear"></i> sqlc.yaml reference</a>
   <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
+  <a class="sl" href="#to-array"><i class="bi bi-braces"></i> toArray()</a>
   <a class="sl" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP types</a>
   <a class="sl" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> type_overrides</a>
   <a class="sl" href="#enum-values"><i class="bi bi-list-check"></i> enum_values</a>
@@ -309,6 +310,7 @@ schema:
 engine:        mysql                   # mysql (postgres planned)
 language:      english                 # inflection language for model names
 class_suffix:  Query                   # e.g. Repository → UserRepository
+datetime_format: "Y-m-d H:i:s"        # format for DateTimeImmutable in toArray()
                                        #       Service    → UserService
 
 # ── Global type overrides ────────────────────────────────────────────────────
@@ -371,6 +373,7 @@ targets:
         <tr><td><code>engine</code></td><td>global / target</td><td><code>mysql</code></td><td>Database engine for type mapping</td></tr>
         <tr><td><code>language</code></td><td>global / target</td><td><code>english</code></td><td>Language for pluralization (model class names)</td></tr>
         <tr><td><code>class_suffix</code></td><td>global / target</td><td><code>Query</code></td><td>Suffix appended to generated query class names</td></tr>
+        <tr><td><code>datetime_format</code></td><td>global</td><td><code>Y-m-d H:i:s</code></td><td>PHP date format string used when converting <code>DateTimeImmutable</code> values in <code>toArray()</code>. See <a href="#to-array">toArray()</a>.</td></tr>
         <tr><td><code>type_overrides</code></td><td>global / target</td><td><code>[]</code></td><td>Custom SQL → PHP type mappings</td></tr>
         <tr><td><code>database</code></td><td>global / target</td><td>null</td><td>Connection config for <code>--generate-schema</code></td></tr>
         <tr><td><code>ctes</code></td><td>global / target</td><td><code>[]</code></td><td>Shared CTE files (available via <code>@use</code>)</td></tr>
@@ -485,6 +488,62 @@ dto_scope: class</code></pre>
 </section>
 
 <!-- ═══ TYPE OVERRIDES ═══ -->
+<!-- ═══ TO ARRAY ═══ -->
+<section id="to-array">
+  <h2><i class="bi bi-braces me-2" style="color:var(--accent2)"></i><code>toArray()</code> — DTO to associative array <span class="new-badge">v2.19.18</span></h2>
+  <p class="ds">Every generated result DTO and Model has a <code>toArray(): array</code> method. It converts the object to an associative array, properly unwrapping typed values — avoiding the raw <code>(array)</code> cast which leaves <code>BackedEnum</code> objects and <code>DateTimeImmutable</code> instances in the array.</p>
+
+  <h3>Conversion rules</h3>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Property type</th><th>toArray() value</th></tr></thead>
+      <tbody>
+        <tr><td><code>int</code>, <code>string</code>, <code>float</code>, <code>bool</code>, <code>array</code></td><td>Returned as-is</td></tr>
+        <tr><td><code>BackedEnum</code></td><td><code>$this->prop->value</code> — the raw string/int</td></tr>
+        <tr><td><code>?BackedEnum</code></td><td><code>$this->prop?->value</code> — null if null</td></tr>
+        <tr><td><code>DateTimeImmutable</code></td><td><code>$this->prop->format('Y-m-d H:i:s')</code></td></tr>
+        <tr><td><code>?DateTimeImmutable</code></td><td><code>$this->prop?->format(...)</code> — null if null</td></tr>
+        <tr><td>Nested DTO with <code>toArray()</code></td><td><code>$this->prop->toArray()</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Example</h3>
+  <pre><code class="language-php">// Generated DTO:
+readonly class GetCurrentConfigRow
+{
+    public int               $country_id;
+    public CmsConfigsSection $section;    // BackedEnum
+    public CmsConfigProgrammed $programmed;  // BackedEnum
+    public ?array            $config;
+    public \DateTimeImmutable $created_at;
+
+    public function toArray(): array
+    {
+        return [
+            'country_id' => $this->country_id,            // int — as-is
+            'section'    => $this->section->value,         // 'hero' | 'faq'
+            'programmed' => $this->programmed->value,      // 'yes' | 'no'
+            'config'     => $this->config,                 // array|null — as-is
+            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
+        ];
+    }
+}</code></pre>
+
+  <pre><code class="language-php">// Usage:
+$row = $query->getCurrentConfig(country_id: 164, page: 'home', section: 'banner1');
+
+// Before — (array) leaves BackedEnum objects and DateTimeImmutable as objects:
+$data = (array) $row;   // ❌ $data['section'] is CmsConfigsSection{...}
+
+// After — toArray() unwraps everything to scalars:
+$data = $row->toArray();  // ✅ $data['section'] is 'hero'</code></pre>
+
+  <h3>Configuring the DateTime format</h3>
+  <p class="ds">The default format is <code>Y-m-d H:i:s</code> (MySQL DATETIME format). Override it globally in <code>sqlc.yaml</code>:</p>
+  <pre><code class="language-yaml">datetime_format: "Y-m-d\TH:i:sP"   # ISO 8601 with timezone</code></pre>
+</section>
+
 <section id="type-overrides">
   <h2><i class="bi bi-arrow-left-right me-2" style="color:var(--accent)"></i>type_overrides</h2>
   <p class="ds">Override the default SQL → PHP mapping globally or per-target. Useful for treating <code>TINYINT</code> as <code>bool</code>, using <code>Carbon</code> instead of <code>DateTimeImmutable</code>, or declaring a <code>VARCHAR</code> column as a PHP backed enum.</p>

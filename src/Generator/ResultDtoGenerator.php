@@ -31,7 +31,70 @@ class ResultDtoGenerator
         private readonly ?TypeMapperInterface $typeMapper       = null,
         private readonly ?SchemaCatalog       $catalog          = null,
         private readonly ?string              $modelsNamespace  = null,
+        private readonly string               $datetimeFormat   = 'Y-m-d H:i:s',
     ) {}
+
+    /**
+     * Build the body of toArray() for a set of resolved columns.
+     * Rules:
+     *   - BackedEnum              → ->value  (or ?->value if nullable)
+     *   - DateTimeImmutable       → ->format($datetimeFormat) (or ?->format(...))
+     *   - Embedded DTO / model    → ->toArray() if available, else (array) cast
+     *   - Everything else         → returned as-is
+     *
+     * @param ResolvedColumn[] $columns
+     * @param array<string,string> $extraProps  ['propName' => 'phpType'] for array props (grouped items, tableModels)
+     */
+    private function buildToArrayBody(array $columns, array $extraProps = []): string
+    {
+        $lines = [];
+
+        foreach ($columns as $col) {
+            $alias   = $col->alias;
+            $phpType = ltrim($col->phpType, '?');
+            $nullable = str_starts_with($col->phpType, '?');
+            $line    = $this->toArrayExpr("\$this->{$alias}", $phpType, $nullable);
+            $lines[] = "            '{$alias}' => {$line},";
+        }
+
+        foreach ($extraProps as $propName => $phpType) {
+            $nullable = str_starts_with($phpType, '?');
+            $bare     = ltrim($phpType, '?');
+            $line     = $this->toArrayExpr("\$this->{$propName}", $bare, $nullable);
+            $lines[]  = "            '{$propName}' => {$line},";
+        }
+
+        return implode("\n", $lines);
+    }
+
+    private function toArrayExpr(string $expr, string $bareType, bool $nullable): string
+    {
+        $op = $nullable ? '?->' : '->';
+
+        // BackedEnum → ->value
+        if ($this->typeMapper?->needsValueExtraction($bareType)
+            || $this->typeMapper?->needsValueExtraction(($nullable ? '?' : '') . $bareType)
+        ) {
+            return $nullable ? "{$expr}?->value" : "{$expr}->value";
+        }
+
+        // DateTimeImmutable → ->format(...)
+        if (in_array($bareType, ['\\DateTimeImmutable', 'DateTimeImmutable', '\\DateTime', 'DateTime'], true)) {
+            $fmt = addslashes($this->datetimeFormat);
+            return $nullable ? "{$expr}?->format('{$fmt}')" : "{$expr}->format('{$fmt}')";
+        }
+
+        // Nested DTO with toArray() — use method_exists for safety
+        if (preg_match('/^[A-Z]/', $bareType) && !in_array($bareType, ['array', 'string', 'int', 'float', 'bool', 'mixed'], true)) {
+            if ($nullable) {
+                return "{$expr} !== null ? (method_exists({$expr}, 'toArray') ? {$expr}->toArray() : (array) {$expr}) : null";
+            }
+            return "method_exists(\$this->{$bareType}, 'toArray') ? {$expr}->toArray() : (array) {$expr}";
+        }
+
+        // Scalar / array / mixed — return as-is
+        return $expr;
+    }
 
     public function dtoClassName(QueryDefinition $query): string
     {
@@ -564,6 +627,23 @@ PHP;
             $useImports = "\n" . $useImports;
         }
 
+        // Build toArray() body
+        $extraProps = [];
+        foreach ($embeds as $embed) {
+            if (!empty($embedColumns[$embed->className])) {
+                $extraProps[$embed->propertyName()] = $embed->className;
+            }
+        }
+        foreach ($tableModels as $tm) {
+            if (!empty($tableModelColumns[$tm['table']])) {
+                $short = str_contains($tm['class'], '\\')
+                    ? substr($tm['class'], strrpos($tm['class'], '\\') + 1)
+                    : $tm['class'];
+                $extraProps[$tm['table']] = $short;
+            }
+        }
+        $toArrayBody = $this->buildToArrayBody($flatColumns, $extraProps);
+
         $code = <<<PHP
 <?php
 
@@ -592,6 +672,20 @@ readonly class {$className}
         return new self(
 {$fromArgsStr}
         );
+    }
+
+    /**
+     * Convert to an associative array.
+     * BackedEnum values are unwrapped to their scalar value.
+     * DateTimeImmutable values are formatted as '{$this->datetimeFormat}'.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+{$toArrayBody}
+        ];
     }
 }
 PHP;

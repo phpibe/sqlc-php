@@ -23,6 +23,7 @@ class ModelGenerator
         private readonly TypeMapperInterface $typeMapper,
         private readonly QueryParser    $queryParser,
         private readonly string         $namespace,
+        private readonly string         $datetimeFormat = 'Y-m-d H:i:s',
     ) {}
 
     /**
@@ -77,6 +78,20 @@ readonly class {$className}
 {$this->buildFromRowArgs($columns, $tableName)}
         );
     }
+
+    /**
+     * Convert to an associative array.
+     * BackedEnum values are unwrapped to their scalar value.
+     * DateTimeImmutable values are formatted as '{$this->datetimeFormat}'.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+{$this->buildModelToArrayBody($columns, $tableName)}
+        ];
+    }
 }
 PHP;
 
@@ -94,6 +109,29 @@ PHP;
         }
 
         return ['className' => $className, 'code' => $code];
+    }
+
+    private function buildModelToArrayBody(array $columns, string $tableName): string
+    {
+        $lines = [];
+        foreach ($columns as $col) {
+            $phpType  = $this->typeMapper->toPhpType($col->sqlType, $col->nullable, $tableName, $col->name);
+            $nullable = str_starts_with($phpType, '?');
+            $bare     = ltrim($phpType, '?');
+            $expr     = "\$this->{$col->name}";
+
+            if ($this->typeMapper->needsValueExtraction($phpType)) {
+                $val = $nullable ? "{$expr}?->value" : "{$expr}->value";
+            } elseif (in_array($bare, ['\\DateTimeImmutable', 'DateTimeImmutable', '\\DateTime', 'DateTime'], true)) {
+                $fmt = addslashes($this->datetimeFormat);
+                $val = $nullable ? "{$expr}?->format('{$fmt}')" : "{$expr}->format('{$fmt}')";
+            } else {
+                $val = $expr;
+            }
+
+            $lines[] = "            '{$col->name}' => {$val},";
+        }
+        return implode("\n", $lines);
     }
 
     private function buildFromRowArgs(array $columns, string $tableName = ''): string

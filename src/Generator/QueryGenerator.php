@@ -767,15 +767,16 @@ PHP;
      * For backed enums: $param->value (or $param?->value for nullable)
      * For all other types: $param
      */
-    private function bindValueExpr(\SqlcPhp\Resolver\QueryParam $param): string
+    private function bindValueExpr(\SqlcPhp\Resolver\QueryParam $param, bool $useParamsDto = false): string
     {
+        $varName = $useParamsDto ? "\$params->{$param->name}" : "\${$param->name}";
         if ($this->typeMapper->needsValueExtraction($param->phpType)) {
             $nullable = str_starts_with($param->phpType, '?');
             return $nullable
-                ? "\${$param->name}?->value"
-                : "\${$param->name}->value";
+                ? "{$varName}?->value"
+                : "{$varName}->value";
         }
-        return "\${$param->name}";
+        return $varName;
     }
 
     /**
@@ -873,6 +874,7 @@ PHP;
         $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
         $isCursor       = $query->returns->value === ':cursor';
         $paginationKeys = ['limit', 'offset'];
+        $useDto         = $query->useParams && count($query->params) >= 2;
 
         $parts = [];
         foreach ($query->params as $param) {
@@ -880,7 +882,7 @@ PHP;
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) continue;
             if ($isCursor && $param->name === 'limit') continue;
 
-            $value   = $this->bindValueExpr($param);
+            $value   = $this->bindValueExpr($param, $useDto);
             $parts[] = "    ':{$param->name}' => [{$value}, {$param->pdoParam}]";
             if ($param->optional) {
                 $chk     = $param->name . '_chk';
@@ -2244,9 +2246,24 @@ PHP;
      * For :many-paginated queries, :limit and :offset are auto-injected by the
      * generator and must not appear in the user-facing parameter list.
      */
+    /**
+     * Returns the Params DTO class name when @with params is active.
+     * Delegates to ResultDtoGenerator for consistency.
+     */
+    private function paramsClassName(QueryDefinition $query): string
+    {
+        return $this->resultDtoGen->paramsClassName($query);
+    }
+
     private function buildParamList(QueryDefinition $query): string
     {
         if (empty($query->params)) return '';
+
+        // @with params — collapse into a single DTO when 2+ params exist
+        if ($query->useParams && count($query->params) >= 2) {
+            $className = $this->paramsClassName($query);
+            return "{$className} \$params";
+        }
 
         $required = [];
         $optional = [];
@@ -2390,6 +2407,9 @@ PHP;
         $inListParams  = array_filter($query->params, fn($p) => $p->inList);
         $regularParams = array_filter($query->params, fn($p) => !$p->inList);
 
+        // @with params: use $params->property instead of $paramName
+        $useDto = $query->useParams && count($query->params) >= 2;
+
         if (empty($inListParams)) {
             // Standard path: bindValue only
             if (empty($regularParams)) return $this->renderDuplicateBindings($query, $stmtVar);
@@ -2410,7 +2430,7 @@ PHP;
                 if ($isCursor && $param->name === 'limit') {
                     continue;
                 }
-                $value = $this->bindValueExpr($param);
+                $value = $this->bindValueExpr($param, $useDto);
                 $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', {$value}, {$param->pdoParam});";
                 if ($param->optional) {
                     $chk = $param->name . '_chk';

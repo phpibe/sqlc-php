@@ -560,6 +560,25 @@ function runGeneration(
             $dtoRegistry[$dtoName] = $shape;
         }
 
+        // ── @with params — generate input Params DTO for queries with 2+ params ──────
+        foreach ($queries as $query) {
+            if (!$query->useParams || count($query->params) < 2) continue;
+
+            $rp     = $resultDtoGen->generateParams($query, $target->dtoScope, $extGen);
+            $subdir = $rp['scopeSubdir'];
+            $prefix = $subdir !== null ? "{$subdir}/" : '';
+            $toWrite["{$prefix}{$rp['className']}.php"] = ['type' => 'dtos', 'label' => '[params] ', 'code' => $rp['code']];
+
+            // Extension scaffold for the Params DTO
+            foreach ($rp['extensions'] ?? [] as $relPath => $ext) {
+                $scaffoldWrite[$relPath] = [
+                    'type'  => 'extensions_dtos',
+                    'label' => '[ext-d]  ',
+                    'ext'   => $ext,
+                ];
+            }
+        }
+
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
             if ($query->returns->value === ':exec') continue;

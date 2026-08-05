@@ -130,6 +130,12 @@ class QueryDefinition
          */
         public readonly bool       $stream = false,
         /**
+         * When true, input parameters are grouped into a readonly Params DTO
+         * (e.g. CreateCmsConfigParams) instead of positional method arguments.
+         * Only active when 2+ parameters exist. Declared via @with params.
+         */
+        public readonly bool       $useParams = false,
+        /**
          * When @returns :grouped, this is the column used as the grouping key.
          * Declared via @group_by table.column (e.g. @group_by profiles.id).
          * Rows with the same key are merged into a single result object whose
@@ -337,6 +343,7 @@ class QueryParser
         $searchable       = false;
         $exists           = false;
         $stream           = false;
+        $useParams        = false;       // @with params
         $groupByColumn    = null;       // @group_by table.column
         $paginated        = false;
         $filterColumns    = [];
@@ -510,9 +517,10 @@ class QueryParser
                             'returning' => $returning  = true,
                             'paginated' => $paginated  = true,
                             'stream'    => $stream     = true,
+                            'params'    => $useParams  = true,
                             default     => fwrite(STDERR,
                                 "sqlc-php: @with unknown modifier '{$modifier}' — " .
-                                "supported: criteria, count, exists, returning, paginated, stream.\n"
+                                "supported: criteria, count, exists, returning, paginated, stream, params.\n"
                             ),
                         };
                     }
@@ -758,6 +766,7 @@ class QueryParser
             paginated:        $paginated,
             exists:           $exists,
             stream:           $stream,
+            useParams:        $useParams,
             groupByColumn:    $groupByColumn,
             partial:          $partial,
             returning:        $returning,

@@ -316,6 +316,7 @@ class QueryAnalyzer
             paginated:            $query->paginated,
             exists:               $query->exists,
             stream:               $query->stream,
+            useParams:            $query->useParams,
             groupByColumn:        $query->groupByColumn,
             partial:              $query->partial,
             returning:            $query->returning,

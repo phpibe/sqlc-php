@@ -136,6 +136,9 @@ readonly class OutputConfig
         if ($type === 'extensions_enums') {
             return ($this->dirs['extensions'] ?? $this->defaultDir) . '/Enums';
         }
+        if ($type === 'extensions_queries') {
+            return ($this->dirs['extensions'] ?? $this->defaultDir) . '/Queries';
+        }
 
         if (!isset($this->dirs[$type])) {
             throw new \RuntimeException(
@@ -175,6 +178,10 @@ readonly class OutputConfig
         if ($type === 'extensions_enums') {
             $base = basename($this->dirs['extensions'] ?? 'Extensions');
             return $this->baseNamespace . '\\' . $base . '\\Enums';
+        }
+        if ($type === 'extensions_queries') {
+            $base = basename($this->dirs['extensions'] ?? 'Extensions');
+            return $this->baseNamespace . '\\' . $base . '\\Queries';
         }
 
         if (!isset($this->dirs[$type])) {

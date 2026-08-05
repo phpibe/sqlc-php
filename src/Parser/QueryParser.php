@@ -17,6 +17,7 @@ enum ReturnType: string
     case Paginated     = ':paginated';        // deprecated — use Paginator
     case Paginator     = ':paginator';
     case Cursor        = ':cursor';
+    case Grouped       = ':grouped';
     case One           = ':one';
     case Opt           = ':opt';
     case Exec          = ':exec';
@@ -128,6 +129,14 @@ class QueryDefinition
          * Declared via @with stream. Valid on :many queries.
          */
         public readonly bool       $stream = false,
+        /**
+         * When @returns :grouped, this is the column used as the grouping key.
+         * Declared via @group_by table.column (e.g. @group_by profiles.id).
+         * Rows with the same key are merged into a single result object whose
+         * repeated columns become typed arrays.
+         * @var string|null  e.g. 'profiles.id' or just 'id'
+         */
+        public readonly ?string    $groupByColumn = null,
         /**
          * When true, params that appear inside COALESCE(:param, col) in the SET
          * clause are marked optional (nullable, default null). Params in the WHERE
@@ -328,6 +337,7 @@ class QueryParser
         $searchable       = false;
         $exists           = false;
         $stream           = false;
+        $groupByColumn    = null;       // @group_by table.column
         $paginated        = false;
         $filterColumns    = [];
         $partial          = false;
@@ -506,6 +516,9 @@ class QueryParser
                             ),
                         };
                     }
+                } elseif (preg_match('/^@group_by\s+(\S+)/i', $comment, $m)) {
+                    // @group_by table.column — required companion to :grouped
+                    $groupByColumn = $m[1];
                 } elseif (preg_match('/^@filter\s+(.+)/i', $comment, $m)) {
                     // @filter table.column   → filter methods for a specific JOIN column
                     // @filter table.*        → filter methods for ALL columns of that table
@@ -745,6 +758,7 @@ class QueryParser
             paginated:        $paginated,
             exists:           $exists,
             stream:           $stream,
+            groupByColumn:    $groupByColumn,
             partial:          $partial,
             returning:        $returning,
             isUnion:          $isUnion,

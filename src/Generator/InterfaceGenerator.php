@@ -110,6 +110,7 @@ PHP;
             ReturnType::ManyPaginated => $this->renderManyPaginatedSignature($query, $queryGen),
             ReturnType::Cursor        => $this->renderCursorSignature($query, $queryGen),
             ReturnType::Many          => $this->renderManySignature($query, $queryGen),
+            ReturnType::Grouped       => $this->renderGroupedSignature($query, $queryGen),
             ReturnType::One           => $this->renderOneSignature($query, $queryGen),
             ReturnType::Opt           => $this->renderOptSignature($query, $queryGen),
             ReturnType::Exec          => $this->renderExecSignature($query, $queryGen),
@@ -295,6 +296,17 @@ PHP;
     /**
      * :many — can be combined with @searchable.
      */
+    private function renderGroupedSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+        $docblock    = $this->buildDocblock($query, $queryGen, "@return {$returnClass}[]");
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): array;
+PHP;
+    }
+
     private function renderManySignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
         $returnClass = $queryGen->resolveReturnClassPublic($query);

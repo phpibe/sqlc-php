@@ -448,7 +448,10 @@ class CommentAnnotationTest extends TestCase
         SQL);
 
         $commentPos = strpos($code, 'Finds user by primary key.');
-        $returnPos  = strpos($code, '@return');
+        // Find @return that appears AFTER the comment (in the query method docblock),
+        // not an earlier @return that may exist in other generated helpers (e.g. withTransaction).
+        $returnPos  = strpos($code, '@return', $commentPos);
+        $this->assertNotFalse($returnPos, '@return tag must exist after @comment');
         $this->assertLessThan($returnPos, $commentPos, '@comment must appear before @return');
     }
 

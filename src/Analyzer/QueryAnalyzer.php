@@ -155,6 +155,14 @@ class QueryAnalyzer
             );
         }
 
+        // @returns :grouped requires @group_by
+        if ($query->returns === ReturnType::Grouped && $query->groupByColumn === null) {
+            throw new \RuntimeException(
+                "Query '{$query->name}': @returns :grouped requires a @group_by annotation. " .
+                "Add '-- @group_by table.column' to declare the grouping key."
+            );
+        }
+
         // Validate @with stream: valid on :many only
         if ($query->stream && $query->returns !== ReturnType::Many) {
             throw new \RuntimeException(
@@ -308,6 +316,7 @@ class QueryAnalyzer
             paginated:            $query->paginated,
             exists:               $query->exists,
             stream:               $query->stream,
+            groupByColumn:        $query->groupByColumn,
             partial:              $query->partial,
             returning:            $query->returning,
             isUnion:              $query->isUnion,

@@ -48,6 +48,8 @@ class ExtensionGenerator
         private readonly string $nsDtos,
         /** Base namespace for enum extensions: e.g. App\Database\Extensions\Enums */
         private readonly string $nsEnums = '',
+        /** Base namespace for query extensions: e.g. App\\Database\\Extensions\\Queries */
+        private readonly string $nsQueries = '',
     ) {}
 
     // =========================================================================
@@ -112,6 +114,41 @@ class ExtensionGenerator
             fqcn:         $namespace . '\\' . $traitName,
             relPath:      $relPath,
             scaffoldCode: $this->buildScaffold($traitName, $namespace, $className, $props, 'model', $hostFqcn),
+        );
+    }
+
+    /**
+     * Generate extension data for a Query class.
+     *
+     * The scaffold is a write-once trait the developer fills with domain methods
+     * that orchestrate multiple queries — typically using withTransaction().
+     *
+     * @param  string      $className    e.g. 'OrdersQuery'
+     * @param  string      $hostFqcn    FQCN of the host Query class
+     * @param  string|null $groupSubdir When dto_scope is 'class' or 'method', the group
+     *                                  name (e.g. 'CmsConfig') is used as a subdirectory
+     *                                  so the Query extension mirrors its DTO siblings.
+     */
+    public function forQuery(string $className, string $hostFqcn = '', ?string $groupSubdir = null): ExtensionData
+    {
+        $traitName = $className . 'Extension';
+        $baseNs    = $this->nsQueries !== '' ? $this->nsQueries : $this->nsModels;
+
+        if ($groupSubdir !== null) {
+            $nsSuffix  = str_replace('/', '\\', $groupSubdir);
+            $namespace = $baseNs . '\\' . $nsSuffix;
+            $relPath   = $groupSubdir . '/' . $traitName . '.php';
+        } else {
+            $namespace = $baseNs;
+            $relPath   = $traitName . '.php';
+        }
+
+        return new ExtensionData(
+            traitName:    $traitName,
+            namespace:    $namespace,
+            fqcn:         $namespace . '\\' . $traitName,
+            relPath:      $relPath,
+            scaffoldCode: $this->buildQueryScaffold($traitName, $namespace, $className, $hostFqcn),
         );
     }
 
@@ -230,6 +267,53 @@ class ExtensionGenerator
     // =========================================================================
     // Scaffold builder
     // =========================================================================
+
+    /**
+     * Build the write-once scaffold for a Query extension trait.
+     */
+    private function buildQueryScaffold(
+        string $traitName,
+        string $namespace,
+        string $className,
+        string $hostFqcn,
+    ): string {
+        $useBlock  = $hostFqcn !== '' ? "\nuse {$hostFqcn};\n" : '';
+        $mixinLine = $hostFqcn !== '' ? " * @mixin {$className}\n" : '';
+
+        return <<<PHP
+<?php
+
+declare(strict_types=1);
+
+namespace {$namespace};
+{$useBlock}
+/**
+ * Extension trait for the `{$className}` query class.
+ *
+ * ╔══════════════════════════════════════════════════════════╗
+ * ║  This file is yours — sqlc-php will NEVER overwrite it.  ║
+ * ╚══════════════════════════════════════════════════════════╝
+ *
+ * Add domain methods that orchestrate multiple queries.
+ * All generated methods of the query class are available via `\$this`.
+ * Use `\$this->withTransaction(fn() => ...)` for atomic multi-step operations.
+ *
+{$mixinLine} * Example:
+    // public function createOrderWithItems(int \$userId, array \$items): int
+    // {
+    //     return \$this->withTransaction(function() use (\$userId, \$items) {
+    //         \$order = \$this->createOrder(\$userId);
+    //         \$this->insertItems(\$order->id, \$items);
+    //         return \$order->id;
+    //     });
+    // }
+ */
+trait {$traitName}
+{
+    // Your orchestration methods here
+}
+PHP;
+    }
 
     /**
      * Build the write-once trait scaffold with @property + @mixin docblock.

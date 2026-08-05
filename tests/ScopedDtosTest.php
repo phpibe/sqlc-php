@@ -908,7 +908,7 @@ class ScopedDtosTest extends TestCase
 
     public function test_version_is_2_9_4(): void
     {
-        $this->assertSame('2.19.14', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.16', \SqlcPhp\Version::VERSION);
     }
 
     // =========================================================================
@@ -995,5 +995,80 @@ class ScopedDtosTest extends TestCase
             'dto_scope' => 'group',
             'queries'   => ['queries.sql'],
         ]);
+    }
+
+    // =========================================================================
+    // dto_scope + Query extension placement
+    // =========================================================================
+
+    public function test_query_extension_flat_when_dto_scope_none(): void
+    {
+        $extGen = new \SqlcPhp\Generator\ExtensionGenerator(
+            'App\\Extensions\\Models',
+            'App\\Extensions\\DTOs',
+            'App\\Extensions\\Enums',
+            'App\\Extensions\\Queries',
+        );
+        $gen = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog,
+            new \SqlcPhp\TypeMapper\MySQLTypeMapper(),
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', new \SqlcPhp\TypeMapper\MySQLTypeMapper()),
+            'App\\Queries', false, null, false, 'Query', '', '', false, $extGen, 'none'
+        );
+        $q = $this->analyze("-- @name GetUser\n-- @class Users\n-- @returns :many\nSELECT users.id FROM users;");
+        $files = $gen->generate($q);
+
+        $ext = $files['ext:UsersQuery'] ?? null;
+        $this->assertNotNull($ext, 'Query extension must be generated');
+        $this->assertSame('UsersQueryExtension.php', $ext['relPath'],
+            'dto_scope: none → flat relPath, no subdirectory');
+    }
+
+    public function test_query_extension_under_group_subdir_when_dto_scope_class(): void
+    {
+        $extGen = new \SqlcPhp\Generator\ExtensionGenerator(
+            'App\\Extensions\\Models',
+            'App\\Extensions\\DTOs',
+            'App\\Extensions\\Enums',
+            'App\\Extensions\\Queries',
+        );
+        $gen = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog,
+            new \SqlcPhp\TypeMapper\MySQLTypeMapper(),
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', new \SqlcPhp\TypeMapper\MySQLTypeMapper()),
+            'App\\Queries', false, null, false, 'Query', '', '', false, $extGen, 'class'
+        );
+        $q = $this->analyze("-- @name GetUser\n-- @class Users\n-- @returns :many\nSELECT users.id FROM users;");
+        $files = $gen->generate($q);
+
+        $ext = $files['ext:UsersQuery'] ?? null;
+        $this->assertNotNull($ext, 'Query extension must be generated');
+        $this->assertSame('Users/UsersQueryExtension.php', $ext['relPath'],
+            'dto_scope: class → relPath under group subdirectory');
+    }
+
+    public function test_query_extension_namespace_matches_dto_scope(): void
+    {
+        $extGen = new \SqlcPhp\Generator\ExtensionGenerator(
+            'App\\Extensions\\Models',
+            'App\\Extensions\\DTOs',
+            'App\\Extensions\\Enums',
+            'App\\Extensions\\Queries',
+        );
+        $gen = new \SqlcPhp\Generator\QueryGenerator(
+            $this->catalog,
+            new \SqlcPhp\TypeMapper\MySQLTypeMapper(),
+            new \SqlcPhp\Generator\ResultDtoGenerator('App\\DTOs', new \SqlcPhp\TypeMapper\MySQLTypeMapper()),
+            'App\\Queries', false, null, false, 'Query', '', '', false, $extGen, 'class'
+        );
+        $q = $this->analyze("-- @name GetUser\n-- @class Users\n-- @returns :many\nSELECT users.id FROM users;");
+        $files = $gen->generate($q);
+
+        $ext = $files['ext:UsersQuery'] ?? null;
+        $this->assertStringContainsString(
+            'namespace App\\Extensions\\Queries\\Users',
+            $ext['scaffoldCode'] ?? '',
+            'dto_scope: class → scaffold namespace includes group name'
+        );
     }
 }

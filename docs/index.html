@@ -147,7 +147,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.5</span>
+    <span class="brand-ver">v2.19.16</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
@@ -195,11 +195,13 @@
   <a class="sl" href="#rt-many"><i class="bi bi-collection"></i> :many</a>
   <a class="sl" href="#rt-paginator"><i class="bi bi-grid-3x3-gap"></i> :paginator</a>
   <a class="sl" href="#rt-cursor"><i class="bi bi-cursor"></i> :cursor</a>
+  <a class="sl" href="#rt-grouped"><i class="bi bi-collection"></i> :grouped</a>
   <a class="sl" href="#rt-one"><i class="bi bi-person"></i> :one</a>
   <a class="sl" href="#rt-opt"><i class="bi bi-question-diamond"></i> :opt</a>
   <a class="sl" href="#rt-exec"><i class="bi bi-pencil"></i> :exec</a>
   <a class="sl" href="#rt-batch"><i class="bi bi-stack"></i> :batch</a>
   <a class="sl" href="#rt-transaction"><i class="bi bi-arrow-repeat"></i> :transaction</a>
+  <a class="sl" href="#with-transaction"><i class="bi bi-shield-check"></i> withTransaction()</a>
 
   <div class="sg-label">Criteria</div>
   <a class="sl" href="#criteria"><i class="bi bi-funnel-fill"></i> Criteria class</a>
@@ -504,7 +506,7 @@ dto_scope: class</code></pre>
     Per-target <code>type_overrides</code> are merged with global overrides — per-target takes precedence when the same <code>db_type</code> appears in both.
   </div>
 
-  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.14</span></h3>
+  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.13</span></h3>
   <p class="ds">When a <code>VARCHAR</code> or <code>CHAR</code> column holds a fixed set of values, declare them with <code>enum_values</code>. sqlc-php will generate a PHP 8.1 backed enum and use it everywhere that column appears — in DTOs, Criteria filter methods, and <code>fromRow()</code> casts.</p>
 
   <pre><code class="language-yaml">type_overrides:
@@ -1588,6 +1590,81 @@ UPDATE users SET name = :name WHERE id = :id;
 DELETE FROM users WHERE id = :id;</code></pre>
 </section>
 
+<section id="rt-grouped">
+  <h3><span class="rt rt-exec">:grouped</span> — JOIN rows grouped into typed arrays <span class="new-badge">v2.19.16</span></h3>
+  <p class="ds">When a query JOINs a 1:N relationship, the database returns one flat row per join. <code>:grouped</code> automatically collapses those rows into grouped objects where the repeated (JOIN-side) columns become a typed array — no manual post-processing needed.</p>
+
+  <pre><code class="language-sql">-- @name GetProfilesWithReserves
+-- @class Profiles
+-- @returns :grouped
+-- @group_by profiles.id        ← the primary key column to group by
+SELECT
+    profiles.id,
+    profiles.firstname,
+    profiles.lastname,
+    reserve.id     AS reserve_id,
+    reserve.total,
+    reserve.status
+FROM profiles
+LEFT JOIN reserve ON reserve.profile_id = profiles.id;</code></pre>
+
+  <h4>Generated files</h4>
+  <pre><code class="language-php">// DTOs/GetProfilesWithReservesItem.php — repeated (JOIN-side) columns
+readonly class GetProfilesWithReservesItem
+{
+    public function __construct(
+        public int    $reserve_id,
+        public float  $total,
+        public string $status,
+    ) {}
+
+    public static function fromRow(array $row): self { ... }
+}
+
+// DTOs/GetProfilesWithReservesRow.php — scalar (primary table) + array property
+readonly class GetProfilesWithReservesRow
+{
+    public function __construct(
+        public int    $id,
+        public string $firstname,
+        public string $lastname,
+        /** @var GetProfilesWithReservesItem[] */
+        public array  $reserve,          // ← grouped, typed array
+    ) {}
+
+    public static function groupResults(iterable $rows): array { ... }
+}</code></pre>
+
+  <h4>Generated query method</h4>
+  <pre><code class="language-php">/** @return GetProfilesWithReservesRow[] */
+public function getProfilesWithReserves(): array
+{
+    // ... execute query ...
+    return GetProfilesWithReservesRow::groupResults($stmt->fetchAll(PDO::FETCH_ASSOC));
+}</code></pre>
+
+  <h4>Usage</h4>
+  <pre><code class="language-php">$profiles = $query->getProfilesWithReserves();
+
+foreach ($profiles as $profile) {
+    echo $profile->firstname;
+
+    foreach ($profile->reserve as $item) {  // ← typed GetProfilesWithReservesItem[]
+        echo $item->reserve_id . ': ' . $item->total . ' (' . $item->status . ')';
+    }
+}</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>How it works:</strong> <code>groupResults()</code> iterates the flat PDO result set and groups rows by the <code>@group_by</code> column value. Primary table columns are taken from the first row of each group; JOIN-side columns are accumulated into the typed item array. Profiles with no matching reserves get an empty <code>$reserve</code> array.
+  </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>Column disambiguation:</strong> The <code>@group_by</code> column must appear in the SELECT list. If both tables have an <code>id</code> column, alias one of them (<code>reserve.id AS reserve_id</code>) to avoid overwriting in the PDO result row.
+  </div>
+</section>
+
 <section id="rt-batch">
   <h3><span class="rt rt-batch">:batch</span> — run same query N times</h3>
   <p class="ds">Runs the same query multiple times within one transaction. The generated method accepts an array of parameter arrays and returns the number of affected rows.</p>
@@ -1611,6 +1688,82 @@ $affected = $query->insertUserBatch([
 -- @calls debitAccount, creditAccount</code></pre>
   <pre><code class="language-php">// Calls debitAccount() then creditAccount() in one transaction
 $query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>Limitation:</strong> <code>@calls</code> forwards the same parameters to all called methods. When sub-methods need different parameters, or when you need to use a return value from one call as input to the next, use <a href="#with-transaction"><code>withTransaction()</code></a> instead.
+  </div>
+</section>
+
+<section id="with-transaction">
+  <h3><code>withTransaction()</code> — flexible transactions in extension traits <span class="new-badge">v2.19.15</span></h3>
+  <p class="ds">Every generated Query class has a <code>protected withTransaction(callable $fn): mixed</code> helper. Use it in an extension trait to run any combination of methods inside a transaction — with different parameters per call, intermediate results, and conditional logic.</p>
+
+  <h4>Signature</h4>
+  <pre><code class="language-php">protected function withTransaction(callable $fn): mixed</code></pre>
+  <p class="ds">Commits automatically on success, rolls back on any <code>\Throwable</code>. Handles nesting correctly — if a transaction is already active, inner calls are no-ops (the outermost call owns the transaction).</p>
+
+  <h4>Usage in an extension trait</h4>
+  <pre><code class="language-sql">-- @name CreateOrder
+-- @class Orders
+-- @returns :one
+-- @with returning
+INSERT INTO orders (user_id, total) VALUES (:userId, :total);
+
+-- @name InsertItems
+-- @class Orders
+-- @returns :batch
+INSERT INTO order_items (order_id, product_id, qty)
+VALUES (:orderId, :productId, :qty);</code></pre>
+
+  <pre><code class="language-php">// Extensions/Queries/OrdersQueryExtension.php — your file, never overwritten
+trait OrdersQueryExtension
+{
+    public function createOrderWithItems(int $userId, float $total, array $items): int
+    {
+        return $this->withTransaction(function() use ($userId, $total, $items) {
+            $order   = $this->createOrder($userId, $total);  // :one returning → Order
+            $orderId = $order->id;
+
+            // Pass the new orderId to the batch insert
+            $rows = array_map(fn($i) => [
+                'orderId'   => $orderId,
+                'productId' => $i['product_id'],
+                'qty'       => $i['qty'],
+            ], $items);
+            $this->insertItems($rows);  // :batch
+
+            return $orderId;
+        });
+    }
+}</code></pre>
+
+  <pre><code class="language-php">// Usage — single method, atomic:
+$orderId = $orderQuery->createOrderWithItems(
+    userId: 42,
+    total:  199.90,
+    items:  [['product_id' => 5, 'qty' => 2], ['product_id' => 9, 'qty' => 1]],
+);</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Nesting</strong> — <code>withTransaction()</code> calls <code>PDO::inTransaction()</code> before opening a transaction. If one is already active (e.g. you called <code>withTransaction</code> from an outer method), the inner call is a no-op — the outer transaction is committed or rolled back as a unit.
+  </div>
+
+  <h4>Comparison</h4>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th></th><th><code>:transaction</code> + <code>@calls</code></th><th><code>withTransaction()</code></th></tr></thead>
+      <tbody>
+        <tr><td>Declaration</td><td>SQL annotation</td><td>PHP in extension trait</td></tr>
+        <tr><td>Parameters</td><td>Same params forwarded to all calls</td><td>Fully flexible per call</td></tr>
+        <tr><td>Intermediate results</td><td>❌ Not possible</td><td>✅ Use return values between calls</td></tr>
+        <tr><td>Conditional logic</td><td>❌ Not possible</td><td>✅ Full PHP control flow</td></tr>
+        <tr><td>Nesting</td><td>❌ Not handled</td><td>✅ Automatic no-op on inner calls</td></tr>
+        <tr><td>Best for</td><td>Simple, uniform multi-step writes</td><td>Complex orchestration with dependencies</td></tr>
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <hr class="div">
@@ -2105,21 +2258,90 @@ interface UserQueryInterface
 </section>
 
 <section id="extensions">
-  <h3>Extension trait</h3>
-  <p class="ds">Define an <code>extensions:</code> block in <code>sqlc.yaml</code> to inject custom methods via a trait. The generated class uses the trait automatically. Useful for adding higher-level methods that compose multiple queries.</p>
+  <h2><i class="bi bi-puzzle me-2" style="color:var(--accent2)"></i>Extension traits</h2>
+  <p class="ds">When <code>extensions:</code> is declared in the <code>out:</code> block, sqlc-php generates a write-once extension trait for every Model, DTO, Enum, and Query class. The generated class uses the trait automatically via <code>use TraitName;</code>. Extension files are <strong>never overwritten</strong> — they belong to you.</p>
+
   <pre><code class="language-yaml">targets:
   - namespace: "App\\Database"
-    extensions:
-      - trait:  "App\\Database\\UserQueryExtension"
-        file:   "generated/UserQueryExtension.php"</code></pre>
-  <pre><code class="language-php">// UserQueryExtension.php (you write this)
-trait UserQueryExtension
+    out:
+      queries:    app/Database/Repositories
+      models:     app/Database/Models
+      dtos:       app/Database/DTOs
+      enums:      app/Database/Enums
+      interfaces: app/Database/Contracts
+      criterias:  app/Database/Criterias
+      extensions: app/Database/Extensions   # ← activates all extension scaffolding</code></pre>
+
+  <p class="ds">This generates one extension file per type, all under the <code>extensions</code> directory:</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Label</th><th>File</th><th>For</th></tr></thead>
+      <tbody>
+        <tr><td><code>[ext-m]</code></td><td><code>Extensions/Models/UserExtension.php</code></td><td>Model classes — computed properties, domain methods</td></tr>
+        <tr><td><code>[ext-d]</code></td><td><code>Extensions/DTOs/GetUserRowExtension.php</code></td><td>Result DTOs — formatting, API serialization</td></tr>
+        <tr><td><code>[ext-e]</code></td><td><code>Extensions/Enums/UserStatusExtension.php</code></td><td>Backed enums — labels, CSS classes, icons</td></tr>
+        <tr><td><code>[ext-q]</code></td><td><code>Extensions/Queries/UserQueryExtension.php</code></td><td>Query classes — orchestration, transactions</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Model extension — domain methods</h3>
+  <pre><code class="language-php">// Extensions/Models/UserExtension.php — your file
+trait UserExtension
 {
-    public function findOrFail(int $id): User
+    public function fullName(): string
     {
-        $user = $this->getUser($id);
-        if ($user === null) throw new NotFoundException("User {$id} not found");
-        return $user;
+        return "{$this->first_name} {$this->last_name}";
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role_id === 1;
+    }
+}</code></pre>
+
+  <h3>Enum extension — presentation layer</h3>
+  <pre><code class="language-php">// Extensions/Enums/ReserveStatusExtension.php — your file
+trait ReserveStatusExtension
+{
+    public function label(): string
+    {
+        return match($this) {
+            ReserveStatus::Active    => 'Active',
+            ReserveStatus::Pending   => 'Pending',
+            ReserveStatus::Cancelled => 'Cancelled',
+        };
+    }
+
+    public function cssClass(): string
+    {
+        return match($this) {
+            ReserveStatus::Active    => 'badge-success',
+            ReserveStatus::Pending   => 'badge-warning',
+            ReserveStatus::Cancelled => 'badge-danger',
+        };
+    }
+}</code></pre>
+
+  <h3>Query extension — transaction orchestration <span class="new-badge">v2.19.15</span></h3>
+  <p class="ds">Query extension traits have access to all generated methods via <code>$this</code>, and to the <a href="#with-transaction"><code>withTransaction()</code></a> helper for atomic multi-step operations.</p>
+  <pre><code class="language-php">// Extensions/Queries/OrdersRepositoryExtension.php — your file
+trait OrdersRepositoryExtension
+{
+    public function createOrderWithItems(int $userId, float $total, array $items): int
+    {
+        return $this->withTransaction(function() use ($userId, $total, $items) {
+            $order   = $this->createOrder($userId, $total);   // :one returning
+            $orderId = $order->id;
+
+            $this->insertItems(array_map(
+                fn($i) => ['orderId' => $orderId, ...$i],
+                $items
+            ));  // :batch
+
+            return $orderId;
+        });
     }
 }</code></pre>
 </section>

@@ -1271,6 +1271,7 @@ public Region  $regions,</code></pre>
         <tr><td><code>returning</code></td><td>After INSERT, fetches and returns the created row by <code>lastInsertId()</code></td><td><code>:one</code> INSERT</td></tr>
         <tr><td><code>stream</code></td><td><code>stream{Name}(): \Generator</code> companion — yields rows one at a time without loading the full array in memory. Compatible with <code>criteria</code>, <code>count</code>, <code>exists</code>.</td><td><code>:many</code></td></tr>
         <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> params and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. Replaces <code>:many-paginated</code>.</td><td><code>:many</code></td></tr>
+        <tr><td><code>params</code></td><td>Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO instead of positional arguments — same pattern as sqlc Go's <code>XxxParams</code> structs. No effect with a single parameter.</td><td>Any</td></tr>
       </tbody>
     </table>
   </div>
@@ -1399,7 +1400,7 @@ foreach ($query->streamExportProfiles(criteria: $criteria) as $profile) {
   </div>
 
   <h4>params — input Params DTO <span class="new-badge">v2.19.17</span></h4>
-  <p class="ds">Groups 2+ input parameters into a readonly <code>XxxParams</code> DTO instead of positional method arguments. Mirrors sqlc Go's automatically generated argument structs.</p>
+  <p class="ds">Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO instead of positional method arguments. Mirrors sqlc Go's automatically generated argument structs — particularly useful for INSERT/UPDATE queries with many columns.</p>
 
   <pre><code class="language-sql">-- @name CreateCmsConfig
 -- @class CmsConfig
@@ -1412,15 +1413,22 @@ VALUES (:country_id, :page, :section, :status, :config);</code></pre>
 readonly class CreateCmsConfigParams
 {
     public function __construct(
-        public int    $country_id,
-        public string $page,
-        public string $section,
-        public string $status,
-        public ?array $config,   // nullable params keep their type
+        public int     $country_id,
+        public string  $page,
+        public string  $section,
+        public string  $status,
+        public ?array  $config,      // nullable params keep their type
+        // public ?string $search = null  // ?type:optional gets = null default
     ) {}
 }
 
-// Generated method accepts the DTO instead of 5 positional args:
+// ── Without @with params: 5 positional args ─────────────────────
+public function createCmsConfig(
+    int $country_id, string $page, string $section,
+    string $status, ?array $config,
+): CmsConfig
+
+// ── With @with params: 1 typed DTO ──────────────────────────────
 public function createCmsConfig(CreateCmsConfigParams $params): CmsConfig
 
 // Usage:
@@ -1434,7 +1442,7 @@ $config = $query->createCmsConfig(new CreateCmsConfigParams(
 
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
-    <code>@with params</code> only activates when the query has <strong>2 or more parameters</strong>. With a single parameter, positional style is kept. Optional params (<code>?type:optional</code>) get <code>= null</code> default in the Params DTO. The Params DTO respects <code>dto_scope</code> and generates its own extension scaffold when <code>extensions:</code> is active.
+    <strong>Rules:</strong> Only activates with 2+ parameters — 1 param stays positional. Optional params (<code>?type:optional</code>) get <code>= null</code> default in the DTO. The Params DTO respects <code>dto_scope</code> and generates its own extension scaffold when <code>extensions:</code> is active. Compatible with any return type: <code>:exec</code>, <code>:one</code> + <code>returning</code>, <code>:many</code>, etc.
   </div>
 
   <h4>Combining modifiers</h4>

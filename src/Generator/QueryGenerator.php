@@ -770,12 +770,24 @@ PHP;
     private function bindValueExpr(\SqlcPhp\Resolver\QueryParam $param, bool $useParamsDto = false): string
     {
         $varName = $useParamsDto ? "\$params->{$param->name}" : "\${$param->name}";
+        $bare    = ltrim($param->phpType, '?');
+
+        // BackedEnum → unwrap to scalar value before binding
         if ($this->typeMapper->needsValueExtraction($param->phpType)) {
             $nullable = str_starts_with($param->phpType, '?');
             return $nullable
                 ? "{$varName}?->value"
                 : "{$varName}->value";
         }
+
+        // JSON / array → must be json_encoded before binding (PDO cannot bind arrays)
+        if ($bare === 'array') {
+            $nullable = str_starts_with($param->phpType, '?');
+            return $nullable
+                ? "{$varName} !== null ? json_encode({$varName}) : null"
+                : "json_encode({$varName})";
+        }
+
         return $varName;
     }
 

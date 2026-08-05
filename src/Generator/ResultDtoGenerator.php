@@ -431,7 +431,7 @@ PHP;
         if ($extGen !== null) {
             $hostFqcn = $namespace . '\\' . $className;
             $ext      = $extGen->forDto($className, [], [], $this->scopeSubdir($query, $dtoScope), $hostFqcn);
-            $code     = $extGen->injectIntoDto($code, $ext);
+            $code     = $extGen->injectIntoClass($code, $ext);
             $extensions[$ext->relPath] = $ext;
         }
 

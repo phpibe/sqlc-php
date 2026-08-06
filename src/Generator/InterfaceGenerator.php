@@ -45,6 +45,8 @@ class InterfaceGenerator
         $methods       = [];
 
         foreach ($queries as $query) {
+            // Protected methods are internal implementation details — not part of the public interface
+            if (($query->visibility ?? 'public') === 'protected') continue;
             $methods[] = $this->renderMethodSignature($query, $queryGen);
         }
 

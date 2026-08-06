@@ -9,20 +9,10 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@400;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,400&display=swap" rel="stylesheet" />
   <style>
-    :root {
-      --bg:#0d1117; --bg-sidebar:#070b10; --bg-card:#111820; --bg-card2:#161c25;
-      --border:#1e2530; --border2:#252d3a;
-      --accent:#f97316; --accent2:#38bdf8; --accent3:#4ade80; --accent4:#a78bfa;
-      --text:#d1d9e0; --muted:#636d78; --heading:#f0f6fc;
-      --sidebar-w:268px; --topbar-h:56px;
-      --mono:'JetBrains Mono',monospace; --display:'Syne',sans-serif; --body:'DM Sans',sans-serif;
-      --radius:8px;
-    }
+    :root{--bg:#0d1117;--bg-sidebar:#070b10;--bg-card:#111820;--bg-card2:#161c25;--border:#1e2530;--border2:#252d3a;--accent:#f97316;--accent2:#38bdf8;--accent3:#4ade80;--accent4:#a78bfa;--text:#d1d9e0;--muted:#636d78;--heading:#f0f6fc;--sidebar-w:268px;--topbar-h:56px;--mono:'JetBrains Mono',monospace;--display:'Syne',sans-serif;--body:'DM Sans',sans-serif;--radius:8px}
     *{box-sizing:border-box;margin:0;padding:0}
     html{scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
     body{background:var(--bg);color:var(--text);font-family:var(--body);font-size:15px;line-height:1.8}
-
-    /* ── Topbar ── */
     #topbar{position:fixed;inset:0 0 auto 0;height:var(--topbar-h);background:rgba(7,11,16,.94);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);z-index:1000;display:flex;align-items:center;padding:0 1.5rem;gap:1rem}
     .brand{font-family:var(--display);font-weight:800;font-size:1.1rem;color:var(--heading);text-decoration:none;display:flex;align-items:center;gap:.55rem;letter-spacing:-.02em;white-space:nowrap}
     .brand-icon{color:var(--accent);font-size:1.15rem}
@@ -31,11 +21,7 @@
     .topbar-links a{color:var(--muted);font-size:1.05rem;text-decoration:none;padding:6px;border-radius:6px;transition:color .15s,background .15s}
     .topbar-links a:hover{color:var(--heading);background:rgba(255,255,255,.06)}
     #sidebar-toggle{display:none;background:none;border:1px solid var(--border2);color:var(--muted);border-radius:var(--radius);padding:5px 9px;cursor:pointer;font-size:1rem;line-height:1}
-
-    /* ── Layout ── */
     #layout{display:flex;padding-top:var(--topbar-h);min-height:100vh}
-
-    /* ── Sidebar ── */
     #sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:var(--bg-sidebar);border-right:1px solid var(--border);position:fixed;top:var(--topbar-h);bottom:0;overflow-y:auto;padding:1.2rem 0 3rem;scrollbar-width:thin;scrollbar-color:var(--border) transparent;z-index:900;transition:transform .22s ease}
     #sidebar::-webkit-scrollbar{width:3px}
     #sidebar::-webkit-scrollbar-thumb{background:var(--border2)}
@@ -44,12 +30,8 @@
     .sl:hover{color:var(--text);background:rgba(255,255,255,.03);border-left-color:var(--border2)}
     .sl.active{color:var(--accent2);background:rgba(56,189,248,.07);border-left-color:var(--accent2)}
     .sl i{font-size:.8rem;opacity:.65;flex-shrink:0}
-
-    /* ── Main ── */
     #main{margin-left:var(--sidebar-w);flex:1;min-width:0}
-    .ci{max-width:880px;margin:0 auto;padding:3rem 2.5rem 6rem}
-
-    /* ── Typography ── */
+    .ci{max-width:900px;margin:0 auto;padding:3rem 2.5rem 6rem}
     h1,h2,h3,h4{font-family:var(--display);color:var(--heading);letter-spacing:-.025em}
     h1{font-size:2.5rem;font-weight:800;line-height:1.15;margin-bottom:1rem}
     h2{font-size:1.45rem;font-weight:700;margin-top:2.8rem;margin-bottom:.9rem;padding-bottom:.55rem;border-bottom:1px solid var(--border);scroll-margin-top:calc(var(--topbar-h) + 1rem)}
@@ -58,8 +40,6 @@
     p{margin-bottom:.85rem}
     a{color:var(--accent2);text-decoration:none}
     a:hover{text-decoration:underline}
-
-    /* ── Hero ── */
     .hero{border:1px solid var(--border);border-radius:12px;padding:2.5rem;margin-bottom:2rem;background:linear-gradient(140deg,#0d1117 0%,#0a1020 60%,#0d1520 100%);position:relative;overflow:hidden}
     .hero::after{content:'';position:absolute;top:-80px;right:-80px;width:280px;height:280px;background:radial-gradient(circle,rgba(249,115,22,.1) 0%,transparent 65%);pointer-events:none}
     .hero-sub{color:var(--muted);font-size:1rem;max-width:580px;margin:1rem 0 1.5rem;line-height:1.7}
@@ -69,18 +49,9 @@
     .bp-pdo{color:var(--accent2);border-color:rgba(56,189,248,.3);background:rgba(56,189,248,.08)}
     .bp-mysql{color:var(--accent3);border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.08)}
     .bp-noorm{color:var(--accent);border-color:rgba(249,115,22,.3);background:rgba(249,115,22,.08)}
-    .bp-typed{color:#f9a8d4;border-color:rgba(249,168,212,.3);background:rgba(249,168,212,.08)}
-
-    /* ── Flow diagram ── */
-    .flow{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem 2rem;font-family:var(--mono);font-size:.8rem;color:var(--muted);line-height:2.1}
-    .fi{color:var(--accent2)} .fc{color:var(--accent);font-weight:700} .fo{color:var(--accent3)}
-
-    /* ── Code ── */
     pre{background:#060c12!important;border:1px solid var(--border);border-radius:var(--radius);overflow-x:auto;margin:.85rem 0}
     pre code{font-family:var(--mono)!important;font-size:.79rem!important;line-height:1.65!important;padding:1.2rem 1.5rem!important;display:block}
     code:not(pre code){font-family:var(--mono);font-size:.8em;background:rgba(100,116,139,.12);border:1px solid rgba(100,116,139,.2);padding:1px 6px;border-radius:4px;color:#fb923c}
-
-    /* ── Tables ── */
     .tw{overflow-x:auto;margin:.9rem 0;border-radius:var(--radius);border:1px solid var(--border)}
     .dt{width:100%;border-collapse:collapse;font-size:.855rem;margin:0}
     .dt thead tr{background:var(--bg-card)}
@@ -89,21 +60,12 @@
     .dt tbody tr:last-child td{border-bottom:none}
     .dt tbody tr:hover{background:rgba(255,255,255,.015)}
     .dt code{font-size:.76rem}
-
-    /* ── Callouts ── */
     .callout{border-radius:var(--radius);border-left:3px solid;padding:.9rem 1.1rem;margin:1.1rem 0;font-size:.875rem}
     .ci-info{background:rgba(56,189,248,.06);border-color:var(--accent2);color:#7dd3fc}
     .ci-tip{background:rgba(74,222,128,.06);border-color:var(--accent3);color:#86efac}
     .ci-warn{background:rgba(249,115,22,.06);border-color:var(--accent);color:#fdba74}
     .ci-sec{background:rgba(167,139,250,.06);border-color:var(--accent4);color:#c4b5fd}
     .ci-icon{font-size:.95rem;margin-right:.45rem}
-
-    /* ── Annotation pills ── */
-    .ann{display:inline-block;font-family:var(--mono);font-size:.75rem;padding:1px 8px;border-radius:4px;font-weight:600}
-    .ar{background:rgba(249,115,22,.14);color:var(--accent)}
-    .ao{background:rgba(56,189,248,.11);color:var(--accent2)}
-
-    /* ── Return type pills ── */
     .rt{display:inline-block;font-family:var(--mono);font-size:.75rem;padding:2px 9px;border-radius:20px;font-weight:700}
     .rt-many{background:rgba(56,189,248,.14);color:var(--accent2)}
     .rt-pag{background:rgba(74,222,128,.14);color:var(--accent3)}
@@ -112,32 +74,12 @@
     .rt-opt{background:rgba(167,139,250,.14);color:var(--accent4)}
     .rt-exec{background:rgba(148,163,184,.14);color:#94a3b8}
     .rt-batch{background:rgba(251,191,36,.14);color:#fbbf24}
-
-    /* ── File tree ── */
+    .rt-grouped{background:rgba(244,114,182,.14);color:#f472b6}
     .ftree{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.2rem 1.5rem;font-family:var(--mono);font-size:.8rem;line-height:2}
     .ftree .d{color:var(--accent2)} .ftree .f{color:var(--text)} .ftree .cm{color:var(--muted)}
-
-    /* ── Changelog ── */
-    .cl-item{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem 1.4rem;margin-bottom:.9rem}
-    .cl-ver{font-family:var(--mono);font-size:.82rem;font-weight:700;color:var(--accent3);margin-bottom:.65rem;display:flex;align-items:center;gap:.65rem}
-    .cl-ver::after{content:'';flex:1;height:1px;background:var(--border)}
-    .cl-item ul{margin:.2rem 0 0 1.1rem;color:var(--muted);font-size:.855rem}
-    .cl-item li{margin-bottom:.35rem}
-    .cl-item li strong{color:var(--text)}
-
-    /* ── Misc ── */
     hr.div{border:none;border-top:1px solid var(--border);margin:2.5rem 0}
     .ds{color:var(--muted)}
-    .new-badge{font-size:.58rem;font-family:var(--mono);font-weight:700;padding:1px 6px;border-radius:10px;background:rgba(74,222,128,.15);color:var(--accent3);border:1px solid rgba(74,222,128,.2);vertical-align:middle;margin-left:.4rem}
-
-    @media(max-width:900px){
-      #sidebar-toggle{display:block}
-      #sidebar{transform:translateX(-100%)}
-      #sidebar.open{transform:translateX(0);box-shadow:6px 0 30px rgba(0,0,0,.6)}
-      #main{margin-left:0}
-      .ci{padding:2rem 1.25rem 4rem}
-      h1{font-size:2rem}
-    }
+    @media(max-width:900px){#sidebar-toggle{display:block}#sidebar{transform:translateX(-100%)}#sidebar.open{transform:translateX(0);box-shadow:6px 0 30px rgba(0,0,0,.6)}#main{margin-left:0}.ci{padding:2rem 1.25rem 4rem}h1{font-size:2rem}}
   </style>
 </head>
 <body>
@@ -147,97 +89,62 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.20</span>
+    <span class="brand-ver">v2.19.22</span>
   </a>
   <div class="topbar-links">
-    <a href="https://github.com/phpibe/sqlc-php" target="_blank" title="GitHub"><i class="bi bi-github"></i></a>
-    <a href="https://packagist.org/packages/phpibe/sqlc-php" target="_blank" title="Packagist"><i class="bi bi-box-seam"></i></a>
+    <a href="https://github.com/phpibe/sqlc-php" title="GitHub"><i class="bi bi-github"></i></a>
   </div>
 </header>
 
 <div id="layout">
 <nav id="sidebar">
-
-  <div class="sg-label">Getting Started</div>
-  <a class="sl" href="#intro"><i class="bi bi-house-door"></i> Introduction</a>
-  <a class="sl" href="#how-it-works"><i class="bi bi-diagram-3"></i> How it works</a>
-  <a class="sl" href="#installation"><i class="bi bi-download"></i> Installation</a>
+  <div class="sg-label">Getting started</div>
+  <a class="sl" href="#intro"><i class="bi bi-house"></i> Introduction</a>
+  <a class="sl" href="#install"><i class="bi bi-download"></i> Installation</a>
+  <a class="sl" href="#cli"><i class="bi bi-terminal"></i> CLI reference</a>
+  <a class="sl" href="#quickstart"><i class="bi bi-lightning"></i> Quick start</a>
+  <a class="sl" href="#generated-files"><i class="bi bi-files"></i> Generated files</a>
 
   <div class="sg-label">Configuration</div>
-  <a class="sl" href="#config"><i class="bi bi-gear"></i> sqlc.yaml reference</a>
-  <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
-  <a class="sl" href="#to-array"><i class="bi bi-braces"></i> toArray()</a>
-  <a class="sl" href="#type-mapping"><i class="bi bi-table"></i> SQL → PHP types</a>
+  <a class="sl" href="#config"><i class="bi bi-gear"></i> sqlc.yaml</a>
   <a class="sl" href="#type-overrides"><i class="bi bi-arrow-left-right"></i> type_overrides</a>
   <a class="sl" href="#enum-values"><i class="bi bi-list-check"></i> enum_values</a>
-  <a class="sl" href="#generate-schema"><i class="bi bi-database-add"></i> --generate-schema</a>
-  <a class="sl" href="#shared-ctes"><i class="bi bi-link-45deg"></i> Shared CTEs</a>
+  <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
+  <a class="sl" href="#to-array"><i class="bi bi-braces"></i> toArray()</a>
 
   <div class="sg-label">Annotations</div>
-  <a class="sl" href="#annotations"><i class="bi bi-at"></i> Quick reference</a>
   <a class="sl" href="#ann-name"><i class="bi bi-tag"></i> @name</a>
-  <a class="sl" href="#ann-class"><i class="bi bi-layers"></i> @class</a>
+  <a class="sl" href="#ann-class"><i class="bi bi-collection"></i> @class</a>
   <a class="sl" href="#ann-returns"><i class="bi bi-arrow-return-right"></i> @returns</a>
-  <a class="sl" href="#ann-comment"><i class="bi bi-chat-left-text"></i> @comment</a>
-  <a class="sl" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
-  <a class="sl" href="#ann-dto"><i class="bi bi-box"></i> @dto / @column</a>
-  <a class="sl" href="#ann-embed"><i class="bi bi-boxes"></i> @embed</a>
-  <a class="sl" href="#ann-type"><i class="bi bi-type"></i> @type</a>
-  <a class="sl" href="#ann-type-table"><i class="bi bi-table"></i> @type table.*</a>
-  <a class="sl" href="#ann-with"><i class="bi bi-plus-circle"></i> @with</a>
-  <a class="sl" href="#ann-filter"><i class="bi bi-funnel"></i> @filter</a>
-  <a class="sl" href="#ann-cursor"><i class="bi bi-cursor-text"></i> @cursor</a>
-  <a class="sl" href="#ann-use"><i class="bi bi-link-45deg"></i> @use</a>
-  <a class="sl" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
-  <a class="sl" href="#ann-calls"><i class="bi bi-arrow-repeat"></i> @calls</a>
   <a class="sl" href="#ann-param"><i class="bi bi-input-cursor-text"></i> @param</a>
+  <a class="sl" href="#ann-with"><i class="bi bi-plus-circle"></i> @with</a>
+  <a class="sl" href="#ann-visibility"><i class="bi bi-shield-lock"></i> @visibility</a>
+  <a class="sl" href="#ann-type"><i class="bi bi-type"></i> @type</a>
+  <a class="sl" href="#ann-filter"><i class="bi bi-funnel"></i> @filter</a>
+  <a class="sl" href="#ann-embed"><i class="bi bi-diagram-3"></i> @embed</a>
+  <a class="sl" href="#ann-group_by"><i class="bi bi-collection"></i> @group_by</a>
+  <a class="sl" href="#ann-column"><i class="bi bi-pencil"></i> @column</a>
+  <a class="sl" href="#ann-nullable"><i class="bi bi-question-circle"></i> @nullable</a>
+  <a class="sl" href="#ann-partial"><i class="bi bi-pencil-square"></i> @partial</a>
+  <a class="sl" href="#ann-cursor"><i class="bi bi-cursor"></i> @cursor</a>
+  <a class="sl" href="#ann-comment"><i class="bi bi-chat-left-text"></i> @comment</a>
+  <a class="sl" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
+  <a class="sl" href="#ann-dto"><i class="bi bi-share"></i> @dto</a>
 
-  <div class="sg-label">Return Types</div>
-  <a class="sl" href="#rt-many"><i class="bi bi-collection"></i> :many</a>
-  <a class="sl" href="#rt-paginator"><i class="bi bi-grid-3x3-gap"></i> :paginator</a>
-  <a class="sl" href="#rt-cursor"><i class="bi bi-cursor"></i> :cursor</a>
-  <a class="sl" href="#rt-grouped"><i class="bi bi-collection"></i> :grouped</a>
+  <div class="sg-label">Return types</div>
+  <a class="sl" href="#rt-many"><i class="bi bi-list-ul"></i> :many</a>
   <a class="sl" href="#rt-one"><i class="bi bi-person"></i> :one</a>
-  <a class="sl" href="#rt-opt"><i class="bi bi-question-diamond"></i> :opt</a>
-  <a class="sl" href="#rt-exec"><i class="bi bi-pencil"></i> :exec</a>
+  <a class="sl" href="#rt-opt"><i class="bi bi-person-dash"></i> :opt</a>
+  <a class="sl" href="#rt-exec"><i class="bi bi-lightning"></i> :exec</a>
   <a class="sl" href="#rt-batch"><i class="bi bi-stack"></i> :batch</a>
-  <a class="sl" href="#rt-transaction"><i class="bi bi-arrow-repeat"></i> :transaction</a>
+  <a class="sl" href="#rt-grouped"><i class="bi bi-collection"></i> :grouped</a>
+  <a class="sl" href="#rt-cursor"><i class="bi bi-arrow-repeat"></i> :cursor</a>
+  <a class="sl" href="#rt-paginator"><i class="bi bi-layout-text-window"></i> :paginator</a>
+  <a class="sl" href="#rt-transaction"><i class="bi bi-shield-check"></i> :transaction</a>
+
+  <div class="sg-label">Extensions</div>
+  <a class="sl" href="#extensions"><i class="bi bi-puzzle"></i> Extension traits</a>
   <a class="sl" href="#with-transaction"><i class="bi bi-shield-check"></i> withTransaction()</a>
-
-  <div class="sg-label">Criteria</div>
-  <a class="sl" href="#criteria"><i class="bi bi-funnel-fill"></i> Criteria class</a>
-  <a class="sl" href="#criteria-raw"><i class="bi bi-code-slash"></i> andRaw / orRawCondition()</a>
-  <a class="sl" href="#criteria-from-array"><i class="bi bi-table"></i> fromArray()</a>
-  <a class="sl" href="#criteria-or-groups"><i class="bi bi-union"></i> orGroup()</a>
-
-  <div class="sg-label">CLI Reference</div>
-  <a class="sl" href="#cli"><i class="bi bi-terminal"></i> All CLI flags</a>
-
-  <div class="sg-label">Patterns &amp; Examples</div>
-  <a class="sl" href="#pattern-basic"><i class="bi bi-collection"></i> Basic SELECT</a>
-  <a class="sl" href="#pattern-joins"><i class="bi bi-intersect"></i> JOINs &amp; DTOs</a>
-  <a class="sl" href="#pattern-aggregates"><i class="bi bi-calculator"></i> GROUP BY aggregates</a>
-  <a class="sl" href="#pattern-json"><i class="bi bi-braces"></i> JSON_ARRAYAGG</a>
-  <a class="sl" href="#pattern-enums"><i class="bi bi-list-check"></i> MySQL ENUMs</a>
-  <a class="sl" href="#pattern-union"><i class="bi bi-union"></i> UNION queries</a>
-  <a class="sl" href="#pattern-cursor-grouped"><i class="bi bi-cursor"></i> Cursor + GROUP BY</a>
-
-  <div class="sg-label">Generated Output</div>
-  <a class="sl" href="#generated-structure"><i class="bi bi-folder2-open"></i> File structure</a>
-  <a class="sl" href="#generated-model"><i class="bi bi-file-earmark-person"></i> Model class</a>
-  <a class="sl" href="#generated-query"><i class="bi bi-file-earmark-play"></i> Query class</a>
-  <a class="sl" href="#generated-interface"><i class="bi bi-file-earmark-diff"></i> Interface</a>
-  <a class="sl" href="#extensions"><i class="bi bi-puzzle"></i> Extensions</a>
-
-  <div class="sg-label">Integration</div>
-  <a class="sl" href="#usage"><i class="bi bi-terminal"></i> Basic usage</a>
-  <a class="sl" href="#last-query"><i class="bi bi-search"></i> lastQuery() &amp; logger</a>
-  <a class="sl" href="#laravel"><i class="bi bi-box-arrow-in-right"></i> Laravel</a>
-  <a class="sl" href="#testing"><i class="bi bi-clipboard2-check"></i> Testing</a>
-
-  <div class="sg-label">Project</div>
-  <a class="sl" href="#changelog"><i class="bi bi-clock-history"></i> Changelog</a>
-
 </nav>
 
 <main id="main">
@@ -246,252 +153,367 @@
 <!-- ═══ INTRO ═══ -->
 <section id="intro">
   <div class="hero">
-    <img width="100%" src="./logo.png" />
-    <p class="hero-sub">A PHP code generator inspired by <a href="https://sqlc.dev" target="_blank">sqlc</a>. Write annotated SQL, get fully-typed PHP 8.3+ classes backed by PDO — no ORM, no query builder, no magic.</p>
+    <h1><i class="bi bi-database-fill-gear" style="color:var(--accent)"></i> sqlc-php</h1>
+    <p class="hero-sub">Type-safe PHP code generated from SQL. Write SQL queries with annotations — sqlc-php generates fully-typed Repository classes, DTOs, Models, Interfaces, Enums, and Criteria classes. No ORM magic, no reflection, no surprises.</p>
     <div class="badges">
-      <span class="badge-pill bp-php">PHP 8.3+</span>
+      <span class="badge-pill bp-php">PHP 8.1+</span>
       <span class="badge-pill bp-pdo">PDO</span>
-      <span class="badge-pill bp-mysql">MySQL 8+</span>
-      <span class="badge-pill bp-typed">Fully typed</span>
+      <span class="badge-pill bp-mysql">MySQL</span>
       <span class="badge-pill bp-noorm">No ORM</span>
     </div>
   </div>
-</section>
 
-<!-- ═══ HOW IT WORKS ═══ -->
-<section id="how-it-works">
-  <h2><i class="bi bi-diagram-3 me-2" style="color:var(--accent)"></i>How it works</h2>
-  <div class="flow">
-    <div><span class="fi">schema.sql</span> + <span class="fi">queries.sql</span> + <span class="fi">sqlc.yaml</span></div>
-    <div>&nbsp;&nbsp;↓</div>
-    <div><span class="fc">php vendor/bin/sqlc-php sqlc.yaml</span></div>
-    <div>&nbsp;&nbsp;↓</div>
-    <div><span class="fo">User.php</span> + <span class="fo">UserQuery.php</span> + <span class="fo">UserQueryInterface.php</span></div>
+  <h3>How it works</h3>
+  <div class="ftree">
+    <span class="d">SQL query file</span>  →  <span class="f">sqlc-php compiler</span>  →  <span class="d">Generated PHP</span><br>
+    <span style="color:var(--muted)">  queries/cms_configs.sql</span><br>
+    <span style="color:var(--muted)">  schema.sql</span><br>
+    <span style="color:var(--muted)">  sqlc.yaml</span>
   </div>
-  <p class="ds" style="margin-top:1rem">sqlc-php reads your SQL schema and annotated query files, resolves column types against the schema, and generates three kinds of files per query group: a <strong>Model</strong> (readonly class hydrated from PDO rows), a <strong>Query class</strong> (one method per query), and an <strong>Interface</strong> for dependency injection.</p>
 
-  <h3>Requirements</h3>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Dependency</th><th>Version</th></tr></thead>
-      <tbody>
-        <tr><td>PHP</td><td>≥ 8.3</td></tr>
-        <tr><td>PDO extension</td><td>Enabled (default)</td></tr>
-        <tr><td>symfony/yaml</td><td>^6.0 || ^7.0 || ^8.0</td></tr>
-        <tr><td>doctrine/inflector</td><td>^2.0 (pluralization)</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<!-- ═══ INSTALLATION ═══ -->
-<section id="installation">
-  <h2><i class="bi bi-download me-2" style="color:var(--accent2)"></i>Installation</h2>
-  <pre><code class="language-bash">composer require phpibe/sqlc-php</code></pre>
-  <p class="ds">Create a <code>sqlc.yaml</code> config file, annotate your queries, then run:</p>
-  <pre><code class="language-bash">php vendor/bin/sqlc-php sqlc.yaml</code></pre>
+  <p class="ds">You write SQL with annotations. sqlc-php reads your schema and generates typed PHP classes — no annotations on PHP classes, no runtime magic, no query builders. The generated code is plain PHP that you can read and debug.</p>
 </section>
 
 <hr class="div">
 
-<!-- ═══ CONFIGURATION ═══ -->
-<section id="config">
-  <h2><i class="bi bi-gear me-2" style="color:var(--accent)"></i>Configuration — sqlc.yaml</h2>
-  <p class="ds">All configuration lives in a single YAML file. Below is the full annotated reference:</p>
+<!-- ═══ INSTALL ═══ -->
+<section id="install">
+  <h2><i class="bi bi-download me-2" style="color:var(--accent)"></i>Installation</h2>
+  <pre><code class="language-bash">composer require phpibe/sqlc-php</code></pre>
+  <p class="ds">Requires PHP 8.1+ and PDO with the MySQL driver.</p>
+</section>
 
-  <pre><code class="language-yaml">version: "2"
+<hr class="div">
 
-# ── Schema ──────────────────────────────────────────────────────────────────
-schema:
-  - database/schema/users.sql          # one or more CREATE TABLE files
-  - database/schema/orders.sql
+<!-- ═══ CLI ═══ -->
+<section id="cli">
+  <h2><i class="bi bi-terminal me-2" style="color:var(--accent)"></i>CLI reference</h2>
+  <pre><code class="language-bash">php vendor/bin/sqlc-php [options] [config]</code></pre>
+  <p class="ds">The <code>config</code> argument is the path to <code>sqlc.yaml</code>. Defaults to <code>sqlc.yaml</code> in the current directory.</p>
 
-# ── Global defaults (overridable per target) ─────────────────────────────────
-engine:        mysql                   # mysql (postgres planned)
-language:      english                 # inflection language for model names
-class_suffix:  Query                   # e.g. Repository → UserRepository
-datetime_format: "Y-m-d H:i:s"        # format for DateTimeImmutable in toArray()
-                                       #       Service    → UserService
+  <h3>General</h3>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>-h</code>, <code>--help</code></td><td>Print usage information and exit.</td></tr>
+        <tr><td><code>-v</code>, <code>--version</code></td><td>Print the sqlc-php version and exit.</td></tr>
+      </tbody>
+    </table>
+  </div>
 
-# ── Global type overrides ────────────────────────────────────────────────────
-type_overrides:
-  - db_type:  "TINYINT"
-    php_type: "bool"
+  <h3>Code generation</h3>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><em>(no flag)</em></td><td>Generate PHP files from schema and query files. Writes all output files to the directories declared in <code>out:</code>.</td></tr>
+        <tr><td><code>--dry-run</code></td><td>Print the generated code to stdout without writing any files. Useful to preview output before committing.</td></tr>
+        <tr><td><code>--diff</code></td><td>Show a unified diff between the currently generated files on disk and what would be generated now. Writes nothing.</td></tr>
+        <tr><td><code>--verify</code></td><td>Exit with code <code>1</code> if the generated files on disk are out of date with the current schema and queries. Exits <code>0</code> when everything is in sync. Designed for CI pipelines.</td></tr>
+      </tbody>
+    </table>
+  </div>
 
-# ── Database connection (for --generate-schema) ──────────────────────────────
+  <h3>Watch mode</h3>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>--watch</code></td><td>Watch schema and query files for changes and regenerate automatically. Press <code>Ctrl+C</code> to stop. Cannot be combined with <code>--verify</code>, <code>--dry-run</code>, or <code>--diff</code>.</td></tr>
+        <tr><td><code>--interval=N</code></td><td>Polling interval in milliseconds for <code>--watch</code> mode. Default: <code>500</code>. Minimum: <code>100</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Schema extraction</h3>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><code>--generate-schema</code></td><td>Connect to the configured database and write the current schema to <code>schema.sql</code>. Requires a <code>database:</code> block in <code>sqlc.yaml</code> with a DSN, username, and password.</td></tr>
+        <tr><td><code>--schema-output=PATH</code></td><td>Override the output path for <code>--generate-schema</code>. Default: the first file listed under <code>schema:</code> in <code>sqlc.yaml</code>.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Examples</h3>
+  <pre><code class="language-bash"># Generate (default)
+php vendor/bin/sqlc-php sqlc.yaml
+
+# Preview output without writing files
+php vendor/bin/sqlc-php --dry-run sqlc.yaml
+
+# Show diff vs current generated files
+php vendor/bin/sqlc-php --diff sqlc.yaml
+
+# CI — fail if generated files are stale
+php vendor/bin/sqlc-php --verify sqlc.yaml
+
+# Watch for changes and regenerate automatically
+php vendor/bin/sqlc-php --watch sqlc.yaml
+php vendor/bin/sqlc-php --watch --interval=250 sqlc.yaml
+
+# Extract schema from a live database
+php vendor/bin/sqlc-php --generate-schema sqlc.yaml
+php vendor/bin/sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml</code></pre>
+
+  <h4>Database block for --generate-schema</h4>
+  <pre><code class="language-yaml"># sqlc.yaml
 database:
-  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
-  username: "${DB_USER}"               # ${ENV_VAR} expanded at runtime
-  password: "${DB_PASS}"
-  exclude_tables: [migrations, failed_jobs, sessions]
-  # include_tables: [users, orders]    # whitelist — only these tables
-  exclude_views:  [v_legacy]           # skip specific views
-  # include_views: [v_active_users]    # whitelist views
+  dsn:      "mysql:host=127.0.0.1;dbname=mydb;charset=utf8mb4"
+  username: "${DB_USERNAME}"
+  password: "${DB_PASSWORD}"
+  include_tables:        # optional — only extract these tables
+    - users
+    - orders
+    - products</code></pre>
 
-# ── Shared CTEs (available to all targets) ───────────────────────────────────
-ctes:
-  - database/ctes/users.sql
-  - database/ctes/orders.sql
+  <div class="callout ci-tip">
+    <i class="bi bi-lightbulb ci-icon"></i>
+    Add <code>php vendor/bin/sqlc-php --verify sqlc.yaml</code> to your CI pipeline to ensure the generated files are always in sync with the SQL queries. The step fails if a developer modified a query without regenerating.
+  </div>
+</section>
 
-# ── Virtual tables (views, materialized views, CTEs) ────────────────────────
-virtual_tables:
-  - name: user_summary
-    columns:
-      - { name: id,    type: INT }
-      - { name: email, type: VARCHAR }
-      - { name: total, type: INT }
+<hr class="div">
 
-# ── Includes (split config across files) ─────────────────────────────────────
-includes:
-  - config/shared.yaml
+<!-- ═══ QUICKSTART ═══ -->
+<section id="quickstart">
+  <h2><i class="bi bi-lightning me-2" style="color:var(--accent)"></i>Quick start</h2>
 
-# ── Output targets ───────────────────────────────────────────────────────────
+  <h3>1. Schema</h3>
+  <pre><code class="language-sql">-- schema.sql
+CREATE TABLE users (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    email      VARCHAR(200) NOT NULL,
+    name       VARCHAR(100) NOT NULL,
+    role_id    INT NOT NULL,
+    created_at DATETIME NOT NULL
+);</code></pre>
+
+  <h3>2. Query file</h3>
+  <pre><code class="language-sql">-- queries/users.sql
+
+-- @name GetUser
+-- @class Users
+-- @returns :opt
+SELECT users.* FROM users WHERE id = :id;
+
+-- @name ListActiveUsers
+-- @class Users
+-- @returns :many
+-- @with criteria, count
+SELECT users.* FROM users WHERE role_id = :role_id;</code></pre>
+
+  <h3>3. Configuration</h3>
+  <pre><code class="language-yaml"># sqlc.yaml
+version: "2"
+engine: mysql
+schema:
+  - schema.sql
 targets:
   - namespace: "App\\Database"
-    out: generated/                    # string form: all files in one dir
+    class_suffix: Repository
+    queries:
+      - queries/users.sql
+    out:
+      queries:    app/Database/Repositories
+      models:     app/Database/Models
+      dtos:       app/Database/DTOs
+      enums:      app/Database/Enums
+      interfaces: app/Database/Contracts
+      criterias:  app/Database/Criterias
+      extensions: app/Database/Extensions</code></pre>
+
+  <h3>4. Generate</h3>
+  <pre><code class="language-bash">php vendor/bin/sqlc-php sqlc.yaml</code></pre>
+
+  <h3>5. Use</h3>
+  <pre><code class="language-php">$repo = new UsersRepository($pdo);
+
+// :opt — returns ?User
+$user = $repo->getUser(id: 42);
+
+// :many with criteria
+$criteria = (new UsersRepositoryCriteria())
+    ->whereRoleIdEq(1)
+    ->orderByCreatedAtDesc();
+
+$users = $repo->listActiveUsers(role_id: 1, criteria: $criteria);
+$total = $repo->listActiveUsersCount(role_id: 1, criteria: $criteria);</code></pre>
+</section>
+
+<hr class="div">
+
+<!-- ═══ GENERATED FILES ═══ -->
+<section id="generated-files">
+  <h2><i class="bi bi-files me-2" style="color:var(--accent2)"></i>Generated files</h2>
+  <p class="ds">For each <code>@class</code> group, sqlc-php generates:</p>
+  <div class="ftree">
+    <span class="cm">[query]    </span><span class="f">Repositories/UsersRepository.php</span>       <span class="cm">← generated methods, use trait</span><br>
+    <span class="cm">[iface]    </span><span class="f">Contracts/UsersRepositoryInterface.php</span>  <span class="cm">← public contract</span><br>
+    <span class="cm">[model]    </span><span class="f">Models/User.php</span>                         <span class="cm">← fromRow() + toArray()</span><br>
+    <span class="cm">[dto]      </span><span class="f">DTOs/GetUserRow.php</span>                     <span class="cm">← partial SELECT result</span><br>
+    <span class="cm">[params]   </span><span class="f">DTOs/CreateUserParams.php</span>               <span class="cm">← @with params input DTO</span><br>
+    <span class="cm">[enum]     </span><span class="f">Enums/UserStatus.php</span>                    <span class="cm">← BackedEnum from column</span><br>
+    <span class="cm">[criteria] </span><span class="f">Criterias/UsersRepositoryCriteria.php</span>   <span class="cm">← @with criteria filters</span><br>
+    <span class="cm">[ext-m]    </span><span class="f">Extensions/Models/UserExtension.php</span>     <span class="cm">← yours, never overwritten</span><br>
+    <span class="cm">[ext-d]    </span><span class="f">Extensions/DTOs/GetUserRowExtension.php</span> <span class="cm">← yours</span><br>
+    <span class="cm">[ext-e]    </span><span class="f">Extensions/Enums/UserStatusExtension.php</span><span class="cm">← yours</span><br>
+    <span class="cm">[ext-q]    </span><span class="f">Extensions/Queries/UsersRepositoryExtension.php</span> <span class="cm">← yours</span>
+  </div>
+  <div class="callout ci-tip">
+    <i class="bi bi-lightbulb ci-icon"></i>
+    <strong>Extension files are never overwritten.</strong> All <code>[ext-*]</code> files are generated once as scaffolds. After that they belong to you — add domain methods, computed properties, and orchestration logic freely.
+  </div>
+</section>
+
+<hr class="div">
+
+<!-- ═══ CONFIG ═══ -->
+<section id="config">
+  <h2><i class="bi bi-gear me-2" style="color:var(--accent2)"></i>sqlc.yaml — Configuration reference</h2>
+
+  <pre><code class="language-yaml">version: "2"
+engine:          mysql              # Database engine (only mysql supported)
+language:        english            # Inflection language for model names: english | spanish
+class_suffix:    Repository         # Suffix for generated Query classes (default: Query)
+datetime_format: "Y-m-d H:i:s"     # Format for DateTimeImmutable in toArray() (default: Y-m-d H:i:s)
+
+schema:
+  - database/schema.sql             # One or more schema files
+
+type_overrides:                     # Global type overrides (applied to all targets)
+  - column:   users.deleted_at
+    php_type: "?\\DateTimeImmutable"
+
+targets:
+  - namespace:               "App\\Database"
+    class_suffix:             Repository      # Overrides global class_suffix
+    language:                 english         # Overrides global language
+    generate_interfaces:      true            # Generate XxxRepositoryInterface (default: true)
+    prepared_statement_cache: false           # Cache PDO prepared statements (default: false)
+    dto_scope:                none            # DTO namespace grouping: none | class | method
     queries:
       - database/queries/users.sql
-      - database/queries/orders.sql
-    generate_interfaces:      true     # generate *Interface.php (default: true)
-    prepared_statement_cache: false    # cache PDOStatement objects (default: false)
-    class_suffix:  Query               # per-target override
-    engine:        mysql
-    language:      english
-    type_overrides:
-      - db_type: "DECIMAL"
-        php_type: "float"
-    ctes:                              # per-target CTEs (merged with global)
-      - database/ctes/billing.sql
-    dto_scope: class                   # none | class | method (default: none)</code></pre>
-
-  <h3>Configuration key reference</h3>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Key</th><th>Level</th><th>Default</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><code>schema</code></td><td>global</td><td>—</td><td>SQL files with <code>CREATE TABLE</code> / <code>CREATE VIEW</code></td></tr>
-        <tr><td><code>engine</code></td><td>global / target</td><td><code>mysql</code></td><td>Database engine for type mapping</td></tr>
-        <tr><td><code>language</code></td><td>global / target</td><td><code>english</code></td><td>Language for pluralization (model class names)</td></tr>
-        <tr><td><code>class_suffix</code></td><td>global / target</td><td><code>Query</code></td><td>Suffix appended to generated query class names</td></tr>
-        <tr><td><code>datetime_format</code></td><td>global</td><td><code>Y-m-d H:i:s</code></td><td>PHP date format string used when converting <code>DateTimeImmutable</code> values in <code>toArray()</code>. See <a href="#to-array">toArray()</a>.</td></tr>
-        <tr><td><code>type_overrides</code></td><td>global / target</td><td><code>[]</code></td><td>Custom SQL → PHP type mappings</td></tr>
-        <tr><td><code>database</code></td><td>global / target</td><td>null</td><td>Connection config for <code>--generate-schema</code></td></tr>
-        <tr><td><code>ctes</code></td><td>global / target</td><td><code>[]</code></td><td>Shared CTE files (available via <code>@use</code>)</td></tr>
-        <tr><td><code>virtual_tables</code></td><td>global</td><td><code>[]</code></td><td>Tables not in schema (views, external tables)</td></tr>
-        <tr><td><code>includes</code></td><td>global</td><td><code>[]</code></td><td>Split config across multiple YAML files</td></tr>
-        <tr><td><code>targets[].namespace</code></td><td>target</td><td>—</td><td>PHP namespace for generated files</td></tr>
-        <tr><td><code>targets[].out</code></td><td>target</td><td>—</td><td>Output directory (string) or per-type map</td></tr>
-        <tr><td><code>targets[].queries</code></td><td>target</td><td>—</td><td>SQL files with annotated queries</td></tr>
-        <tr><td><code>targets[].generate_interfaces</code></td><td>target</td><td><code>true</code></td><td>Generate <code>*Interface.php</code> files</td></tr>
-        <tr><td><code>targets[].prepared_statement_cache</code></td><td>target</td><td><code>false</code></td><td>Cache <code>PDOStatement</code> objects per method</td></tr>
-        <tr><td><code>targets[].dto_scope</code></td><td>target</td><td><code>none</code></td><td>DTO namespace scoping: <code>none</code> — flat (all DTOs in <code>App\DTOs\</code>), <code>class</code> — grouped by <code>@class</code> (e.g. <code>App\DTOs\CmsConfig\GetActiveRow</code>), <code>method</code> — fully isolated per method (e.g. <code>App\DTOs\CmsConfig\GetActive\GetActiveRow</code>). See <a href="#dto-scope">DTO scoping</a>.</td></tr>
-        <tr><td><code>targets[].scoped_dtos</code></td><td>target</td><td><code>false</code></td><td>Deprecated — alias for <code>dto_scope: method</code>. Use <code>dto_scope</code> instead.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3 id="out-map">out: map form — separate directories per file type</h3>
-  <p class="ds">When <code>out:</code> is a map, each file type gets its own directory and sub-namespace:</p>
-  <pre><code class="language-yaml">targets:
-  - namespace: "App\\Database"
     out:
-      models:     generated/Models      # → App\Database\Models\User.php
-      queries:    generated/Queries     # → App\Database\Queries\UserQuery.php
-      interfaces: generated/Interfaces  # → App\Database\Interfaces\UserQueryInterface.php
-      dtos:       generated/DTOs        # → App\Database\DTOs\GetUserRow.php</code></pre>
-</section>
+      queries:    app/Database/Repositories
+      models:     app/Database/Models
+      dtos:       app/Database/DTOs
+      enums:      app/Database/Enums
+      interfaces: app/Database/Contracts
+      criterias:  app/Database/Criterias
+      extensions: app/Database/Extensions    # Enables extension trait scaffolding</code></pre>
 
-<!-- ═══ DTO SCOPING ═══ -->
-<section id="dto-scope">
-  <h2><i class="bi bi-folder2-open me-2" style="color:var(--accent2)"></i>DTO scoping — <code>dto_scope</code> <span class="new-badge">v2.19.12</span></h2>
-  <p class="ds">Controls where generated DTO files are placed and what namespace they use. Solves DTO name collisions when multiple <code>@class</code> groups have queries with the same <code>@name</code>.</p>
-
+  <h3>Global options reference</h3>
   <div class="tw">
     <table class="dt">
-      <thead><tr><th>Value</th><th>DTO location</th><th>Namespace</th><th>Use when</th></tr></thead>
+      <thead><tr><th>Key</th><th>Scope</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
-        <tr>
-          <td><code>none</code> (default)</td>
-          <td><code>DTOs/GetActiveRow.php</code></td>
-          <td><code>App\DTOs</code></td>
-          <td>No name collisions between query classes</td>
-        </tr>
-        <tr>
-          <td><code>class</code> <span class="new-badge" style="font-size:.65em">new</span></td>
-          <td><code>DTOs/CmsConfig/GetActiveRow.php</code></td>
-          <td><code>App\DTOs\CmsConfig</code></td>
-          <td>Same <code>@name</code> used in different <code>@class</code> groups</td>
-        </tr>
-        <tr>
-          <td><code>method</code></td>
-          <td><code>DTOs/CmsConfig/GetActive/GetActiveRow.php</code></td>
-          <td><code>App\DTOs\CmsConfig\GetActive</code></td>
-          <td>Same <code>@embed</code> class name used in different methods</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>Example — the collision problem</h3>
-  <pre><code class="language-sql">-- @name GetActive  @class CmsConfig  @returns :opt
-SELECT cms_configs.* FROM cms_configs WHERE status = 'active';
-
--- @name GetActive  @class User  @returns :opt
-SELECT users.* FROM users WHERE status = 'active';</code></pre>
-
-  <p class="ds">With <code>dto_scope: none</code> (default), both generate <code>GetActiveRow.php</code> — the second silently overwrites the first. With <code>dto_scope: class</code>:</p>
-
-  <pre><code class="language-yaml">targets:
-  - namespace: "App\\Database"
-    dto_scope: class
-    out:
-      dtos: generated/DTOs</code></pre>
-
-  <pre><code class="language-php">// Generated files:
-// DTOs/CmsConfig/GetActiveRow.php  → namespace App\Database\DTOs\CmsConfig
-// DTOs/User/GetActiveRow.php       → namespace App\Database\DTOs\User
-
-// Usage in repository:
-public function getActive(): ?CmsConfig\GetActiveRow  // ← no collision</code></pre>
-
-  <h3>Migration from <code>scoped_dtos: true</code></h3>
-  <p class="ds"><code>scoped_dtos: true</code> is now an alias for <code>dto_scope: method</code> and still works. Migrate when convenient:</p>
-  <pre><code class="language-yaml"># Before:
-scoped_dtos: true
-
-# After (equivalent):
-dto_scope: method
-
-# Or use the new class-only grouping (less deep):
-dto_scope: class</code></pre>
-</section>
-
-<!-- ═══ TYPE MAPPING ═══ -->
-<section id="type-mapping">
-  <h2><i class="bi bi-table me-2" style="color:var(--accent2)"></i>SQL → PHP type mapping</h2>
-  <p class="ds">Types are resolved from the schema automatically. <code>NULL</code> columns become nullable PHP types (<code>?type</code>). Use <code>type_overrides</code> to customize.</p>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>SQL types</th><th>PHP type</th><th>fromRow() cast</th></tr></thead>
-      <tbody>
-        <tr><td><code>INT</code>, <code>BIGINT</code>, <code>TINYINT</code>, <code>SMALLINT</code></td><td><code>int</code></td><td><code>(int)</code></td></tr>
-        <tr><td><code>DECIMAL</code>, <code>FLOAT</code>, <code>DOUBLE</code></td><td><code>float</code></td><td><code>(float)</code></td></tr>
-        <tr><td><code>VARCHAR</code>, <code>TEXT</code>, <code>CHAR</code>, <code>MEDIUMTEXT</code>, <code>LONGTEXT</code></td><td><code>string</code></td><td><code>(string)</code></td></tr>
-        <tr><td><code>TINYINT(1)</code> / <code>BOOL</code></td><td><code>bool</code></td><td><code>(bool)</code></td></tr>
-        <tr><td><code>DATE</code>, <code>DATETIME</code>, <code>TIMESTAMP</code></td><td><code>\DateTimeImmutable</code></td><td><code>new \DateTimeImmutable()</code></td></tr>
-        <tr><td><code>JSON</code></td><td><code>array</code></td><td><code>json_decode(, true)</code></td></tr>
-        <tr><td><code>ENUM('a','b')</code></td><td><code>EnumClass</code></td><td><code>EnumClass::from()</code></td></tr>
-        <tr><td><code>NULL</code> columns</td><td><code>?type</code></td><td>null check before cast</td></tr>
+        <tr><td><code>engine</code></td><td>global</td><td><code>mysql</code></td><td>Database engine. Only <code>mysql</code> is supported.</td></tr>
+        <tr><td><code>language</code></td><td>global / target</td><td><code>english</code></td><td>Inflection language for plural→singular model name generation. <code>english</code> or <code>spanish</code>.</td></tr>
+        <tr><td><code>class_suffix</code></td><td>global / target</td><td><code>Query</code></td><td>Suffix appended to the generated Query class name. Use <code>Repository</code> for a DDD style.</td></tr>
+        <tr><td><code>datetime_format</code></td><td>global</td><td><code>Y-m-d H:i:s</code></td><td>PHP date format string used when converting <code>DateTimeImmutable</code> values in <code>toArray()</code>.</td></tr>
+        <tr><td><code>dto_scope</code></td><td>target</td><td><code>none</code></td><td>Controls DTO namespace grouping. See <a href="#dto-scope">dto_scope</a>.</td></tr>
+        <tr><td><code>generate_interfaces</code></td><td>target</td><td><code>true</code></td><td>Generate a <code>XxxQueryInterface</code> for each Query class.</td></tr>
+        <tr><td><code>prepared_statement_cache</code></td><td>target</td><td><code>false</code></td><td>Cache PDO prepared statements per method using <code>$this->stmts[__FUNCTION__]</code>.</td></tr>
       </tbody>
     </table>
   </div>
 </section>
+
+<hr class="div">
 
 <!-- ═══ TYPE OVERRIDES ═══ -->
+<section id="type-overrides">
+  <h2><i class="bi bi-arrow-left-right me-2" style="color:var(--accent)"></i>type_overrides</h2>
+  <p class="ds">Override the default SQL → PHP mapping for specific columns or SQL types. Can be declared globally or per target (per-target takes precedence).</p>
+
+  <pre><code class="language-yaml">type_overrides:
+  # Map a specific column to a custom PHP type
+  - column:   users.deleted_at
+    php_type: "?\\DateTimeImmutable"
+
+  # Map every column of a given SQL type
+  - db_type:  TINYINT
+    php_type: bool
+
+  # Use Carbon instead of DateTimeImmutable for all datetime columns
+  - db_type:  DATETIME
+    php_type: "\\Carbon\\Carbon"</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    Use <code>column: table.column</code> to target a specific column, or <code>db_type: TYPENAME</code> to target every column of that SQL type. Both can optionally include <code>nullable: true|false</code> to override the nullability from the schema.
+  </div>
+</section>
+
+<section id="enum-values">
+  <h3>enum_values — VARCHAR as backed enum</h3>
+  <p class="ds">When a <code>VARCHAR</code> or <code>CHAR</code> column holds a fixed set of values, declare them with <code>enum_values</code>. sqlc-php generates a PHP 8.1 backed enum and uses it everywhere that column appears — in DTOs, Models, Criteria filter methods, and <code>fromRow()</code> casts.</p>
+
+  <pre><code class="language-yaml">type_overrides:
+  - column:      cms_configs.section
+    php_type:    CmsConfigsSection
+    enum_values: [hero, faq, contact, banners]
+
+  - column:      cms_configs.status
+    php_type:    CmsConfigStatus
+    enum_values: [active, draft, archived]</code></pre>
+
+  <pre><code class="language-php">// Generated: Enums/CmsConfigsSection.php
+enum CmsConfigsSection: string
+{
+    case Hero    = 'hero';
+    case Faq     = 'faq';
+    case Contact = 'contact';
+    case Banners = 'banners';
+}
+
+// In DTOs and Models — section is typed as the enum:
+public CmsConfigsSection $section;
+
+// fromRow() uses ::from()
+section: CmsConfigsSection::from((string) $row['section']),
+
+// Criteria methods are enum-typed:
+$criteria->whereSectionEq(CmsConfigsSection::Hero);
+$criteria->whereSectionIn(CmsConfigsSection::Hero, CmsConfigsSection::Faq);</code></pre>
+</section>
+
+<hr class="div">
+
+<!-- ═══ DTO SCOPE ═══ -->
+<section id="dto-scope">
+  <h2><i class="bi bi-folder2-open me-2" style="color:var(--accent2)"></i>dto_scope</h2>
+  <p class="ds">Controls how result DTOs are namespaced and organized. Useful when multiple Query classes produce DTOs — prevents naming collisions and groups related types together.</p>
+
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th>Value</th><th>DTO path</th><th>Namespace</th></tr></thead>
+      <tbody>
+        <tr><td><code>none</code> (default)</td><td><code>DTOs/GetActiveRow.php</code></td><td><code>App\Database\DTOs</code></td></tr>
+        <tr><td><code>class</code></td><td><code>DTOs/CmsConfig/GetActiveRow.php</code></td><td><code>App\Database\DTOs\CmsConfig</code></td></tr>
+        <tr><td><code>method</code></td><td><code>DTOs/CmsConfig/GetActive/GetActiveRow.php</code></td><td><code>App\Database\DTOs\CmsConfig\GetActive</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="ds">The same scoping applies to Params DTOs (<code>@with params</code>) and Query extension scaffolds (<code>[ext-q]</code>).</p>
+</section>
+
+<hr class="div">
+
 <!-- ═══ TO ARRAY ═══ -->
 <section id="to-array">
-  <h2><i class="bi bi-braces me-2" style="color:var(--accent2)"></i><code>toArray()</code> — DTO to associative array <span class="new-badge">v2.19.18</span></h2>
-  <p class="ds">Every generated result DTO and Model has a <code>toArray(): array</code> method. It converts the object to an associative array, properly unwrapping typed values — avoiding the raw <code>(array)</code> cast which leaves <code>BackedEnum</code> objects and <code>DateTimeImmutable</code> instances in the array.</p>
+  <h2><i class="bi bi-braces me-2" style="color:var(--accent2)"></i>toArray()</h2>
+  <p class="ds">Every generated result DTO and Model has a <code>toArray(): array</code> method. It converts the object to an associative array, properly unwrapping typed values — avoiding the raw <code>(array)</code> cast which leaves <code>BackedEnum</code> objects and <code>DateTimeImmutable</code> instances intact.</p>
+
+  <pre><code class="language-php">// Before — (array) leaves objects:
+$data = (array) $row;   // ❌ $data['section'] is CmsConfigsSection object
+
+// After — toArray() unwraps everything:
+$data = $row->toArray();  // ✅ $data['section'] is 'hero'</code></pre>
 
   <h3>Conversion rules</h3>
   <div class="tw">
@@ -499,8 +521,8 @@ dto_scope: class</code></pre>
       <thead><tr><th>Property type</th><th>toArray() value</th></tr></thead>
       <tbody>
         <tr><td><code>int</code>, <code>string</code>, <code>float</code>, <code>bool</code>, <code>array</code></td><td>Returned as-is</td></tr>
-        <tr><td><code>BackedEnum</code></td><td><code>$this->prop->value</code> — the raw string/int</td></tr>
-        <tr><td><code>?BackedEnum</code></td><td><code>$this->prop?->value</code> — null if null</td></tr>
+        <tr><td><code>BackedEnum</code></td><td><code>$this->prop->value</code></td></tr>
+        <tr><td><code>?BackedEnum</code></td><td><code>$this->prop?->value</code></td></tr>
         <tr><td><code>DateTimeImmutable</code></td><td><code>$this->prop->format('Y-m-d H:i:s')</code></td></tr>
         <tr><td><code>?DateTimeImmutable</code></td><td><code>$this->prop?->format(...)</code> — null if null</td></tr>
         <tr><td>Nested DTO with <code>toArray()</code></td><td><code>$this->prop->toArray()</code></td></tr>
@@ -508,1202 +530,509 @@ dto_scope: class</code></pre>
     </table>
   </div>
 
-  <h3>Example</h3>
-  <pre><code class="language-php">// Generated DTO:
-readonly class GetCurrentConfigRow
-{
-    public int               $country_id;
-    public CmsConfigsSection $section;    // BackedEnum
-    public CmsConfigProgrammed $programmed;  // BackedEnum
-    public ?array            $config;
-    public \DateTimeImmutable $created_at;
-
-    public function toArray(): array
-    {
-        return [
-            'country_id' => $this->country_id,            // int — as-is
-            'section'    => $this->section->value,         // 'hero' | 'faq'
-            'programmed' => $this->programmed->value,      // 'yes' | 'no'
-            'config'     => $this->config,                 // array|null — as-is
-            'created_at' => $this->created_at->format('Y-m-d H:i:s'),
-        ];
-    }
-}</code></pre>
-
-  <pre><code class="language-php">// Usage:
-$row = $query->getCurrentConfig(country_id: 164, page: 'home', section: 'banner1');
-
-// Before — (array) leaves BackedEnum objects and DateTimeImmutable as objects:
-$data = (array) $row;   // ❌ $data['section'] is CmsConfigsSection{...}
-
-// After — toArray() unwraps everything to scalars:
-$data = $row->toArray();  // ✅ $data['section'] is 'hero'</code></pre>
-
-  <h3>Configuring the DateTime format</h3>
-  <p class="ds">The default format is <code>Y-m-d H:i:s</code> (MySQL DATETIME format). Override it globally in <code>sqlc.yaml</code>:</p>
+  <p class="ds">Configure the datetime format globally in <code>sqlc.yaml</code>:</p>
   <pre><code class="language-yaml">datetime_format: "Y-m-d\TH:i:sP"   # ISO 8601 with timezone</code></pre>
-</section>
-
-<section id="type-overrides">
-  <h2><i class="bi bi-arrow-left-right me-2" style="color:var(--accent)"></i>type_overrides</h2>
-  <p class="ds">Override the default SQL → PHP mapping globally or per-target. Useful for treating <code>TINYINT</code> as <code>bool</code>, using <code>Carbon</code> instead of <code>DateTimeImmutable</code>, or declaring a <code>VARCHAR</code> column as a PHP backed enum.</p>
-  <pre><code class="language-yaml">type_overrides:
-  - db_type:  "TINYINT"
-    php_type: "bool"
-
-  - db_type:  "DATETIME"
-    php_type: "\\Carbon\\Carbon"       # use Carbon for all datetime columns
-
-  # Narrow to a specific table and column
-  - db_type:  "DECIMAL"
-    php_type: "float"
-    table:    "products"
-    column:   "price"</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    Per-target <code>type_overrides</code> are merged with global overrides — per-target takes precedence when the same <code>db_type</code> appears in both.
-  </div>
-
-  <h3 id="enum-values">enum_values — VARCHAR column as backed enum <span class="new-badge">v2.19.13</span></h3>
-  <p class="ds">When a <code>VARCHAR</code> or <code>CHAR</code> column holds a fixed set of values, declare them with <code>enum_values</code>. sqlc-php will generate a PHP 8.1 backed enum and use it everywhere that column appears — in DTOs, Criteria filter methods, and <code>fromRow()</code> casts.</p>
-
-  <pre><code class="language-yaml">type_overrides:
-  - column:      pages.section          # table.column
-    php_type:    SectionEnum            # generated enum class name
-    enum_values: [hero, faq, contact]   # allowed values
-
-  - column:      pages.status
-    php_type:    PageStatus
-    enum_values: [active, draft, archived]</code></pre>
-
-  <h4>What gets generated</h4>
-  <pre><code class="language-php">// Enums/SectionEnum.php — generated automatically
-enum SectionEnum: string
-{
-    case Hero    = 'hero';
-    case Faq     = 'faq';
-    case Contact = 'contact';
-}</code></pre>
-
-  <pre><code class="language-php">// DTOs/GetPagesRow.php — section typed as SectionEnum
-readonly class GetPagesRow
-{
-    public function __construct(
-        public int         $id,
-        public string      $title,
-        public SectionEnum $section,   // ← not string
-        public ?PageStatus $status,    // ← nullable enum
-    ) {}
-
-    public static function fromRow(array $row): self
-    {
-        return new self(
-            id:      (int) $row['id'],
-            title:   (string) $row['title'],
-            section: SectionEnum::from((string) $row['section']),     // ← ::from()
-            status:  isset($row['status'])
-                ? PageStatus::tryFrom((string) $row['status'])         // ← ::tryFrom()
-                : null,
-        );
-    }
-}</code></pre>
-
-  <h4>Criteria filter methods</h4>
-  <p class="ds">When the column also appears in a <code>@with criteria</code> query, the generated Criteria methods are typed with the enum:</p>
-  <pre><code class="language-php">// Generated Criteria methods:
-public function whereSectionEq(SectionEnum $value): static
-public function whereSectionIn(SectionEnum ...$values): static
-public function whereSectionNotIn(SectionEnum ...$values): static
-
-// Usage — fully type-safe:
-$criteria = (new GetPagesCriteria())
-    ->whereSectionEq(SectionEnum::Hero)
-    ->whereSectionIn(SectionEnum::Faq, SectionEnum::Contact);</code></pre>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>Nullable columns use <code>::tryFrom()</code></strong>, which returns <code>null</code> when the database value doesn't match any case. Non-nullable columns use <code>::from()</code>, which throws <code>\ValueError</code> on an unexpected value — useful as a runtime guard against schema drift.
-  </div>
-</section>
-
-<!-- ═══ GENERATE SCHEMA ═══ -->
-<section id="generate-schema">
-  <h2><i class="bi bi-database-add me-2" style="color:var(--accent)"></i>--generate-schema</h2>
-  <p class="ds">Connects to a live MySQL database and writes <code>schema.sql</code> automatically. Extracts both <strong>tables</strong> and <strong>views</strong>. <code>AUTO_INCREMENT=N</code> is stripped to avoid noisy git diffs. View DDL is normalized to <code>CREATE OR REPLACE VIEW</code> (stripping <code>DEFINER</code>, <code>ALGORITHM</code>, <code>SQL SECURITY</code>).</p>
-
-  <pre><code class="language-bash"># Write to the first schema: path in sqlc.yaml
-php vendor/bin/sqlc-php --generate-schema sqlc.yaml
-
-# Write to a custom path
-php vendor/bin/sqlc-php --generate-schema --schema-output=database/schema.sql sqlc.yaml</code></pre>
-
-  <div class="callout ci-tip">
-    <i class="bi bi-lightbulb ci-icon"></i>
-    <strong>Keep the schema complete.</strong> Every table referenced in any query — including JOINed tables — must appear in the schema. Missing tables cause columns to resolve as <code>mixed</code>, which silently suppresses <code>where*</code> methods in <code>@searchable</code> Criteria classes. When in doubt, regenerate the schema from the live database.
-  </div>
-
-  <h3>Typical workflow</h3>
-  <pre><code class="language-bash"># 1. Pull schema from live DB
-php vendor/bin/sqlc-php --generate-schema sqlc.yaml
-
-# 2. Generate PHP classes
-php vendor/bin/sqlc-php sqlc.yaml</code></pre>
-
-  <h3>database: block</h3>
-  <pre><code class="language-yaml">database:
-  dsn:      "mysql:host=localhost;dbname=myapp;charset=utf8mb4"
-  username: "${DB_USER}"
-  password: "${DB_PASS}"
-
-  # Tables
-  exclude_tables: [migrations, failed_jobs, sessions]
-  # include_tables: [users, orders]    # whitelist — only extract these
-
-  # Views — extracted by default alongside tables
-  exclude_views: [v_legacy_report]
-  # include_views: [v_active_users]    # whitelist — only these views</code></pre>
-
-  <h3>View filtering</h3>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Config</th><th>Behaviour</th></tr></thead>
-      <tbody>
-        <tr><td><em>(none)</em></td><td>All views extracted alongside tables</td></tr>
-        <tr><td><code>include_views: [a, b]</code></td><td>Only views <code>a</code> and <code>b</code> extracted (whitelist)</td></tr>
-        <tr><td><code>exclude_views: [x, y]</code></td><td>All views except <code>x</code> and <code>y</code> (blacklist)</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>Credentials via environment</h3>
-  <pre><code class="language-bash"># .env.local — add to .gitignore
-export DB_HOST=localhost
-export DB_NAME=myapp
-export DB_USER=root
-export DB_PASS=secret
-
-source .env.local && php vendor/bin/sqlc-php --generate-schema sqlc.yaml</code></pre>
-</section>
-
-<!-- ═══ SHARED CTEs ═══ -->
-<section id="shared-ctes">
-  <h2><i class="bi bi-link-45deg me-2" style="color:var(--accent2)"></i>Shared CTEs</h2>
-  <p class="ds">Declare reusable named CTEs in dedicated <code>.sql</code> files and reference them from any query with <code>@use</code>. sqlc-php injects the <code>WITH name AS (...)</code> clause before analysis — fully transparent to the Analyzer.</p>
-
-  <h3>CTE file format</h3>
-  <pre><code class="language-sql">-- database/ctes/users.sql
-
--- @cte active_users
-SELECT id, email, role, created_at
-FROM users
-WHERE active = 1 AND role = 'client';
-
--- @cte active_admins
-SELECT id, email FROM users
-WHERE active = 1 AND role IN ('admin', 'superadmin');</code></pre>
-
-  <h3>Register in sqlc.yaml</h3>
-  <pre><code class="language-yaml">ctes:                              # global — available to every target
-  - database/ctes/users.sql
-  - database/ctes/orders.sql
-
-targets:
-  - namespace: App\Reports
-    ctes:                          # per-target — merged with global
-      - database/ctes/billing.sql</code></pre>
-
-  <h3>Usage in queries</h3>
-  <pre><code class="language-sql">-- @name ListActiveOrders
--- @class Orders
--- @returns :many
--- @use active_users
-SELECT orders.* FROM orders
-INNER JOIN active_users ON active_users.id = orders.user_id;
-
--- Multiple CTEs: comma-separated or multiple @use lines
--- @use active_users, recent_orders</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    CTE names must be unique across all loaded files. A query using <code>@use</code> must not also declare an inline <code>WITH</code> clause.
-  </div>
 </section>
 
 <hr class="div">
 
-<!-- ═══ ANNOTATIONS REFERENCE ═══ -->
-<section id="annotations">
-  <h2><i class="bi bi-at me-2" style="color:var(--accent)"></i>Annotations — quick reference</h2>
-  <p class="ds">Every query needs at minimum <code>@name</code> and <code>@returns</code>. Annotations appear as SQL comments immediately before the query SQL, in any order.</p>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Annotation</th><th>Required</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><span class="ann ar">@name</span></td><td>Yes</td><td>PHP method name (camelCase)</td></tr>
-        <tr><td><span class="ann ar">@returns</span></td><td>Yes</td><td>Return type — <code>:many</code> <code>:one</code> <code>:opt</code> <code>:exec</code> <code>:cursor</code> <code>:paginator</code> <code>:batch</code> <code>:transaction</code>. Legacy: <code>:many-paginated</code> <code>:paginated</code> (deprecated).</td></tr>
-        <tr><td><span class="ann ao">@class</span></td><td>No</td><td>Query class group name — inferred from table name when absent. <code>@group</code> is the deprecated alias.</td></tr>
-        <tr><td><span class="ann ao">@comment</span></td><td>No</td><td>Description added to the generated method docblock before <code>@param</code> / <code>@return</code>. Multiple lines supported.</td></tr>
-        <tr><td><span class="ann ao">@param</span></td><td>No</td><td>Unified input parameter annotation. <code>@param name table.col</code> (type hint), <code>@param name ?string</code> (nullable), <code>@param name ?string:optional</code> (nullable + skippable WHERE). Replaces <code>@optional</code> and <code>@nullable</code>.</td></tr>
-        <tr><td><span class="ann ao">@partial</span></td><td>No</td><td>Query-level flag for UPDATE statements. Params wrapped in <code>COALESCE(:p, col)</code> become nullable — passing <code>null</code> preserves the existing column value instead of updating it. Requires <code>COALESCE</code> in the SQL. See comparison with <code>@param ?type</code> in the <a href="#ann-partial">@partial section</a>.</td></tr>
-        <tr><td><span class="ann ao">@returning</span></td><td>No</td><td>After an INSERT, fetch and return the created row by <code>lastInsertId()</code>. Only for <code>:one</code> INSERT.</td></tr>
-        <tr><td><span class="ann ao">@dto</span></td><td>No</td><td>Override the auto-generated result DTO class name.</td></tr>
-        <tr><td><span class="ann ao">@column</span></td><td>No</td><td>Rename a result column in the DTO without using SQL <code>AS</code>.</td></tr>
-        <tr><td><span class="ann ao">@embed</span></td><td>No</td><td>Group prefixed columns from a JOIN into a nested readonly object.</td></tr>
-        <tr><td><span class="ann ao">@type</span></td><td>No</td><td>Universal column type override. Scalar: <code>@type col float</code> / <code>@type col ?float</code>. JSON DTO: <code>@type col json:City[]</code> / <code>@type col ?json:City</code>. Covers all cases previously handled by <code>@json</code> and <code>@nillable</code>.</td></tr>
-        <tr><td><span class="ann ao">@filter</span><td>No</td><td>Generate typed <code>where*</code> methods in the Criteria for JOIN columns not in the SELECT list. Table prefix always applied: <code>@filter accounts.email</code> → <code>whereAccountsEmailEq()</code>. Use <code>accounts.*</code> for all columns of a table.</td></tr>
-        <tr><td><span class="ann ao">@with</span></td><td>No</td><td>Query capability extensions: <code>criteria</code> — typed Criteria. <code>count</code> — <code>Count(): int</code>. <code>exists</code> — <code>Exists(): bool</code>. <code>returning</code> — fetch row after INSERT. <code>paginated</code> — <code>?$limit/$offset</code> params. Combinable: <code>@with criteria, stream, count, exists</code>.</td></tr>
-        <tr><td><span class="ann ao">@cursor</span></td><td>No</td><td>Declare cursor columns for keyset pagination. Required with <code>:cursor</code>. Supports <code>table.col</code> qualified names.</td></tr>
-        <tr><td><span class="ann ao">@use</span></td><td>No</td><td>Inject shared CTEs from <code>ctes:</code> files as a <code>WITH</code> clause.</td></tr>
-        <tr><td><span class="ann ao">@deprecated</span></td><td>No</td><td>Emit <code>@deprecated</code> in the generated method docblock.</td></tr>
-        <tr><td><span class="ann ao">@calls</span></td><td>No</td><td>Methods to call in sequence — used with <code>:transaction</code>.</td></tr>
-        <tr><td><span class="ann ao">@param</span></td><td>No</td><td>Explicit <code>table.column</code> type annotation for an ambiguous named parameter.</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<!-- ── @name ── -->
+<!-- ═══ ANNOTATIONS ═══ -->
 <section id="ann-name">
-  <h3><i class="bi bi-tag me-2"></i>@name</h3>
-  <p class="ds">Sets the PHP method name. Use camelCase by convention. The name is used verbatim — sqlc-php does not transform it.</p>
-  <pre><code class="language-sql">-- @name GetUserById
--- @class Users
--- @returns :one
-SELECT * FROM users WHERE id = :id;</code></pre>
-  <p class="ds">Generates: <code>public function getUserById(int $id): User</code></p>
-</section>
+  <h2><i class="bi bi-hash me-2" style="color:var(--accent)"></i>Annotations reference</h2>
 
-<!-- ── @class ── -->
-<section id="ann-class">
-  <h3><i class="bi bi-layers me-2"></i>@class</h3>
-  <p class="ds">Groups queries into the same generated file. Multiple queries with the same <code>@class</code> value produce one Query class. When omitted, the group is inferred from the <code>FROM</code> table name.</p>
-  <pre><code class="language-sql">-- @name ListActive
--- @class User
+  <h3 id="ann-name-h">@name</h3>
+  <p class="ds">Names the query. Becomes the generated method name in camelCase. <strong>Required.</strong></p>
+  <pre><code class="language-sql">-- @name GetActiveUsers
+-- @class Users
 -- @returns :many
-SELECT * FROM users WHERE active = 1;
-
--- @name GetById
--- @class User        ← same class → same UserQuery.php
--- @returns :opt
-SELECT * FROM users WHERE id = :id;</code></pre>
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <code>@group</code> is the deprecated predecessor of <code>@class</code> — it still works but emits a warning to stderr.
-  </div>
+SELECT users.* FROM users WHERE status = 'active';</code></pre>
+  <p class="ds">Generates: <code>public function getActiveUsers(): array</code></p>
 </section>
 
-<!-- ── @returns ── -->
+<section id="ann-class">
+  <h3>@class</h3>
+  <p class="ds">Groups multiple queries into the same generated class. All queries sharing a <code>@class</code> are emitted into one <code>{Class}{Suffix}.php</code> file. <strong>Required.</strong></p>
+  <pre><code class="language-sql">-- @name GetUser
+-- @class Users          ← all Users queries → UsersRepository.php
+-- @returns :opt
+SELECT users.* FROM users WHERE id = :id;
+
+-- @name CreateUser
+-- @class Users          ← same class
+-- @returns :exec
+INSERT INTO users (email, name) VALUES (:email, :name);</code></pre>
+</section>
+
 <section id="ann-returns">
-  <h3><i class="bi bi-arrow-return-right me-2"></i>@returns</h3>
-  <p class="ds">Declares the return type of the generated method. See the <a href="#rt-many">Return Types</a> section for full details on each type.</p>
-  <pre><code class="language-sql">-- @returns :many            → array of typed objects
--- @returns :one             → single typed object (throws if not found)
--- @returns :opt             → single typed object or null
--- @returns :exec            → void (INSERT / UPDATE / DELETE)
--- @returns :paginator      → PaginatedResult (items + total + page metadata)
--- @returns :cursor          → CursorResult (keyset pagination)
--- @returns :batch           → run the same query N times in one transaction
--- @returns :transaction     → call multiple methods in one transaction</code></pre>
+  <h3>@returns</h3>
+  <p class="ds">Declares the return type of the generated method. <strong>Required.</strong> See <a href="#rt-many">Return types</a> for full details of each.</p>
+  <pre><code class="language-sql">-- @returns :many        -- array of rows
+-- @returns :one         -- exactly one row (throws if not found)
+-- @returns :opt         -- one row or null
+-- @returns :exec        -- void (INSERT/UPDATE/DELETE)
+-- @returns :batch       -- void (same INSERT executed N times)
+-- @returns :grouped     -- JOIN rows grouped into typed arrays
+-- @returns :cursor      -- Generator (streaming)
+-- @returns :paginator   -- PaginatedResult with total count
+-- @returns :transaction -- calls multiple methods in a transaction</code></pre>
 </section>
 
-<!-- ── @comment ── -->
-<section id="ann-comment">
-  <h3><i class="bi bi-chat-left-text me-2"></i>@comment <span class="new-badge">v2.14.0</span></h3>
-  <p class="ds">Adds a human-readable description to the generated PHP method's docblock, placed before the <code>@param</code> and <code>@return</code> tags. Multiple <code>@comment</code> lines are each rendered as a separate line in the description. Position-independent — can appear before or after <code>@name</code>.</p>
-  <pre><code class="language-sql">-- @name GetActiveUser
--- @class Users
--- @returns :opt
--- @comment Returns the active user matching the given ID.
--- @comment Returns null when no user is found or the user is inactive.
-SELECT * FROM users WHERE id = :id AND active = 1;</code></pre>
-  <pre><code class="language-php">// Generated docblock:
-/**
- * Returns the active user matching the given ID.
- * Returns null when no user is found or the user is inactive.
- *
- * @param int $id
- * @return User|null
- */
-public function getActiveUser(int $id): ?User</code></pre>
-  <div class="callout ci-tip">
-    <i class="bi bi-lightbulb ci-icon"></i>
-    Combine <code>@comment</code> with <code>@deprecated</code> to explain why a method is deprecated and what to use instead.
-  </div>
-</section>
-
-<!-- ── @param ── -->
 <section id="ann-param">
-  <h3><i class="bi bi-input-cursor-text me-2"></i>@param — unified input parameter annotation <span class="new-badge">v2.17.0 unified</span></h3>
-  <p class="ds"><code>@param</code> is the single annotation for configuring input parameters. It covers all cases — type hints, nullable types, and optional (skippable) WHERE conditions — using one consistent syntax.</p>
+  <h3>@param</h3>
+  <p class="ds">Declares or overrides the type of a named parameter. Without <code>@param</code>, the type is inferred from the schema column the parameter is compared against.</p>
+
+  <h4>Basic type declaration</h4>
+  <pre><code class="language-sql">-- @param userId   int
+-- @param name     string
+-- @param config   ?array     ← nullable
+-- @param status   string</code></pre>
+
+  <h4>Optional parameter</h4>
+  <p class="ds">Adding <code>:optional</code> rewrites the WHERE clause so the parameter is skipped when null. The PHP type becomes <code>?type = null</code>.</p>
+  <pre><code class="language-sql">-- @name SearchUsers
+-- @class Users
+-- @returns :many
+-- @param role_id ?int:optional
+-- @param status  ?string:optional
+SELECT users.* FROM users
+WHERE (:role_id IS NULL OR role_id = :role_id)
+  AND (:status  IS NULL OR status  = :status);</code></pre>
+  <pre><code class="language-php">// Generated signature:
+public function searchUsers(?int $role_id = null, ?string $status = null): array
+
+// Usage — pass only what you need:
+$repo->searchUsers(role_id: 1);         // filter by role only
+$repo->searchUsers(status: 'active');   // filter by status only
+$repo->searchUsers();                   // no filters</code></pre>
+
+  <h4>Inferred from schema column</h4>
+  <pre><code class="language-sql">-- @param createdAt users.created_at   ← type inferred from schema column</code></pre>
+</section>
+
+<section id="ann-with">
+  <h3>@with</h3>
+  <p class="ds">Adds capabilities to the generated method. Multiple modifiers can be combined comma-separated on a single <code>@with</code> line.</p>
 
   <div class="tw">
     <table class="dt">
-      <thead><tr><th>Syntax</th><th>PHP type</th><th>SQL rewrite</th><th>Use case</th></tr></thead>
+      <thead><tr><th>Modifier</th><th>Effect</th><th>Valid on</th></tr></thead>
       <tbody>
-        <tr><td><code>@param name table.col</code></td><td>From schema</td><td>No</td><td>Explicit type hint — resolve from <code>table.col</code> in schema</td></tr>
-        <tr><td><code>@param name phpType</code></td><td><code>phpType</code></td><td>No</td><td>Explicit PHP type (e.g. <code>int</code>, <code>string</code>, <code>float</code>)</td></tr>
-        <tr><td><code>@param name ?phpType</code></td><td><code>?phpType</code></td><td>No</td><td>Nullable — passes <code>null</code> to set the column to NULL</td></tr>
-        <tr><td><code>@param name phpType:optional</code></td><td><code>?phpType</code></td><td><code>(:p_chk IS NULL OR col OP :p)</code></td><td>Optional WHERE filter — <code>null</code> skips the condition</td></tr>
-        <tr><td><code>@param name ?phpType:optional</code></td><td><code>?phpType</code></td><td>Same as above</td><td>Explicit nullable + optional (equivalent to <code>phpType:optional</code>)</td></tr>
+        <tr><td><code>criteria</code></td><td>Adds a <code>{Group}Criteria</code> parameter for dynamic WHERE/ORDER BY. Generates a companion Criteria class.</td><td><code>:many</code>, <code>:paginator</code></td></tr>
+        <tr><td><code>count</code></td><td>Adds a companion <code>{name}Count(): int</code> method that returns the number of matching rows.</td><td><code>:many</code>, <code>:paginator</code></td></tr>
+        <tr><td><code>exists</code></td><td>Adds a companion <code>{name}Exists(): bool</code> method.</td><td><code>:many</code>, <code>:paginator</code></td></tr>
+        <tr><td><code>returning</code></td><td>After an INSERT, fetches the newly created row by <code>lastInsertId()</code> and returns it as the Model.</td><td><code>:one</code> INSERT</td></tr>
+        <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> to the method and injects <code>LIMIT/OFFSET</code> into the SQL.</td><td><code>:many</code></td></tr>
+        <tr><td><code>stream</code></td><td>Adds a companion <code>stream{Name}(): \Generator</code> method using unbuffered PDO fetching.</td><td><code>:many</code></td></tr>
+        <tr><td><code>params</code></td><td>Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO. Also generates a static <code>from(array $data)</code> method on the DTO.</td><td>Any with 2+ params</td></tr>
       </tbody>
     </table>
   </div>
 
-  <h4>Nullable param — SET column to NULL</h4>
-  <p class="ds">Use <code>?phpType</code> when the column accepts NULL and you want to allow the caller to pass <code>null</code>. The SQL is unchanged — null is bound to PDO and sets the column to NULL.</p>
-  <pre><code class="language-sql">-- @name UpdateUserProfile
--- @class Users
--- @returns :exec
--- @comment Set avatar and deletion timestamp. Pass null to clear either.
--- @param avatarUrl ?string
--- @param deletedAt ?string
-UPDATE users
-SET avatar_url = :avatarUrl,
-    deleted_at = :deletedAt
-WHERE id = :id;</code></pre>
-  <pre><code class="language-php">public function updateUserProfile(
-    ?string $avatarUrl,   // null → sets avatar_url to NULL
-    ?string $deletedAt,   // null → sets deleted_at to NULL
-    int     $id,
-): void
-
-// Clear avatar:
-$query->updateUserProfile(avatarUrl: null, deletedAt: null, id: 1);
-
-// Set avatar:
-$query->updateUserProfile(avatarUrl: 'https://cdn.example.com/1.jpg', deletedAt: null, id: 1);</code></pre>
-
-  <h4>Optional param — skip WHERE condition</h4>
-  <p class="ds">Use <code>?phpType:optional</code> when the parameter is an optional WHERE filter — passing <code>null</code> omits the condition entirely. The SQL is rewritten at compile time to <code>(:p_chk IS NULL OR col OP :p)</code>.</p>
+  <h4>criteria — dynamic filters</h4>
   <pre><code class="language-sql">-- @name ListUsers
 -- @class Users
 -- @returns :many
--- @param role   ?string:optional
--- @param active ?int:optional
-SELECT * FROM users WHERE role = :role AND active = :active;</code></pre>
-  <pre><code class="language-php">public function listUsers(
-    ?string $role   = null,   // null → condition skipped entirely
-    ?int    $active = null,   // null → condition skipped entirely
-): array
-
-// All users:
-$query->listUsers();
-
-// Active clients only:
-$query->listUsers(role: 'client', active: 1);
-
-// All active users regardless of role:
-$query->listUsers(active: 1);</code></pre>
-
-  <h4>Type hint — resolve from schema</h4>
-  <p class="ds">When the resolver cannot determine the correct type automatically (typically with ambiguous JOIN params), use the <code>table.col</code> syntax to pin the type to a specific schema column.</p>
-  <pre><code class="language-sql">-- @name GetOrderByUser
--- @class Orders
--- @returns :opt
--- @param userId users.id     ← explicit: :userId is users.id type (int)
-SELECT * FROM orders
-JOIN users ON users.id = orders.user_id
-WHERE orders.user_id = :userId;</code></pre>
-
-  <h4>Explicit PHP type</h4>
-  <p class="ds">When the resolved type is wrong and you want to specify the exact PHP type without a schema hint, use a plain PHP type name.</p>
-  <pre><code class="language-sql">-- @param total  float   ← force float even if schema says DECIMAL
--- @param count  int
--- @param label  string</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Disambiguation rule:</strong> if the second token contains a <code>.</code> it is a <code>table.col</code> type hint (legacy). Otherwise it is a PHP type with optional <code>:optional</code> modifier. Both forms can coexist in the same query.
-  </div>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>Difference between <code>?phpType</code>, <code>?phpType:optional</code>, and <code>@partial</code>:</strong>
-    <br><br>
-    <code>@param col ?string</code> — passes null to PDO; sets the column to NULL in the database.<br>
-    <code>@param col ?string:optional</code> — skips the WHERE condition entirely when null.<br>
-    <code>@partial</code> (query-level) — preserves the existing column value when null, via <code>COALESCE(:p, col)</code> in the SET clause.<br>
-    <br>
-    See <a href="#ann-partial">@partial</a> for the full comparison table.
-  </div>
-</section>
-
-<!-- ── @filter ── -->
-<section id="ann-filter">
-  <h3><i class="bi bi-funnel me-2"></i>@filter <span class="new-badge">v2.19.4</span></h3>
-  <p class="ds">Generates typed <code>where*</code> filter methods in the Criteria class for JOIN columns that are <strong>not in the SELECT list</strong>. Without <code>@filter</code>, the only way to filter on JOIN columns is <code>andRawCondition()</code> — which gives up type safety and IDE autocompletion.</p>
-
-  <p class="ds">Methods generated by <code>@filter</code> <strong>always carry the table name as a prefix</strong> to avoid collision with SELECT-derived methods:</p>
-
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Syntax</th><th>Generates methods for</th></tr></thead>
-      <tbody>
-        <tr><td><code>@filter accounts.email</code></td><td>Specific column — <code>whereAccountsEmailEq()</code>, <code>whereAccountsEmailLike()</code>, etc.</td></tr>
-        <tr><td><code>@filter accounts.*</code></td><td>All columns of the <code>accounts</code> table</td></tr>
-        <tr><td><code>@filter accounts.email, accounts.password</code></td><td>Multiple specific columns in one line</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h4>Example — specific columns</h4>
-  <pre><code class="language-sql">-- @name ListProfiles
--- @class Profile
--- @returns :cursor
--- @cursor profiles.id DESC
--- @with criteria
--- @filter accounts.password     ← generates whereAccountsPasswordIsNull/IsNotNull
--- @filter accounts.google_id    ← generates whereAccountsGoogleIdIsNull/IsNotNull
--- @filter reserve.status        ← generates whereReserveStatusEq, In, etc.
-SELECT
-    profiles.id,
-    profiles.firstname,
-    profiles.lastname,
-    accounts.email
-FROM profiles
-INNER JOIN accounts ON accounts.profile_id = profiles.id
-LEFT JOIN reserve ON reserve.profile_id = profiles.id
-WHERE (accounts.password IS NOT NULL OR accounts.google_id IS NOT NULL)
-GROUP BY profiles.id
-ORDER BY profiles.id DESC;</code></pre>
-
-  <pre><code class="language-php">// Generated Criteria — SELECT columns + @filter columns:
-$criteria = (new ListProfilesCriteria())
-    ->whereFirstnameLike('alice')               // from SELECT
-    ->whereEmailEq('alice@example.com')         // from SELECT (accounts.email)
-    ->whereAccountsPasswordIsNotNull()           // from @filter accounts.password
-    ->whereAccountsGoogleIdIsNull()             // from @filter accounts.google_id
-    ->whereReserveStatusEq('confirmed');         // from @filter reserve.status
-
-$result = $query->listProfiles(criteria: $criteria);</code></pre>
-
-  <h4>Example — wildcard (all columns of a table)</h4>
-  <pre><code class="language-sql">-- @with criteria
--- @filter accounts.*     ← generates where* for every column in accounts
-SELECT profiles.id, profiles.firstname FROM profiles
-INNER JOIN accounts ON accounts.profile_id = profiles.id;</code></pre>
-
-  <pre><code class="language-php">// All accounts columns available as prefixed filter methods:
-$criteria = (new ListProfilesCriteria())
-    ->whereAccountsEmailEq('alice@example.com')
-    ->whereAccountsPasswordIsNull()
-    ->whereAccountsActiveEq(1);</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Method naming — always table-prefixed.</strong>
-    <code>@filter accounts.email</code> → <code>whereAccountsEmailEq()</code>, never <code>whereEmailEq()</code>.
-    This means no collision with SELECT-derived methods even when the column name is the same (e.g. <code>accounts.email</code> is in the SELECT → <code>whereEmailEq()</code> from SELECT, <code>whereAccountsEmailEq()</code> from <code>@filter</code>).
-  </div>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>All @filter tables must be in the schema.</strong> Type resolution for <code>@filter</code> columns uses the schema catalog. If the table or column is missing, the generator throws a <strong>fatal error</strong> that stops compilation:
-    <pre style="margin:.5rem 0 0;font-size:.75rem"><code>sqlc-php: @filter 'accounts.ghost' — column 'ghost' not found in table 'accounts'.
-Available columns: id, profile_id, email, password, google_id, active.</code></pre>
-    Run <code>--generate-schema</code> to extract the full schema from the live database.
-  </div>
-</section>
-
-<!-- ── @partial ── -->
-<section id="ann-partial">
-  <h3><i class="bi bi-pencil-square me-2"></i>@partial</h3>
-  <p class="ds">A query-level flag for UPDATE statements where some columns should only be updated when a value is explicitly provided. Passing <code>null</code> for a partial param leaves the column unchanged — the existing database value is preserved via <code>COALESCE</code>.</p>
-
-  <p class="ds">Only valid on <code>:exec</code> UPDATE queries. The SQL <strong>must</strong> use <code>COALESCE(:param, col)</code> for each partial column — sqlc-php detects the partial params by scanning for this pattern in the SET clause.</p>
-
-  <pre><code class="language-sql">-- @name UpdateUserProfile
--- @class Users
--- @returns :exec
--- @partial
-UPDATE users
-SET name      = COALESCE(:name,      name),
-    email     = COALESCE(:email,     email),
-    avatar_url = COALESCE(:avatarUrl, avatar_url)
-WHERE id = :id;</code></pre>
-
-  <pre><code class="language-php">// Generated signature — all partial params are nullable with default null:
-public function updateUserProfile(
-    ?string $name      = null,
-    ?string $email     = null,
-    ?string $avatarUrl = null,
-    int     $id,
-): void
-
-// Update only the email — name and avatar_url are left unchanged:
-$query->updateUserProfile(email: 'new@example.com', id: 1);
-
-// Update all three fields:
-$query->updateUserProfile(name: 'Alice', email: 'alice@x.com', avatarUrl: '/img/a.png', id: 1);
-
-// Set avatar_url to NULL in the database — pass a non-null sentinel (not supported via @partial).
-// Use @param avatarUrl ?string for that case instead.</code></pre>
-
-  <h4>How it works</h4>
-  <p class="ds">sqlc-php rewrites nothing — the <code>COALESCE(:param, col)</code> is your SQL. The analyzer scans the SET clause for the pattern, marks those params as <code>optional = true</code> and <code>phpType = ?type</code>, and generates the nullable method signature. At runtime, passing <code>null</code> lets MySQL's <code>COALESCE</code> fall back to the current column value.</p>
-
-  <h4>Choosing the right mechanism for nullable UPDATE params</h4>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Goal</th><th>Mechanism</th><th>SQL pattern</th><th>null means</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>Skip updating a column</td>
-          <td><code>@partial</code></td>
-          <td><code>SET col = COALESCE(:p, col)</code></td>
-          <td>Column keeps its current value</td>
-        </tr>
-        <tr>
-          <td>Set a column to NULL</td>
-          <td><code>@param p ?string</code></td>
-          <td><code>SET col = :p</code></td>
-          <td>Column is set to NULL in the database</td>
-        </tr>
-        <tr>
-          <td>Skip a WHERE condition</td>
-          <td><code>@param p ?string:optional</code></td>
-          <td><code>WHERE col = :p</code> → rewritten</td>
-          <td>Condition is omitted entirely</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong><code>@partial</code> is a query-level flag</strong>, not a per-param modifier. It activates COALESCE detection across the entire SET clause. This is intentionally different from <code>@param</code> modifiers — a single <code>-- @partial</code> line covers all partial columns in the query, which is more ergonomic than one <code>@param</code> line per column for large UPDATE statements.
-  </div>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <code>@partial</code> cannot set a column to NULL — <code>COALESCE(:p, col)</code> will always fall back to <code>col</code> when <code>:p</code> is null. If you need both "skip update" and "set to NULL" semantics on the same column, split into two separate query methods.
-  </div>
-</section>
-
-<!-- ── @returning ── -->
-
-
-<!-- ── @dto / @column ── -->
-<section id="ann-dto">
-  <h3><i class="bi bi-box me-2"></i>@dto / @column</h3>
-  <p class="ds"><code>@dto</code> overrides the auto-generated result DTO class name. Use it to share one DTO across multiple queries, or when the default generated name is unwieldy.</p>
-  <pre><code class="language-sql">-- @name ListBillingConfig
--- @class BillingConfig
--- @dto BillingConfigRow      ← generated DTO class: BillingConfigRow.php
--- @returns :many
-SELECT bc.id, bc.active, c.name AS country_name
-FROM billing_config bc
-JOIN countries c ON c.id = bc.country_id;</code></pre>
-  <p class="ds"><code>@column</code> renames a result column in the generated DTO without adding an <code>AS</code> alias to the SQL:</p>
-  <pre><code class="language-sql">-- @column u_email email      ← renames u_email → email in the generated DTO
-SELECT id, email AS u_email FROM users WHERE id = :id;</code></pre>
-</section>
-
-<!-- ── @embed ── -->
-<section id="ann-embed">
-  <h3><i class="bi bi-boxes me-2"></i>@embed</h3>
-  <p class="ds">Groups prefixed columns from a JOIN into a nested readonly object. Any columns whose alias starts with the declared prefix become properties of a separate class.</p>
-  <pre><code class="language-sql">-- @name GetUserWithRole
--- @embed Role role__           ← columns prefixed "role__" → Role object
--- @returns :one
-SELECT
-    u.id, u.email,
-    r.name AS role__name,
-    r.slug AS role__slug
-FROM users u
-JOIN roles r ON r.id = u.role_id
-WHERE u.id = :id;</code></pre>
-  <pre><code class="language-php">readonly class GetUserWithRoleRow {
-    public function __construct(
-        public int    $id,
-        public string $email,
-        public Role   $role,   // nested object
-    ) {}
-}
-
-readonly class Role {
-    public function __construct(
-        public string $name,
-        public string $slug,
-    ) {}
-}</code></pre>
-</section>
-
-<!-- ── @type ── -->
-<section id="ann-type">
-  <h3><i class="bi bi-type me-2"></i>@type — universal column type override <span class="new-badge">v2.16.0 unified</span></h3>
-  <p class="ds"><code>@type</code> is the single annotation for overriding the PHP type of any result column. It covers all cases — scalar types, nullable types, and JSON DTO deserialization — using one consistent syntax: <code>@type alias phpType</code>.</p>
-
-  <h4>Scalar and nullable types</h4>
-  <pre><code class="language-sql">-- @type total     float         → float
--- @type total     ?float        → float|null   (nullable)
--- @type active    bool
--- @type role      string
--- @type ids       array         → scalar JSON array (json_decode applied automatically)
--- @type label     ?string       → string|null</code></pre>
-
-  <p class="ds">Use scalar <code>@type</code> whenever the analyzer infers the wrong type — UNION queries, constant expressions, aggregates, or <code>IF()</code> expressions where the true/false branches have different types.</p>
-  <pre><code class="language-sql">-- @name GetDashboardStats
--- @class Stats
--- @returns :one
--- @type total_users int
--- @type revenue     float
--- @type label       string
-SELECT
-    COUNT(DISTINCT users.id)  AS total_users,
-    SUM(orders.total)         AS revenue,
-    'active'                  AS label
-FROM orders JOIN users ON users.id = orders.user_id;</code></pre>
-
-  <h4>JSON DTO types — <code>json:Class</code> and <code>json:Class[]</code></h4>
-  <p class="ds">When a column contains JSON produced by <code>JSON_OBJECT()</code> or <code>JSON_ARRAYAGG()</code>, use <code>json:ClassName</code> to deserialize it into a typed readonly DTO. sqlc-php generates the DTO class automatically from the matching schema table.</p>
-
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Syntax</th><th>PHP type</th><th>fromRow() cast</th><th>Use case</th></tr></thead>
-      <tbody>
-        <tr><td><code>@type col json:City[]</code></td><td><code>City[]</code></td><td><code>array_map(City::fromRow, json_decode(...))</code></td><td>Array of DTOs, non-nullable</td></tr>
-        <tr><td><code>@type col ?json:City[]</code></td><td><code>City[]|null</code></td><td>null check + array_map</td><td>Array of DTOs, nullable (LEFT JOIN)</td></tr>
-        <tr><td><code>@type col json:City</code></td><td><code>City</code></td><td><code>City::fromRow(json_decode(...))</code></td><td>Single DTO object, non-nullable</td></tr>
-        <tr><td><code>@type col ?json:City</code></td><td><code>City|null</code></td><td>null check + fromRow</td><td>Single DTO, nullable (LEFT JOIN)</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <pre><code class="language-sql">-- @name GetCountryWithCities
--- @class Countries
--- @returns :one
--- @type cities json:City[]         ← non-nullable array of City DTOs
-SELECT
-    countries.id,
-    countries.name,
-    JSON_ARRAYAGG(
-        JSON_OBJECT('id', cities.id, 'name', cities.name)
-    ) AS cities
-FROM countries
-INNER JOIN cities ON cities.country_id = countries.id
-WHERE countries.id = :id
-GROUP BY countries.id;</code></pre>
-
-  <pre><code class="language-sql">-- @name GetOrderWithDetails
--- @class Orders
--- @returns :one
--- @type items   ?json:Item[]       ← nullable: LEFT JOIN may produce null
--- @type address ?json:Address      ← nullable: customer may have no address
-SELECT
-    orders.id,
-    orders.total,
-    JSON_ARRAYAGG(JSON_OBJECT('id', items.id, 'name', items.name, 'price', items.price)) AS items,
-    JSON_OBJECT('street', addresses.street, 'city', addresses.city) AS address
-FROM orders
-LEFT JOIN items     ON items.order_id     = orders.id
-LEFT JOIN addresses ON addresses.order_id = orders.id
-WHERE orders.id = :id
-GROUP BY orders.id;</code></pre>
-
-  <pre><code class="language-php">// Generated DTO:
-readonly class GetOrderWithDetailsRow {
-    public function __construct(
-        public int      $id,
-        public float    $total,
-        /** @var Item[]|null */
-        public ?array   $items,    // null when no items (LEFT JOIN)
-        public ?Address $address,  // null when no address (LEFT JOIN)
-    ) {}
-
-    public static function fromRow(array $row): self {
-        return new self(
-            id:      (int) $row['id'],
-            total:   (float) $row['total'],
-            items:   isset($row['items']) && $row['items'] !== null
-                         ? array_map(fn($r) => Item::fromRow($r), json_decode($row['items'], true) ?? [])
-                         : null,
-            address: isset($row['address']) && $row['address'] !== null
-                         ? Address::fromRow(json_decode($row['address'], true) ?? [])
-                         : null,
-        );
-    }
-}</code></pre>
-
-  <h4>Scalar JSON arrays — <code>@type col array</code></h4>
-  <p class="ds">For <code>JSON_ARRAYAGG</code> of scalar values (IDs, strings), use <code>@type col array</code>. The <code>json_decode</code> cast is applied automatically for any column typed as <code>array</code>.</p>
-  <pre><code class="language-sql">-- @type reserves array
-SELECT orders.id, JSON_ARRAYAGG(reserve.id) AS reserves
-FROM orders LEFT JOIN reserve ON reserve.order_id = orders.id
-WHERE orders.id = :id GROUP BY orders.id;</code></pre>
-  <pre><code class="language-php">public array $reserves,
-// fromRow: json_decode((string) $row['reserves'], true) ?? []
-// Result: [1, 2, 3, 4]  — array of int IDs</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Position-independent.</strong> <code>@type</code> can appear before or after <code>@name</code>. Multiple <code>@type</code> lines are supported — one per column.
-  </div>
-</section>
-<!-- ── @type table.* ── -->
-<section id="ann-type-table">
-  <h3><i class="bi bi-table me-2"></i>@type table.* ClassName <span class="new-badge">v2.19.5</span></h3>
-  <p class="ds">Groups all SELECT columns from a JOIN table into a nested property of a model that already exists. The model is <strong>not generated</strong> — it is imported and its <code>fromRow($row)</code> is called directly with the full result row.</p>
-
-  <pre><code class="language-sql">-- @name ListCities
--- @class Cities
--- @returns :many
--- @type countries.* Country
-SELECT
-    cities.id   AS city_id,
-    cities.name AS city_name,
-    countries.id,         ← grouped into Country
-    countries.name,       ← grouped into Country
-    countries.code        ← grouped into Country
-FROM cities
-INNER JOIN countries ON countries.id = cities.country_id;</code></pre>
-
-  <pre><code class="language-php">// Generated DTO:
-readonly class ListCitiesRow
-{
-    public function __construct(
-        public int    $city_id,
-        public string $city_name,
-        public Country $countries,   // ← nested model, named after the table
-    ) {}
-
-    public static function fromRow(array $row): self
-    {
-        return new self(
-            (int) $row['city_id'],
-            (string) $row['city_name'],
-            Country::fromRow($row),  // ← model hydrated directly, no prefix-stripping
-        );
-    }
-}</code></pre>
-
-  <h4>FQCN support</h4>
-  <p class="ds">When the class name includes a namespace, a <code>use</code> import is added automatically and the short name is used in the code:</p>
-  <pre><code class="language-sql">-- @type countries.* App\Models\Country</code></pre>
-  <pre><code class="language-php">// Generated:
-use App\Models\Country;
-// ...
-public Country $countries,
-Country::fromRow($row),</code></pre>
-
-  <h4>Multiple tables</h4>
-  <pre><code class="language-sql">-- @type countries.* Country
--- @type regions.* Region</code></pre>
-  <pre><code class="language-php">public Country $countries,
-public Region  $regions,</code></pre>
-
-  <h4>Difference from @embed</h4>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th></th><th><code>@embed</code></th><th><code>@type table.*</code></th></tr></thead>
-      <tbody>
-        <tr><td>Detection</td><td>Column alias prefix (<code>country_id</code>, <code>country_name</code>)</td><td>Table of origin (<code>tableName === 'countries'</code>)</td></tr>
-        <tr><td>SQL aliases</td><td>Must use prefix in SELECT (<code>AS country_id</code>)</td><td>No prefix needed</td></tr>
-        <tr><td>Model file</td><td>Generated by sqlc-php</td><td>Must already exist</td></tr>
-        <tr><td><code>fromRow()</code></td><td>Strips prefix → <code>$row['country_id']</code></td><td>Direct → <code>$row['id']</code></td></tr>
-        <tr><td>Self-joins</td><td>✅ Works — use distinct prefixes</td><td>❌ Fatal error — use <code>@embed</code></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>The developer is responsible for column alias uniqueness.</strong> If <code>countries.id</code> and <code>cities.id</code> both appear in the SELECT without aliases, PDO returns only one <code>id</code> key in the result row — the last one overwrites the first. Always alias conflicting columns: <code>cities.id AS city_id</code>.
-  </div>
-</section>
-
-
-
-<!-- ── @with ── -->
-<section id="ann-with">
-  <h3><i class="bi bi-plus-circle me-2"></i>@with — query capability extensions <span class="new-badge">v2.18.0</span></h3>
-  <p class="ds">Declares additional capabilities for a query. One annotation replaces multiple — modifiers are comma-separated and order-independent.</p>
-
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Modifier</th><th>Generates</th><th>Valid with</th></tr></thead>
-      <tbody>
-        <tr><td><code>criteria</code></td><td>Typed <code>XxxCriteria</code> class + <code>$criteria</code> param on the method</td><td><code>:many</code> <code>:paginator</code> <code>:cursor</code></td></tr>
-        <tr><td><code>count</code></td><td><code>{name}Count(): int</code> companion method</td><td><code>:many</code> + <code>paginated</code>, <code>:cursor</code></td></tr>
-        <tr><td><code>exists</code></td><td><code>{name}Exists(): bool</code> companion method</td><td><code>:many</code> <code>:cursor</code></td></tr>
-        <tr><td><code>returning</code></td><td>After INSERT, fetches and returns the created row by <code>lastInsertId()</code></td><td><code>:one</code> INSERT</td></tr>
-        <tr><td><code>stream</code></td><td><code>stream{Name}(): \Generator</code> companion — yields rows one at a time without loading the full array in memory. Compatible with <code>criteria</code>, <code>count</code>, <code>exists</code>.</td><td><code>:many</code></td></tr>
-        <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> params and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. Replaces <code>:many-paginated</code>.</td><td><code>:many</code></td></tr>
-        <tr><td><code>params</code></td><td>Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO instead of positional arguments — same pattern as sqlc Go's <code>XxxParams</code> structs. No effect with a single parameter.</td><td>Any</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h4>criteria — dynamic WHERE filters</h4>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :many
--- @with criteria
-SELECT orders.id, orders.status, orders.total, orders.created_at
-FROM orders
-WHERE user_id = :userId;</code></pre>
-  <pre><code class="language-php">// Generated: ListOrdersCriteria.php  ← named after @name, not @class
-$criteria = (new ListOrdersCriteria())
-    ->whereStatusEq('pending')
-    ->whereTotalGte(100.0)
-    ->orderByCreatedAt('DESC');
-
-$orders = $query->listOrders(userId: 1, criteria: $criteria);</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Criteria class names are derived from <code>@name</code>, not <code>@class</code>.</strong>
-    <code>@name ListOrders</code> → <code>ListOrdersCriteria</code>. This guarantees uniqueness when multiple queries in the same <code>@class</code> group each use <code>@with criteria</code> — they produce distinct files rather than overwriting each other.
-    <br><br>
-    Example: two queries in <code>@class Profile</code>:
-    <ul style="margin:.4rem 0 0 1rem">
-      <li><code>@name ListProfiles</code> → <code>ListProfilesCriteria.php</code></li>
-      <li><code>@name SearchProfiles</code> → <code>SearchProfilesCriteria.php</code></li>
-    </ul>
-  </div>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>All tables in the query must be in the schema</strong> for <code>where*</code> methods to be generated. Columns from tables missing in the schema resolve to <code>mixed</code> and produce no filter methods. Run <code>--generate-schema</code> to extract the full schema.
-  </div>
-
-  <h4>count — total row count</h4>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :many
--- @with paginated, count
-SELECT orders.id, orders.status FROM orders WHERE user_id = :userId
-ORDER BY created_at DESC;</code></pre>
-  <pre><code class="language-php">// Generated: listOrdersCount() companion method
-$total  = $query->listOrdersCount(userId: 1);
-$orders = $query->listOrders(userId: 1, limit: 20, offset: 0);</code></pre>
-
-  <h4>exists — presence check</h4>
-  <p class="ds">Generates a <code>{name}Exists(): bool</code> method using <code>SELECT EXISTS(SELECT 1 FROM (...) AS _exists_subquery)</code> — the database stops scanning at the first matching row, making it more efficient than <code>COUNT(*) &gt; 0</code>.</p>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :many
--- @with exists
-SELECT orders.id FROM orders WHERE user_id = :userId;</code></pre>
-  <pre><code class="language-php">// Generated: listOrdersExists() companion method
-if ($query->listOrdersExists(userId: 1)) {
-    // user has at least one order
-}</code></pre>
-
-  <h4>paginated — LIMIT / OFFSET params <span class="new-badge">v2.19.2</span></h4>
-  <p class="ds">Adds <code>?int $limit = null</code> and <code>int $offset = 0</code> parameters and auto-injects <code>LIMIT :limit OFFSET :offset</code> into the SQL. When <code>$limit</code> is <code>null</code>, no LIMIT is applied and all rows are returned. Replaces <code>:many-paginated</code>.</p>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :many
--- @with paginated
-SELECT orders.id, orders.status, orders.total
-FROM orders
-WHERE user_id = :userId
-ORDER BY created_at DESC;</code></pre>
-  <pre><code class="language-php">// Generated signature:
-public function listOrders(int $userId, ?int $limit = null, int $offset = 0): array
-
-// All rows:
-$all    = $query->listOrders(userId: 1);
-
-// Page 2 (20 per page):
-$page2  = $query->listOrders(userId: 1, limit: 20, offset: 20);</code></pre>
-
-  <p class="ds">Combine with <code>count</code> for pagination UI:</p>
-  <pre><code class="language-sql">-- @with paginated, count, criteria</code></pre>
-  <pre><code class="language-php">$criteria = (new ListOrdersCriteria())->whereStatusEq('pending');
-$total  = $query->listOrdersCount(criteria: $criteria);
-$orders = $query->listOrders(criteria: $criteria, limit: 20, offset: 0);</code></pre>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong><code>:many-paginated</code> is deprecated since v2.19.2.</strong> It still works but emits a stderr deprecation warning. Replace with <code>-- @returns :many</code> + <code>-- @with paginated</code>.
-  </div>
-
-  <h4>returning — fetch created row after INSERT</h4>
-  <p class="ds">After an INSERT, fetches and returns the newly created row using <code>lastInsertId()</code>. Only valid on <code>:one</code> INSERT queries.</p>
+-- @with criteria, count
+SELECT users.* FROM users WHERE status = :status;</code></pre>
+  <pre><code class="language-php">// Generated Criteria methods match column types:
+$criteria = (new UsersRepositoryCriteria())
+    ->whereEmailLike('%@example.com')
+    ->whereRoleIdIn(1, 2, 3)
+    ->orderByCreatedAtDesc()
+    ->limit(20);
+
+$users = $repo->listUsers(status: 'active', criteria: $criteria);
+$total = $repo->listUsersCount(status: 'active', criteria: $criteria);</code></pre>
+
+  <h4>returning — fetch after INSERT</h4>
   <pre><code class="language-sql">-- @name CreateUser
 -- @class Users
 -- @returns :one
 -- @with returning
-INSERT INTO users (email, name, active) VALUES (:email, :name, 1);</code></pre>
-  <pre><code class="language-php">// Inserts and immediately returns the full hydrated User object
-$user = $query->createUser(email: 'alice@example.com', name: 'Alice');
-echo $user->id;   // the auto-increment ID</code></pre>
+INSERT INTO users (email, name, role_id) VALUES (:email, :name, :role_id);</code></pre>
+  <pre><code class="language-php">// Returns the full User model after INSERT:
+$user = $repo->createUser(email: 'a@b.com', name: 'Alice', role_id: 1);
+echo $user->id;   // ← the new auto-increment ID</code></pre>
 
-  <h4>stream — row-by-row Generator <span class="new-badge">v2.19.8</span></h4>
-  <p class="ds">Generates a <code>stream{Name}(): \Generator</code> companion that yields rows one at a time using <code>PDO::fetch()</code>. No full array in memory — ideal for large datasets, exports, and ETL pipelines.</p>
-  <pre><code class="language-sql">-- @name ExportProfiles
--- @class Profiles
--- @returns :many
--- @with stream, criteria, count
-SELECT profiles.id, profiles.firstname, accounts.email
-FROM profiles INNER JOIN accounts ON accounts.profile_id = profiles.id;</code></pre>
-  <pre><code class="language-php">// All three methods generated:
-public function exportProfiles(?ExportProfilesCriteria $criteria = null): array
-public function exportProfilesCount(?ExportProfilesCriteria $criteria = null): int
-public function streamExportProfiles(?ExportProfilesCriteria $criteria = null): \Generator
-
-// Usage — progress bar + streaming:
-$criteria = (new ExportProfilesCriteria())->whereCreatedAtGte($from);
-$total    = $query->exportProfilesCount(criteria: $criteria);
-
-foreach ($query->streamExportProfiles(criteria: $criteria) as $profile) {
-    $csv->write($profile); // only one ProfileRow in memory at a time
-}</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    For true unbuffered streaming (rows fetched one at a time from the database), configure PDO with <code>PDO::MYSQL_ATTR_USE_BUFFERED_QUERY =&gt; false</code>. Without this, the MySQL driver may still buffer all rows internally before PHP reads them.
-  </div>
-
-  <h4>params — input Params DTO <span class="new-badge">v2.19.17</span></h4>
-  <p class="ds">Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO instead of positional method arguments. Mirrors sqlc Go's automatically generated argument structs — particularly useful for INSERT/UPDATE queries with many columns.</p>
-
-  <pre><code class="language-sql">-- @name CreateCmsConfig
+  <h4>params — input DTO</h4>
+  <pre><code class="language-sql">-- @name CreateConfig
 -- @class CmsConfig
 -- @returns :one
 -- @with returning, params
 INSERT INTO cms_configs (country_id, page, section, status, config)
 VALUES (:country_id, :page, :section, :status, :config);</code></pre>
-
-  <pre><code class="language-php">// Generated: DTOs/CreateCmsConfigParams.php
-readonly class CreateCmsConfigParams
+  <pre><code class="language-php">// Generated: DTOs/CreateConfigParams.php
+readonly class CreateConfigParams
 {
     public function __construct(
-        public int     $country_id,
-        public string  $page,
-        public string  $section,
-        public string  $status,
-        public ?array  $config,      // nullable params keep their type
-        // public ?string $search = null  // ?type:optional gets = null default
+        public int    $country_id,
+        public string $page,
+        public string $section,
+        public string $status,
+        public ?array $config,
     ) {}
+
+    public static function from(array $data): self { ... }
 }
 
-// ── Without @with params: 5 positional args ─────────────────────
-public function createCmsConfig(
-    int $country_id, string $page, string $section,
-    string $status, ?array $config,
-): CmsConfig
-
-// ── With @with params: 1 typed DTO ──────────────────────────────
-public function createCmsConfig(CreateCmsConfigParams $params): CmsConfig
-
-// Usage:
-$config = $query->createCmsConfig(new CreateCmsConfigParams(
+// Without @with params: 5 positional args
+// With @with params: 1 typed DTO
+$config = $repo->createConfig(new CreateConfigParams(
     country_id: 1,
     page:       'home',
     section:    'hero',
     status:     'active',
-    config:     null,
-));</code></pre>
+    config:     ['key' => 'val'],
+));
+
+// Also supports construction from array:
+$config = $repo->createConfig(CreateConfigParams::from($requestData));</code></pre>
+
+  <h4>paginated — limit/offset</h4>
+  <pre><code class="language-sql">-- @name ListPosts
+-- @class Posts
+-- @returns :many
+-- @with paginated, count
+SELECT posts.* FROM posts WHERE status = :status ORDER BY created_at DESC;</code></pre>
+  <pre><code class="language-php">// Injects LIMIT/OFFSET — no SQL change needed:
+$posts = $repo->listPosts(status: 'published', limit: 20, offset: 40);
+$total = $repo->listPostsCount(status: 'published');</code></pre>
+</section>
+
+<section id="ann-visibility">
+  <h3>@visibility</h3>
+  <p class="ds">Controls the PHP visibility of the generated method. Default is <code>public</code>. Use <code>protected</code> to hide raw SQL methods and expose domain logic via the extension trait — replacing the Laravel Observer pattern without magic hooks.</p>
+
+  <pre><code class="language-sql">-- @name InsertConfig
+-- @class CmsConfig
+-- @with returning, params
+-- @visibility protected
+-- @returns :one
+INSERT INTO cms_configs (country_id, page, section, status, config)
+VALUES (:country_id, :page, :section, :status, :config);</code></pre>
+
+  <pre><code class="language-php">// Generated as protected — not accessible directly:
+protected function insertConfig(InsertConfigParams $params): CmsConfig { ... }
+
+// Extension trait provides the public entry point:
+trait CmsConfigRepositoryExtension
+{
+    public function createConfig(CreateConfigParams $params): ?CmsConfig
+    {
+        // Before-save logic
+        if ($params->programmed === CmsConfigProgrammed::Programmed) {
+            $params = new CreateConfigParams(...$params->toArray(),
+                status: CmsConfigStatus::Programmed
+            );
+        }
+
+        // Find existing config to detect changes
+        $parent = $this->getActive(
+            country_id: $params->country_id,
+            page: $params->page, section: $params->section,
+        );
+
+        if ($parent !== null) {
+            $diff = JsonDiffer::diff($parent->config, $params->config);
+            if (empty($diff)) return null;  // no changes — skip
+            $params = new CreateConfigParams(...$params->toArray(), parent_id: $parent->id);
+        }
+
+        // Call the protected SQL method
+        $config = $this->insertConfig(InsertConfigParams::from($params->toArray()));
+
+        // After-save logic
+        event(new CmsConfigCreated($config->id));
+
+        return $config;
+    }
+}</code></pre>
 
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Rules:</strong> Only activates with 2+ parameters — 1 param stays positional. Optional params (<code>?type:optional</code>) get <code>= null</code> default in the DTO. The Params DTO respects <code>dto_scope</code> and generates its own extension scaffold when <code>extensions:</code> is active. Compatible with any return type: <code>:exec</code>, <code>:one</code> + <code>returning</code>, <code>:many</code>, etc.
+    Protected methods are excluded from the generated interface. Companion methods (<code>@with count</code>, <code>@with exists</code>, <code>@with stream</code>) are always <code>public</code>. When combined with <code>@with params</code>, the Params DTO receives an <code>@internal</code> PHPDoc tag.
   </div>
-
-  <h4>Combining modifiers</h4>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :cursor
--- @cursor created_at DESC, id DESC
--- @with criteria, count, exists
-SELECT orders.id, orders.status, orders.total, orders.created_at
-FROM orders
-ORDER BY orders.created_at DESC, orders.id DESC;</code></pre>
-  <pre><code class="language-php">// Three additional methods alongside listOrders():
-public function listOrders(?OrdersCriteria $criteria, ?string $after, ?string $before, int $limit): CursorResult;
-public function listOrdersCount(?OrdersCriteria $criteria): int;
-public function listOrdersExists(?OrdersCriteria $criteria): bool;</code></pre>
-
-  <h4>criteria + exists — check before paginating</h4>
-  <p class="ds">When <code>criteria</code> and <code>exists</code> are both active, <code>Exists()</code> accepts the same <code>$criteria</code> parameter — check existence under the same filters before paginating.</p>
-  <pre><code class="language-php">$criteria = (new OrdersCriteria())->whereStatusEq('pending');
-
-if ($query->listOrdersExists(criteria: $criteria)) {
-    $count = $query->listOrdersCount(criteria: $criteria);
-    $page  = $query->listOrders(criteria: $criteria, limit: 20);
-}</code></pre>
 </section>
 
-<!-- ── @cursor ── -->
-<section id="ann-cursor">
-  <h3><i class="bi bi-cursor-text me-2"></i>@cursor <span class="new-badge">v2.11.2</span></h3>
-  <p class="ds">Declares the cursor columns for keyset (cursor-based) pagination. Required when using <code>:cursor</code>. Supports qualified <code>table.column</code> names to disambiguate JOINs. Multiple columns produce a compound cursor.</p>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :cursor
--- @cursor created_at DESC, id DESC    ← single or compound cursor
-SELECT orders.id, orders.total, orders.created_at
-FROM orders
-WHERE user_id = :userId
-ORDER BY orders.created_at DESC, orders.id DESC;</code></pre>
-  <pre><code class="language-sql">-- For GROUP BY queries with JOIN ambiguity, use qualified names:
--- @cursor profile_reserve.created_at DESC, profile_reserve.profile_id DESC</code></pre>
-  <pre><code class="language-php">// First page
-$result = $query->listOrders(userId: 1, limit: 20);
+<section id="ann-type">
+  <h3>@type</h3>
+  <p class="ds">Overrides the PHP type of a result column. Three forms: scalar override, JSON DTO, and table wildcard.</p>
 
-// Next page
-$result = $query->listOrders(userId: 1, after: $result->nextCursor, limit: 20);
+  <h4>Scalar type override</h4>
+  <pre><code class="language-sql">-- @name GetStats
+-- @class Stats
+-- @returns :one
+-- @type active    bool
+-- @type total     ?float
+-- @type role      string
+SELECT active, total, role FROM users WHERE id = :id;</code></pre>
 
-// Previous page
-$result = $query->listOrders(userId: 1, before: $result->prevCursor, limit: 20);
-
-// CursorResult properties:
-// $result->items       — array of typed objects
-// $result->hasMore     — more pages forward
-// $result->hasPrev     — more pages backward
-// $result->nextCursor  — opaque token for next page
-// $result->prevCursor  — opaque token for previous page</code></pre>
-</section>
-
-<!-- ── @use ── -->
-<section id="ann-use">
-  <h3><i class="bi bi-link-45deg me-2"></i>@use <span class="new-badge">v2.13.0</span></h3>
-  <p class="ds">References one or more shared CTEs declared in <code>ctes:</code> files. sqlc-php injects the <code>WITH name AS (...)</code> clause before the query SQL, transparent to the Analyzer.</p>
-  <pre><code class="language-sql">-- @name ListActiveUserOrders
--- @class Orders
--- @returns :many
--- @use active_users
-SELECT orders.* FROM orders
-INNER JOIN active_users ON active_users.id = orders.user_id;
-
--- Multiple CTEs — comma-separated or separate lines
--- @use active_users, recent_orders
--- @use billing_summary</code></pre>
-</section>
-
-<!-- ── @deprecated ── -->
-<section id="ann-deprecated">
-  <h3><i class="bi bi-exclamation-triangle me-2"></i>@deprecated</h3>
-  <p class="ds">Emits a <code>@deprecated</code> tag in the generated method's docblock. Optionally include a message explaining the replacement.</p>
+  <h4>JSON column → DTO</h4>
   <pre><code class="language-sql">-- @name GetUser
 -- @class Users
 -- @returns :opt
--- @deprecated Use getUserV2 which returns extended profile data.
-SELECT * FROM users WHERE id = :id;</code></pre>
+-- @type address  json:Address          ← single Address object
+-- @type cities   json:City[]           ← array of City objects
+-- @type bio      ?json:Bio             ← nullable single object
+SELECT users.*, address, cities FROM users WHERE id = :id;</code></pre>
+  <pre><code class="language-php">// In the result DTO:
+public Address       $address;
+public array         $cities;    // City[]
+public ?Bio          $bio;</code></pre>
+
+  <h4>Table wildcard → nested model</h4>
+  <pre><code class="language-sql">-- @name GetReserveWithUser
+-- @class Reserves
+-- @returns :opt
+-- @type users.* User            ← all users.* columns become a User property
+SELECT reserves.*, users.id, users.email, users.name
+FROM reserves
+LEFT JOIN users ON users.id = reserves.user_id
+WHERE reserves.id = :id;</code></pre>
+  <pre><code class="language-php">// DTO has nested User object:
+public User $users;  // hydrated via User::fromRow($row)</code></pre>
 </section>
 
-<!-- ── @calls ── -->
-<section id="ann-calls">
-  <h3><i class="bi bi-arrow-repeat me-2"></i>@calls</h3>
-  <p class="ds">Used with <code>:transaction</code> to declare which methods are called inside a single database transaction. All calls share the same PDO connection in <code>autocommit: false</code> mode.</p>
-  <pre><code class="language-sql">-- @name TransferBalance
--- @class Accounts
--- @returns :transaction
--- @calls debitAccount, creditAccount
--- no SQL body required for :transaction</code></pre>
+<section id="ann-filter">
+  <h3>@filter</h3>
+  <p class="ds">Adds Criteria filter methods for JOIN columns that are not in the SELECT list. Without <code>@filter</code>, only selected columns get filter methods.</p>
+  <pre><code class="language-sql">-- @name ListUserOrders
+-- @class Orders
+-- @returns :many
+-- @with criteria
+-- @filter users.country_id
+-- @filter users.role_id
+SELECT orders.id, orders.total, orders.status
+FROM orders
+INNER JOIN users ON users.id = orders.user_id
+WHERE orders.created_at >= :from_date;</code></pre>
+  <pre><code class="language-php">// Criteria includes filter methods for JOIN columns:
+$criteria = (new OrdersRepositoryCriteria())
+    ->whereUsersCountryIdEq(164)
+    ->whereUsersRoleIdIn(1, 2)
+    ->whereStatusEq('active')
+    ->orderByTotalDesc();</code></pre>
 </section>
 
+<section id="ann-embed">
+  <h3>@embed</h3>
+  <p class="ds">Groups SELECT columns into a nested readonly object inside the result DTO. Unlike <code>@type table.*</code> (which reuses an existing model), <code>@embed</code> generates a new inner class.</p>
+  <pre><code class="language-sql">-- @name GetReserveWithUser
+-- @class Reserves
+-- @returns :opt
+-- @embed user users.*
+SELECT reserves.id, reserves.total,
+       users.id AS user_id, users.email AS user_email, users.name AS user_name
+FROM reserves
+LEFT JOIN users ON users.id = reserves.user_id
+WHERE reserves.id = :id;</code></pre>
+  <pre><code class="language-php">// Generated DTO:
+readonly class GetReserveWithUserRow
+{
+    public int  $id;
+    public float $total;
+    public GetReserveWithUserRowUser $user;   // ← embedded object
+}
+
+readonly class GetReserveWithUserRowUser
+{
+    public int    $user_id;
+    public string $user_email;
+    public string $user_name;
+}</code></pre>
+</section>
+
+<section id="ann-group_by">
+  <h3>@group_by</h3>
+  <p class="ds">Required companion to <code>@returns :grouped</code>. Specifies which column value is used as the grouping key. See <a href="#rt-grouped">:grouped</a>.</p>
+  <pre><code class="language-sql">-- @returns :grouped
+-- @group_by profiles.id</code></pre>
+</section>
+
+<section id="ann-column">
+  <h3>@column</h3>
+  <p class="ds">Renames a result column in the generated DTO without requiring a SQL <code>AS</code> alias.</p>
+  <pre><code class="language-sql">-- @name GetUserSummary
+-- @class Users
+-- @returns :opt
+-- @column total_orders  orderCount   ← renames 'total_orders' → 'orderCount' in DTO
+SELECT users.id, COUNT(orders.id) AS total_orders
+FROM users
+LEFT JOIN orders ON orders.user_id = users.id
+WHERE users.id = :id
+GROUP BY users.id;</code></pre>
+  <pre><code class="language-php">// DTO property:
+public int $orderCount;   // ← not total_orders</code></pre>
+</section>
+
+<section id="ann-nullable">
+  <h3>@nullable</h3>
+  <p class="ds">Forces a parameter to be nullable (<code>?type</code>) without rewriting the SQL condition. Useful for <code>UPDATE SET nullable_col = :param</code> patterns where the column accepts NULL.</p>
+  <pre><code class="language-sql">-- @name UpdateUserAvatar
+-- @class Users
+-- @returns :exec
+-- @nullable avatarUrl
+UPDATE users SET avatar_url = :avatarUrl WHERE id = :id;</code></pre>
+  <pre><code class="language-php">// Generated signature — avatarUrl is nullable:
+public function updateUserAvatar(?string $avatarUrl, int $id): void</code></pre>
+</section>
+
+<section id="ann-partial">
+  <h3>@partial</h3>
+  <p class="ds">For UPDATE queries using <code>COALESCE(:param, column)</code> — marks those parameters as optional (<code>?type = null</code>). Parameters in the WHERE clause remain required.</p>
+  <pre><code class="language-sql">-- @name UpdateUserProfile
+-- @class Users
+-- @returns :exec
+-- @partial
+UPDATE users
+SET name       = COALESCE(:name, name),
+    avatar_url = COALESCE(:avatar_url, avatar_url)
+WHERE id = :id;</code></pre>
+  <pre><code class="language-php">// name and avatar_url are optional — only id is required:
+public function updateUserProfile(int $id, ?string $name = null, ?string $avatar_url = null): void
+
+// Update only the name:
+$repo->updateUserProfile(id: 42, name: 'New Name');</code></pre>
+</section>
+
+<section id="ann-cursor">
+  <h3>@cursor</h3>
+  <p class="ds">Declares cursor-based pagination columns for <code>:cursor</code> return type. Supports keyset pagination for large datasets.</p>
+  <pre><code class="language-sql">-- @name StreamPosts
+-- @class Posts
+-- @returns :cursor
+-- @cursor created_at DESC, id DESC
+SELECT posts.* FROM posts
+WHERE status = :status
+ORDER BY created_at DESC, id DESC;</code></pre>
+  <pre><code class="language-php">// Returns CursorResult with next/prev cursors:
+$result = $repo->streamPosts(status: 'published', limit: 20);
+foreach ($result->items as $post) { ... }
+$nextCursor = $result->nextCursor;   // pass to next call</code></pre>
+</section>
+
+<section id="ann-comment">
+  <h3>@comment</h3>
+  <p class="ds">Adds a description to the generated method docblock.</p>
+  <pre><code class="language-sql">-- @name GetActiveUsers
+-- @class Users
+-- @returns :many
+-- @comment Returns all users with status 'active'.
+-- @comment Ordered by creation date descending.
+SELECT users.* FROM users WHERE status = 'active' ORDER BY created_at DESC;</code></pre>
+  <pre><code class="language-php">/**
+ * Returns all users with status 'active'.
+ * Ordered by creation date descending.
+ * @return User[]
+ */
+public function getActiveUsers(): array</code></pre>
+</section>
+
+<section id="ann-deprecated">
+  <h3>@deprecated</h3>
+  <p class="ds">Marks the generated method as deprecated with a <code>@deprecated</code> PHPDoc tag and a message.</p>
+  <pre><code class="language-sql">-- @name GetUser
+-- @class Users
+-- @returns :opt
+-- @deprecated Use getActiveUser() instead.
+SELECT users.* FROM users WHERE id = :id;</code></pre>
+  <pre><code class="language-php">/**
+ * @deprecated Use getActiveUser() instead.
+ */
+public function getUser(int $id): ?User</code></pre>
+</section>
+
+<section id="ann-dto">
+  <h3>@dto</h3>
+  <p class="ds">Overrides the auto-generated DTO class name. Useful when two queries return the same column shape and can share a single DTO class.</p>
+  <pre><code class="language-sql">-- @name GetUser
+-- @class Users
+-- @returns :opt
+-- @dto UserSummary       ← generates UserSummary.php instead of GetUserRow.php
+SELECT users.id, users.email, users.name FROM users WHERE id = :id;
+
+-- @name GetCreator
+-- @class Posts
+-- @returns :opt
+-- @dto UserSummary       ← reuses the same UserSummary DTO
+SELECT users.id, users.email, users.name
+FROM posts
+INNER JOIN users ON users.id = posts.created_by
+WHERE posts.id = :id;</code></pre>
+</section>
 
 <hr class="div">
 
 <!-- ═══ RETURN TYPES ═══ -->
 <section id="rt-many">
-  <h2><i class="bi bi-collection me-2" style="color:var(--accent2)"></i>Return types</h2>
+  <h2><i class="bi bi-grid me-2" style="color:var(--accent2)"></i>Return types</h2>
 
   <h3><span class="rt rt-many">:many</span> — array of rows</h3>
-  <p class="ds">Returns all matching rows as a PHP array of typed objects. No LIMIT is applied unless you write one in the SQL.</p>
-  <pre><code class="language-sql">-- @name ListActiveUsers
+  <p class="ds">Returns all matching rows as an array. Each row is typed as the Model (for <code>SELECT *</code>) or as a generated DTO (for partial SELECT).</p>
+  <pre><code class="language-sql">-- @name ListUsers
 -- @class Users
 -- @returns :many
-SELECT * FROM users WHERE active = 1 ORDER BY name;</code></pre>
+-- @with criteria, count, paginated
+SELECT users.* FROM users WHERE role_id = :role_id;</code></pre>
   <pre><code class="language-php">/** @return User[] */
-public function listActiveUsers(): array</code></pre>
-</section>
-
-<section id="rt-paginator">
-  <h3><span class="rt rt-pag">:paginator</span> — PaginatedResult with metadata</h3>
-  <p class="ds">Returns a <code>PaginatedResult</code> object with <code>items</code>, <code>total</code>, <code>perPage</code>, <code>currentPage</code>, and <code>lastPage</code> — everything a pagination UI needs in one call. The total count is computed automatically via a companion <code>SELECT COUNT(*)</code>.</p>
-  <pre><code class="language-sql">-- @name ListProductsPaginated
--- @class Products
--- @returns :paginator
-SELECT products.id, products.name, products.price FROM products ORDER BY name;</code></pre>
-  <pre><code class="language-php">public function listProductsPaginated(int $limit = 10, int $offset = 0): PaginatedResult
-
-// PaginatedResult properties:
-// $result->items       — array of typed objects
-// $result->total       — total matching rows
-// $result->perPage     — rows per page
-// $result->currentPage — current page number (1-indexed)
-// $result->lastPage    — last page number</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Difference from <code>:many + @with paginated</code>:</strong>
-    <code>:paginator</code> returns a rich <code>PaginatedResult</code> object with <code>total</code> and page metadata computed automatically.
-    <code>:many + @with paginated</code> returns a plain <code>array</code> — you manage the count separately via <code>@with count</code>.
-  </div>
-</section>
-
-<section id="rt-cursor">
-  <h3><span class="rt rt-cur">:cursor</span> — keyset pagination</h3>
-  <p class="ds">Implements cursor-based (keyset) pagination — O(1) regardless of page depth, unlike OFFSET which degrades on large datasets. Requires <code>@cursor</code> to declare the sort columns. Combine with <code>@searchable</code> for dynamic filters and <code>@counted</code> for totals.</p>
-  <pre><code class="language-sql">-- @name ListOrders
--- @class Orders
--- @returns :cursor
--- @cursor created_at DESC, id DESC
--- @searchable
--- @counted
-SELECT orders.id, orders.total, orders.status, orders.created_at
-FROM orders
-WHERE user_id = :userId
-ORDER BY orders.created_at DESC, orders.id DESC;</code></pre>
-  <pre><code class="language-php">public function listOrders(
-    int    $userId,
-    ?OrdersCriteria $criteria = null,
-    ?string $after  = null,
-    ?string $before = null,
-    int    $limit   = 20,
-): CursorResult
-
-public function listOrdersCount(int $userId, ?OrdersCriteria $criteria = null): int</code></pre>
+public function listUsers(int $role_id, ?int $limit = null, int $offset = 0, ?UsersRepositoryCriteria $criteria = null): array
+public function listUsersCount(int $role_id, ?UsersRepositoryCriteria $criteria = null): int</code></pre>
 </section>
 
 <section id="rt-one">
-  <h3><span class="rt rt-one">:one</span> — single row, throws if not found</h3>
-  <p class="ds">Returns exactly one typed object. Throws a <code>RuntimeException</code> if the query returns no rows. Use <code>:opt</code> when zero results is a valid case.</p>
-  <pre><code class="language-sql">-- @name GetUser
+  <h3><span class="rt rt-one">:one</span> — exactly one row</h3>
+  <p class="ds">Executes the query and returns a single row. Throws <code>RuntimeException</code> when the query returns no rows.</p>
+  <pre><code class="language-sql">-- @name GetUserById
 -- @class Users
 -- @returns :one
-SELECT * FROM users WHERE id = :id;</code></pre>
-  <pre><code class="language-php">public function getUser(int $id): User   // throws if not found</code></pre>
+SELECT users.* FROM users WHERE id = :id;</code></pre>
+  <pre><code class="language-php">public function getUserById(int $id): User   // throws if not found</code></pre>
 </section>
 
 <section id="rt-opt">
-  <h3><span class="rt rt-opt">:opt</span> — single row or null</h3>
-  <p class="ds">Returns one typed object or <code>null</code> when no row matches. The most common return type for "find by ID" queries.</p>
+  <h3><span class="rt rt-opt">:opt</span> — one row or null</h3>
+  <p class="ds">Returns the first matching row or <code>null</code> when no row matches.</p>
   <pre><code class="language-sql">-- @name FindUserByEmail
 -- @class Users
 -- @returns :opt
-SELECT * FROM users WHERE email = :email AND active = 1;</code></pre>
+SELECT users.* FROM users WHERE email = :email;</code></pre>
   <pre><code class="language-php">public function findUserByEmail(string $email): ?User</code></pre>
 </section>
 
 <section id="rt-exec">
-  <h3><span class="rt rt-exec">:exec</span> — INSERT / UPDATE / DELETE</h3>
-  <p class="ds">Returns <code>void</code>. Use for any query that modifies data without needing a return value. Combine with <code>@with returning</code> on INSERT queries when you need the created row.</p>
-  <pre><code class="language-sql">-- @name UpdateUserName
--- @class Users
--- @returns :exec
-UPDATE users SET name = :name WHERE id = :id;
-
--- @name DeleteUser
+  <h3><span class="rt rt-exec">:exec</span> — no return value</h3>
+  <p class="ds">Executes an INSERT, UPDATE, or DELETE and returns <code>void</code>.</p>
+  <pre><code class="language-sql">-- @name DeleteUser
 -- @class Users
 -- @returns :exec
 DELETE FROM users WHERE id = :id;</code></pre>
+  <pre><code class="language-php">public function deleteUser(int $id): void</code></pre>
+</section>
+
+<section id="rt-batch">
+  <h3><span class="rt rt-batch">:batch</span> — insert many rows</h3>
+  <p class="ds">Executes the same INSERT statement for each row in an array, inside a transaction. The method accepts an <code>array</code> of associative arrays — one per row.</p>
+  <pre><code class="language-sql">-- @name InsertOrderItems
+-- @class Orders
+-- @returns :batch
+INSERT INTO order_items (order_id, product_id, quantity, price)
+VALUES (:order_id, :product_id, :quantity, :price);</code></pre>
+  <pre><code class="language-php">public function insertOrderItems(array $rows): void
+
+// Usage:
+$repo->insertOrderItems([
+    ['order_id' => 1, 'product_id' => 5, 'quantity' => 2, 'price' => 9.99],
+    ['order_id' => 1, 'product_id' => 8, 'quantity' => 1, 'price' => 24.99],
+]);</code></pre>
 </section>
 
 <section id="rt-grouped">
-  <h3><span class="rt rt-exec">:grouped</span> — JOIN rows grouped into typed arrays <span class="new-badge">v2.19.16</span></h3>
-  <p class="ds">When a query JOINs a 1:N relationship, the database returns one flat row per join. <code>:grouped</code> automatically collapses those rows into grouped objects where the repeated (JOIN-side) columns become a typed array — no manual post-processing needed.</p>
-
+  <h3><span class="rt rt-grouped">:grouped</span> — JOIN rows grouped into typed arrays</h3>
+  <p class="ds">Collapses a flat JOIN result set (one row per join) into grouped objects where the repeated (JOIN-side) columns become a typed array. Requires <code>@group_by</code>.</p>
   <pre><code class="language-sql">-- @name GetProfilesWithReserves
 -- @class Profiles
 -- @returns :grouped
--- @group_by profiles.id        ← the primary key column to group by
+-- @group_by profiles.id
 SELECT
     profiles.id,
     profiles.firstname,
@@ -1713,687 +1042,104 @@ SELECT
     reserve.status
 FROM profiles
 LEFT JOIN reserve ON reserve.profile_id = profiles.id;</code></pre>
+  <pre><code class="language-php">// Generated files:
+// DTOs/GetProfilesWithReservesItem.php  — JOIN-side columns
+// DTOs/GetProfilesWithReservesRow.php   — primary columns + item array
 
-  <h4>Generated files</h4>
-  <pre><code class="language-php">// DTOs/GetProfilesWithReservesItem.php — repeated (JOIN-side) columns
-readonly class GetProfilesWithReservesItem
-{
-    public function __construct(
-        public int    $reserve_id,
-        public float  $total,
-        public string $status,
-    ) {}
-
-    public static function fromRow(array $row): self { ... }
-}
-
-// DTOs/GetProfilesWithReservesRow.php — scalar (primary table) + array property
 readonly class GetProfilesWithReservesRow
 {
-    public function __construct(
-        public int    $id,
-        public string $firstname,
-        public string $lastname,
-        /** @var GetProfilesWithReservesItem[] */
-        public array  $reserve,          // ← grouped, typed array
-    ) {}
+    public int    $id;
+    public string $firstname;
+    public string $lastname;
+    /** @var GetProfilesWithReservesItem[] */
+    public array  $reserve;      // grouped, not flat
+}
 
-    public static function groupResults(iterable $rows): array { ... }
-}</code></pre>
-
-  <h4>Generated query method</h4>
-  <pre><code class="language-php">/** @return GetProfilesWithReservesRow[] */
-public function getProfilesWithReserves(): array
-{
-    // ... execute query ...
-    return GetProfilesWithReservesRow::groupResults($stmt->fetchAll(PDO::FETCH_ASSOC));
-}</code></pre>
-
-  <h4>Usage</h4>
-  <pre><code class="language-php">$profiles = $query->getProfilesWithReserves();
-
+// Usage:
+$profiles = $repo->getProfilesWithReserves();
 foreach ($profiles as $profile) {
-    echo $profile->firstname;
-
-    foreach ($profile->reserve as $item) {  // ← typed GetProfilesWithReservesItem[]
-        echo $item->reserve_id . ': ' . $item->total . ' (' . $item->status . ')';
+    foreach ($profile->reserve as $item) {
+        echo $item->total;
     }
 }</code></pre>
-
-  <div class="callout ci-info">
-    <i class="bi bi-info-circle ci-icon"></i>
-    <strong>How it works:</strong> <code>groupResults()</code> iterates the flat PDO result set and groups rows by the <code>@group_by</code> column value. Primary table columns are taken from the first row of each group; JOIN-side columns are accumulated into the typed item array. Profiles with no matching reserves get an empty <code>$reserve</code> array.
-  </div>
-
   <div class="callout ci-warn">
     <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>Column disambiguation:</strong> The <code>@group_by</code> column must appear in the SELECT list. If both tables have an <code>id</code> column, alias one of them (<code>reserve.id AS reserve_id</code>) to avoid overwriting in the PDO result row.
+    Alias any ambiguous columns: if both tables have <code>id</code>, alias the JOIN-side one (<code>reserve.id AS reserve_id</code>) to avoid PDO overwriting it.
   </div>
 </section>
 
-<section id="rt-batch">
-  <h3><span class="rt rt-batch">:batch</span> — run same query N times</h3>
-  <p class="ds">Runs the same query multiple times within one transaction. The generated method accepts an array of parameter arrays and returns the number of affected rows.</p>
-  <pre><code class="language-sql">-- @name InsertUserBatch
+<section id="rt-cursor">
+  <h3><span class="rt rt-cur">:cursor</span> — keyset pagination</h3>
+  <p class="ds">Returns a <code>CursorResult</code> with <code>items</code>, <code>nextCursor</code>, and <code>prevCursor</code>. Used for large datasets where offset pagination is too slow. Requires <code>@cursor</code> to declare the ordering columns.</p>
+  <pre><code class="language-sql">-- @name GetPosts
+-- @class Posts
+-- @returns :cursor
+-- @cursor created_at DESC, id DESC
+-- @with count
+SELECT posts.* FROM posts WHERE status = :status
+ORDER BY created_at DESC, id DESC;</code></pre>
+  <pre><code class="language-php">public function getPosts(string $status, int $limit = 20, ?string $cursor = null): CursorResult
+
+$page1 = $repo->getPosts(status: 'published', limit: 20);
+$page2 = $repo->getPosts(status: 'published', limit: 20, cursor: $page1->nextCursor);</code></pre>
+</section>
+
+<section id="rt-paginator">
+  <h3><span class="rt rt-pag">:paginator</span> — offset pagination with total</h3>
+  <p class="ds">Returns a <code>PaginatedResult</code> with <code>items</code>, <code>total</code>, <code>page</code>, <code>perPage</code>, and <code>lastPage</code>. Wraps the query in a <code>COUNT(*)</code> subquery automatically.</p>
+  <pre><code class="language-sql">-- @name ListUsers
 -- @class Users
--- @returns :batch
-INSERT INTO users (email, name) VALUES (:email, :name);</code></pre>
-  <pre><code class="language-php">// Returns total affected rows
-$affected = $query->insertUserBatch([
-    ['email' => 'a@x.com', 'name' => 'Alice'],
-    ['email' => 'b@x.com', 'name' => 'Bob'],
-]);</code></pre>
+-- @returns :paginator
+-- @with criteria
+SELECT users.* FROM users WHERE status = :status
+ORDER BY created_at DESC;</code></pre>
+  <pre><code class="language-php">public function listUsers(string $status, int $page = 1, int $perPage = 20, ?UsersRepositoryCriteria $criteria = null): PaginatedResult
+
+$result = $repo->listUsers(status: 'active', page: 2, perPage: 25);
+echo $result->total;    // total matching rows
+echo $result->lastPage; // last page number
+foreach ($result->items as $user) { ... }</code></pre>
 </section>
 
 <section id="rt-transaction">
   <h3><span class="rt rt-exec">:transaction</span> — orchestrate multiple methods</h3>
-  <p class="ds">Calls multiple methods inside a single database transaction. Declare the methods to call with <code>@calls</code>. If any throws, the transaction is rolled back.</p>
-  <pre><code class="language-sql">-- @name TransferBalance
+  <p class="ds">Calls multiple generated methods inside a single database transaction. Declare which methods to call with <code>@calls</code>. If any method throws, the transaction is rolled back.</p>
+  <pre><code class="language-sql">-- @name TransferFunds
 -- @class Accounts
+-- @param fromId  int
+-- @param toId    int
+-- @param amount  float
 -- @returns :transaction
 -- @calls debitAccount, creditAccount</code></pre>
-  <pre><code class="language-php">// Calls debitAccount() then creditAccount() in one transaction
-$query->transferBalance(fromId: 1, toId: 2, amount: 100.00);</code></pre>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>Limitation:</strong> <code>@calls</code> forwards the same parameters to all called methods. When sub-methods need different parameters, or when you need to use a return value from one call as input to the next, use <a href="#with-transaction"><code>withTransaction()</code></a> instead.
-  </div>
-</section>
-
-<section id="with-transaction">
-  <h3><code>withTransaction()</code> — flexible transactions in extension traits <span class="new-badge">v2.19.15</span></h3>
-  <p class="ds">Every generated Query class has a <code>protected withTransaction(callable $fn): mixed</code> helper. Use it in an extension trait to run any combination of methods inside a transaction — with different parameters per call, intermediate results, and conditional logic.</p>
-
-  <h4>Signature</h4>
-  <pre><code class="language-php">protected function withTransaction(callable $fn): mixed</code></pre>
-  <p class="ds">Commits automatically on success, rolls back on any <code>\Throwable</code>. Handles nesting correctly — if a transaction is already active, inner calls are no-ops (the outermost call owns the transaction).</p>
-
-  <h4>Usage in an extension trait</h4>
-  <pre><code class="language-sql">-- @name CreateOrder
--- @class Orders
--- @returns :one
--- @with returning
-INSERT INTO orders (user_id, total) VALUES (:userId, :total);
-
--- @name InsertItems
--- @class Orders
--- @returns :batch
-INSERT INTO order_items (order_id, product_id, qty)
-VALUES (:orderId, :productId, :qty);</code></pre>
-
-  <pre><code class="language-php">// Extensions/Queries/OrdersQueryExtension.php — your file, never overwritten
-trait OrdersQueryExtension
-{
-    public function createOrderWithItems(int $userId, float $total, array $items): int
-    {
-        return $this->withTransaction(function() use ($userId, $total, $items) {
-            $order   = $this->createOrder($userId, $total);  // :one returning → Order
-            $orderId = $order->id;
-
-            // Pass the new orderId to the batch insert
-            $rows = array_map(fn($i) => [
-                'orderId'   => $orderId,
-                'productId' => $i['product_id'],
-                'qty'       => $i['qty'],
-            ], $items);
-            $this->insertItems($rows);  // :batch
-
-            return $orderId;
-        });
-    }
-}</code></pre>
-
-  <pre><code class="language-php">// Usage — single method, atomic:
-$orderId = $orderQuery->createOrderWithItems(
-    userId: 42,
-    total:  199.90,
-    items:  [['product_id' => 5, 'qty' => 2], ['product_id' => 9, 'qty' => 1]],
-);</code></pre>
-
+  <pre><code class="language-php">// Calls debitAccount() then creditAccount() — all or nothing:
+$repo->transferFunds(fromId: 1, toId: 2, amount: 100.00);</code></pre>
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
-    <strong>Nesting</strong> — <code>withTransaction()</code> calls <code>PDO::inTransaction()</code> before opening a transaction. If one is already active (e.g. you called <code>withTransaction</code> from an outer method), the inner call is a no-op — the outer transaction is committed or rolled back as a unit.
-  </div>
-
-  <h4>Comparison</h4>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th></th><th><code>:transaction</code> + <code>@calls</code></th><th><code>withTransaction()</code></th></tr></thead>
-      <tbody>
-        <tr><td>Declaration</td><td>SQL annotation</td><td>PHP in extension trait</td></tr>
-        <tr><td>Parameters</td><td>Same params forwarded to all calls</td><td>Fully flexible per call</td></tr>
-        <tr><td>Intermediate results</td><td>❌ Not possible</td><td>✅ Use return values between calls</td></tr>
-        <tr><td>Conditional logic</td><td>❌ Not possible</td><td>✅ Full PHP control flow</td></tr>
-        <tr><td>Nesting</td><td>❌ Not handled</td><td>✅ Automatic no-op on inner calls</td></tr>
-        <tr><td>Best for</td><td>Simple, uniform multi-step writes</td><td>Complex orchestration with dependencies</td></tr>
-      </tbody>
-    </table>
+    <code>@calls</code> forwards the same parameters to all called methods. When sub-methods need different parameters or you need to use intermediate results, use <a href="#with-transaction"><code>withTransaction()</code></a> in the extension trait instead.
   </div>
 </section>
 
 <hr class="div">
 
-<!-- ═══ CRITERIA ═══ -->
-<section id="criteria">
-  <h2><i class="bi bi-funnel-fill me-2" style="color:var(--accent2)"></i>Criteria class</h2>
-  <p class="ds">Each <code>@with criteria</code> query generates a typed <code>XxxCriteria</code> class extending the <code>Criteria</code> base. Criteria are immutable — every method returns a new instance.</p>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>All tables in the query must be declared in the schema</strong> for <code>where*</code> methods to be generated. The generator resolves column types from the schema catalog — columns from tables not in the schema resolve to <code>mixed</code> and produce no filter methods. Use <code>--generate-schema</code> to extract the full schema from the live database.
-  </div>
-
-  <h3>Generated filter methods per column type</h3>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Type</th><th>Methods generated</th></tr></thead>
-      <tbody>
-        <tr><td><code>string</code></td><td><code>Eq</code> <code>Neq</code> <code>Like</code> <code>StartsWith</code> <code>EndsWith</code> <code>In</code> <code>NotIn</code> <code>IsNull</code> <code>IsNotNull</code></td></tr>
-        <tr><td><code>int / float</code></td><td><code>Eq</code> <code>Neq</code> <code>Gt</code> <code>Gte</code> <code>Lt</code> <code>Lte</code> <code>In</code> <code>NotIn</code> <code>Between</code> <code>IsNull</code> <code>IsNotNull</code></td></tr>
-        <tr><td><code>bool</code></td><td><code>Eq</code></td></tr>
-        <tr><td><code>DateTimeImmutable</code></td><td><code>Eq</code> <code>Gt</code> <code>Gte</code> <code>Lt</code> <code>Lte</code> <code>Between</code> <code>IsNull</code> <code>IsNotNull</code></td></tr>
-        <tr><td>enum</td><td><code>Eq</code> <code>Neq</code> <code>In</code> <code>NotIn</code></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>OR groups</h3>
-  <pre><code class="language-php">$criteria = (new UsersCriteria())
-    ->whereActiveEq(true)                                     // AND active = 1
-    ->orGroup(fn($c) => $c->whereCountryIdEq(164))           // OR (country_id = 164)
-    ->orGroup(fn($c) => $c->whereCountryIdEq(165));          // OR (country_id = 165)
-// WHERE (active = 1) OR (country_id = 164) OR (country_id = 165)</code></pre>
-</section>
-
-<section id="criteria-raw">
-  <h3>andRawCondition() / orRawCondition() — filter on JOIN columns</h3>
-  <p class="ds">Inject verbatim SQL fragments into the WHERE clause when the filter target is a JOIN column not present in the SELECT list — and therefore has no generated typed method.</p>
-
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Method</th><th>Connector</th><th>Use case</th></tr></thead>
-      <tbody>
-        <tr><td><code>andRawCondition(sql, bindings)</code></td><td><code>AND</code></td><td>Must match — narrows the result set</td></tr>
-        <tr><td><code>orRawCondition(sql, bindings)</code></td><td><code>OR</code></td><td>Alternative match — widens the result set</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h4>andRawCondition — must match (AND)</h4>
-  <pre><code class="language-php">$criteria = (new ProfileReserveCriteria())
-    ->whereSnapFirstnameLike('alice')
-    ->andRawCondition(
-        'reserve.id = :reserveId',
-        [':reserveId' => [$id, PDO::PARAM_INT]]
-    );
-
-$result = $repo->listProfileReserve(criteria: $criteria);
-$count  = $repo->listProfileReserveCount(criteria: $criteria);</code></pre>
-
-  <p class="ds">Effective SQL: <code>WHERE snap_firstname LIKE :snap_firstname_f0 AND reserve.id = :reserveId</code></p>
-
-  <h4>orRawCondition — alternative match (OR)</h4>
-  <pre><code class="language-php">// Single OR raw condition
-$criteria = (new ProfileReserveCriteria())
-    ->whereStatusEq('active')
-    ->orRawCondition('reserve.is_legacy = 1');
-
-// Multiple
-$criteria = (new ProfileReserveCriteria())
-    ->whereStatusEq('active')
-    ->orRawCondition('reserve.type = :t1', [':t1' => ['vip',   PDO::PARAM_STR]])
-    ->orRawCondition('reserve.type = :t2', [':t2' => ['promo', PDO::PARAM_STR]]);</code></pre>
-
-  <p class="ds">Effective SQL: <code>WHERE (status = :status_f0) OR (reserve.is_legacy = 1)</code></p>
-
-  <h4>Combining both in one criteria</h4>
-  <pre><code class="language-php">$criteria = (new ProfileReserveCriteria())
-    ->whereSnapFirstnameLike('alice')           // AND typed filter
-    ->andRawCondition('reserve.deleted_at IS NULL')  // AND raw
-    ->orRawCondition('reserve.is_legacy = 1');       // OR raw
-// WHERE (snap_firstname LIKE :f0 AND reserve.deleted_at IS NULL) OR (reserve.is_legacy = 1)</code></pre>
-
-  <div class="callout ci-warn">
-    <i class="bi bi-exclamation-triangle ci-icon"></i>
-    <strong>⚠ No SQL injection protection.</strong> Always use named placeholders — never interpolate user input directly.
-  </div>
-
-  <pre><code class="language-php">// ✅ Safe
-->andRawCondition('reserve.id = :rid', [':rid' => [42, PDO::PARAM_INT]])
-
-// ❌ Unsafe
-->andRawCondition("reserve.id = {$userInput}")</code></pre>
-</section>
-
-<section id="criteria-from-array">
-  <h3>fromArray() — build criteria from a filter array</h3>
-  <p class="ds">Constructs a Criteria from an array of tuples — useful when filters come from a request payload or config.</p>
-  <pre><code class="language-php">$criteria = OrdersCriteria::fromArray([
-    ['status',     '!=',       'cancelled'],
-    ['total',      '>=',       100.0],
-    ['created_at', 'between',  ['2024-01-01', '2024-12-31']],
-    ['name',       'like',     'alice'],
-    ['tag',        'in',       ['vip', 'premium']],
-    ['deleted_at', 'is_null'],
-]);
-
-// Supported operators:
-// = != <> > < >= <= eq neq gt lt gte lte
-// like  starts_with  ends_with
-// in  not_in
-// is_null  is_not_null  null  not_null
-// between</code></pre>
-</section>
-
-<section id="criteria-or-groups">
-  <h3>orGroup() — OR logic</h3>
-  <pre><code class="language-php">// WHERE (status = 'active') OR (status = 'pending' AND role = 'admin')
-$criteria = (new OrdersCriteria())
-    ->whereStatusEq('active')
-    ->orGroup(fn($c) => $c
-        ->whereStatusEq('pending')
-        ->whereRoleEq('admin')
-    );</code></pre>
-</section>
-
-<hr class="div">
-
-<!-- ═══ CLI ═══ -->
-<section id="cli">
-  <h2><i class="bi bi-terminal me-2" style="color:var(--accent)"></i>CLI reference</h2>
-  <pre><code class="language-bash">php vendor/bin/sqlc-php [flags] sqlc.yaml</code></pre>
-
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Flag</th><th>Description</th></tr></thead>
-      <tbody>
-        <tr><td><em>(no flags)</em></td><td>Generate PHP classes from schema and queries</td></tr>
-        <tr><td><code>--version</code> / <code>-v</code></td><td>Print version and exit</td></tr>
-        <tr><td><code>--dry-run</code></td><td>Show what would be generated without writing files</td></tr>
-        <tr><td><code>--verify</code></td><td>Exit 1 if generated files are out of date — CI mode</td></tr>
-        <tr><td><code>--diff</code></td><td>Show unified diff of what would change, write nothing</td></tr>
-        <tr><td><code>--watch</code></td><td>Watch schema and query files, regenerate on change</td></tr>
-        <tr><td><code>--interval=N</code></td><td>Poll interval in ms for <code>--watch</code> (default: 500)</td></tr>
-        <tr><td><code>--generate-schema</code></td><td>Connect to DB and extract schema.sql from live database</td></tr>
-        <tr><td><code>--schema-output=PATH</code></td><td>Override output path for <code>--generate-schema</code></td></tr>
-        <tr><td><code>--help</code> / <code>-h</code></td><td>Show usage and exit</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>Examples</h3>
-  <pre><code class="language-bash"># Generate (standard workflow)
-php vendor/bin/sqlc-php sqlc.yaml
-
-# Dry run — see what would be generated
-php vendor/bin/sqlc-php --dry-run sqlc.yaml
-
-# CI check — fails if output is stale
-php vendor/bin/sqlc-php --verify sqlc.yaml
-
-# Show diff without writing
-php vendor/bin/sqlc-php --diff sqlc.yaml
-
-# Watch mode (development)
-php vendor/bin/sqlc-php --watch sqlc.yaml
-php vendor/bin/sqlc-php --watch --interval=200 sqlc.yaml
-
-# Pull schema from live DB then generate
-php vendor/bin/sqlc-php --generate-schema sqlc.yaml
-php vendor/bin/sqlc-php sqlc.yaml
-
-# Custom schema output path
-php vendor/bin/sqlc-php --generate-schema --schema-output=db/schema.sql sqlc.yaml</code></pre>
-
-  <h3>Exit codes</h3>
-  <div class="tw">
-    <table class="dt">
-      <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
-      <tbody>
-        <tr><td><code>0</code></td><td>Success</td></tr>
-        <tr><td><code>1</code></td><td>Error (generation failed, schema extraction failed)</td></tr>
-        <tr><td><code>1</code></td><td><code>--verify</code>: generated files are out of date</td></tr>
-      </tbody>
-    </table>
-  </div>
-</section>
-
-<hr class="div">
-
-<!-- ═══ PATTERNS ═══ -->
-<section id="pattern-basic">
-  <h2><i class="bi bi-collection me-2" style="color:var(--accent)"></i>Patterns &amp; Examples</h2>
-
-  <h3>Basic SELECT</h3>
-  <pre><code class="language-sql">-- @name GetUser
--- @class Users
--- @returns :opt
--- @comment Fetch a user by primary key. Returns null if not found.
-SELECT * FROM users WHERE id = :id;
-
--- @name ListActiveUsers
--- @class Users
--- @returns :many
-SELECT * FROM users WHERE active = 1 ORDER BY name;
-
--- @name CreateUser
--- @class Users
--- @returns :one
--- @with returning
-INSERT INTO users (email, name, active) VALUES (:email, :name, 1);
-
--- @name UpdateUserName
--- @class Users
--- @returns :exec
-UPDATE users SET name = :name WHERE id = :id;
-
--- @name DeleteUser
--- @class Users
--- @returns :exec
-DELETE FROM users WHERE id = :id;</code></pre>
-</section>
-
-<section id="pattern-joins">
-  <h3>JOINs and DTOs</h3>
-  <pre><code class="language-sql">-- @name GetOrderWithUser
--- @class Orders
--- @dto OrderWithUser
--- @returns :opt
-SELECT
-    orders.id,
-    orders.total,
-    orders.status,
-    users.email    AS user_email,
-    users.name     AS user_name
-FROM orders
-JOIN users ON users.id = orders.user_id
-WHERE orders.id = :id;</code></pre>
-  <pre><code class="language-sql">-- Using @embed for nested objects
--- @name GetOrderWithDetails
--- @class Orders
--- @embed User user__
--- @returns :opt
-SELECT
-    orders.id,
-    orders.total,
-    users.id    AS user__id,
-    users.email AS user__email,
-    users.name  AS user__name
-FROM orders
-JOIN users ON users.id = orders.user_id
-WHERE orders.id = :id;</code></pre>
-  <pre><code class="language-php">readonly class GetOrderWithDetailsRow {
-    public function __construct(
-        public int    $id,
-        public float  $total,
-        public User   $user,   // nested object
-    ) {}
-}</code></pre>
-</section>
-
-<section id="pattern-aggregates">
-  <h3>GROUP BY and aggregates</h3>
-  <pre><code class="language-sql">-- @name GetOrderStats
--- @class Orders
--- @returns :one
--- @type order_count int
--- @type total_revenue float
-SELECT
-    COUNT(*)    AS order_count,
-    SUM(total)  AS total_revenue,
-    MAX(created_at) AS last_order_at
-FROM orders
-WHERE user_id = :userId;
-
--- Dynamic filtering on grouped queries with cursor pagination
--- @name ListProfileReserve
--- @class ProfileReserve
--- @dto ProfileReserve
--- @searchable
--- @counted
--- @type reserves array
--- @cursor profile_reserve.created_at DESC, profile_reserve.profile_id DESC
--- @returns :cursor
-SELECT
-    profile_reserve.profile_id,
-    MAX(profile_reserve.snap_firstname)  AS snap_firstname,
-    MAX(profile_reserve.snap_lastname)   AS snap_lastname,
-    MAX(profile_reserve.created_at)      AS created_at,
-    JSON_ARRAYAGG(reserve.id)            AS reserves
-FROM profile_reserve
-INNER JOIN accounts ON accounts.profile_id = profile_reserve.profile_id
-LEFT JOIN reserve   ON reserve.id = profile_reserve.reserve_id
-WHERE accounts.password IS NOT NULL OR accounts.google_id IS NOT NULL
-GROUP BY profile_reserve.profile_id
-ORDER BY MAX(profile_reserve.created_at) DESC, profile_reserve.profile_id DESC;</code></pre>
-</section>
-
-<section id="pattern-json">
-  <h3>JSON_ARRAYAGG — typed arrays from grouped JOINs</h3>
-  <pre><code class="language-sql">-- @name GetCountryWithCities
--- @class Countries
--- @returns :one
--- @type cities json:City[]
-SELECT
-    countries.id,
-    countries.name,
-    JSON_ARRAYAGG(
-        JSON_OBJECT('id', cities.id, 'name', cities.name, 'population', cities.population)
-    ) AS cities
-FROM countries
-INNER JOIN cities ON cities.country_id = countries.id
-WHERE countries.id = :id
-GROUP BY countries.id;</code></pre>
-  <pre><code class="language-php">readonly class GetCountryWithCitiesRow {
-    public function __construct(
-        public int    $id,
-        public string $name,
-        /** @var City[] */
-        public array  $cities,
-    ) {}
-}
-
-$country = $query->getCountryWithCities(id: 1);
-foreach ($country->cities as $city) {
-    echo "{$city->name}: {$city->population}";
-}</code></pre>
-  <p class="ds">For nullable columns (LEFT JOIN) or single objects, use the <code>?</code> prefix and omit <code>[]</code>:</p>
-  <pre><code class="language-sql">-- @type cities  ?json:City[]    ← City[]|null  (LEFT JOIN may produce null)
--- @type address ?json:Address   ← Address|null (LEFT JOIN may produce null)
--- @type address  json:Address   ← Address      (INNER JOIN, always present)</code></pre>
-  <p class="ds">For scalar arrays (array of IDs), use <code>@type col array</code>:</p>
-  <pre><code class="language-sql">-- @type tag_ids array
-SELECT orders.id, JSON_ARRAYAGG(tags.id) AS tag_ids
-FROM orders JOIN tags ON tags.order_id = orders.id
-WHERE orders.id = :id GROUP BY orders.id;</code></pre>
-</section>
-
-<section id="pattern-enums">
-  <h3>MySQL ENUMs</h3>
-  <p class="ds">Columns defined as <code>ENUM('a','b','c')</code> are automatically mapped to PHP backed enums. The enum class is generated alongside the model.</p>
-  <pre><code class="language-sql">-- schema.sql
-CREATE TABLE orders (
-    id     INT AUTO_INCREMENT PRIMARY KEY,
-    status ENUM('pending','paid','cancelled','refunded') NOT NULL
-);</code></pre>
-  <pre><code class="language-php">// Generated: OrderStatus.php
-enum OrderStatus: string {
-    case Pending   = 'pending';
-    case Paid      = 'paid';
-    case Cancelled = 'cancelled';
-    case Refunded  = 'refunded';
-}
-
-// Generated model uses it:
-readonly class Order {
-    public function __construct(
-        public int         $id,
-        public OrderStatus $status,
-    ) {}
-}
-
-// Usage:
-$order = $query->getOrder(id: 1);
-if ($order->status === OrderStatus::Paid) { ... }</code></pre>
-</section>
-
-<section id="pattern-union">
-  <h3>UNION queries</h3>
-  <p class="ds">UNION / UNION ALL queries are supported. sqlc-php resolves each branch independently and merges types: same type + one nullable → nullable; different types → <code>mixed</code>. Use <code>@type</code> for manual corrections.</p>
-  <pre><code class="language-sql">-- @name ListAllStaff
--- @class Staff
--- @returns :many
--- @type score int           ← override: both branches have int score, one nullable
-SELECT id, email, score, 'user'  AS role FROM users  WHERE active = 1
-UNION ALL
-SELECT id, email, score, 'admin' AS role FROM admins WHERE active = 1;</code></pre>
-</section>
-
-<section id="pattern-cursor-grouped">
-  <h3>Cursor pagination with GROUP BY</h3>
-  <p class="ds">When using cursor + searchable on a GROUP BY query, the cursor condition and criteria filters are automatically injected <em>before</em> the GROUP BY clause — not after it — so the SQL remains valid under <code>only_full_group_by</code>.</p>
-  <pre><code class="language-sql">-- @name ListSummary
--- @class Summary
--- @searchable
--- @counted
--- @cursor orders.created_at DESC, orders.user_id DESC
--- @returns :cursor
-SELECT
-    orders.user_id,
-    COUNT(*) AS order_count,
-    SUM(orders.total) AS revenue,
-    MAX(orders.created_at) AS created_at
-FROM orders
-WHERE orders.status != 'cancelled'
-GROUP BY orders.user_id
-ORDER BY MAX(orders.created_at) DESC, orders.user_id DESC;</code></pre>
-  <p class="ds">The effective runtime SQL (after criteria and cursor injection):</p>
-  <pre><code class="language-sql">SELECT ...
-FROM orders
-WHERE orders.status != 'cancelled'
-AND snap_firstname LIKE :snap_firstname_f0    ← criteria — before GROUP BY ✓
-AND (:__cursor_chk IS NULL OR ...)            ← cursor — before GROUP BY ✓
-GROUP BY orders.user_id
-ORDER BY MAX(orders.created_at) DESC, orders.user_id DESC
-LIMIT 21</code></pre>
-</section>
-
-<hr class="div">
-
-<!-- ═══ GENERATED OUTPUT ═══ -->
-<section id="generated-structure">
-  <h2><i class="bi bi-folder2-open me-2" style="color:var(--accent2)"></i>Generated output</h2>
-
-  <h3>File structure (string form)</h3>
-  <div class="ftree">
-    <span class="d">generated/</span><br>
-    <span class="f">├── User.php</span>                  <span class="cm">← model (readonly, fromRow)</span><br>
-    <span class="f">├── Order.php</span><br>
-    <span class="f">├── UserQuery.php</span>             <span class="cm">← query class (PDO methods)</span><br>
-    <span class="f">├── OrderQuery.php</span><br>
-    <span class="f">├── UserQueryInterface.php</span>    <span class="cm">← interface for DI</span><br>
-    <span class="f">├── OrderQueryInterface.php</span><br>
-    <span class="f">├── GetOrderWithUserRow.php</span>   <span class="cm">← result DTO (from JOIN query)</span><br>
-    <span class="f">├── UsersCriteria.php</span>         <span class="cm">← criteria (@searchable)</span><br>
-    <span class="f">└── OrderStatus.php</span>           <span class="cm">← backed enum (ENUM column)</span>
-  </div>
-</section>
-
-<section id="generated-model">
-  <h3>Model class</h3>
-  <p class="ds">One model per schema table. Readonly, PHP 8.3+ constructor promotion. The <code>fromRow()</code> static method handles all type casts (int, float, bool, DateTimeImmutable, enum, json_decode).</p>
-  <pre><code class="language-php">// Generated: User.php
-declare(strict_types=1);
-
-namespace App\Database;
-
-readonly class User
-{
-    public function __construct(
-        public int                  $id,
-        public string               $email,
-        public string               $name,
-        public bool                 $active,
-        public \DateTimeImmutable   $createdAt,
-        public ?string              $deletedAt,
-    ) {}
-
-    public static function fromRow(array $row): self
-    {
-        return new self(
-            id:        (int)    $row['id'],
-            email:     (string) $row['email'],
-            name:      (string) $row['name'],
-            active:    (bool)   $row['active'],
-            createdAt: new \DateTimeImmutable((string) $row['created_at']),
-            deletedAt: isset($row['deleted_at']) ? (string) $row['deleted_at'] : null,
-        );
-    }
-}</code></pre>
-</section>
-
-<section id="generated-query">
-  <h3>Query class</h3>
-  <p class="ds">One query class per <code>@class</code> group. Each annotated query becomes one typed public method. The constructor accepts a <code>PDO</code> instance and optional PSR-3 logger.</p>
-  <pre><code class="language-php">// Generated: UserQuery.php
-class UserQuery implements UserQueryInterface
-{
-    public function __construct(
-        private readonly PDO                $pdo,
-        private readonly ?LoggerInterface   $logger = null,
-        private readonly ?Closure          $afterQuery = null,
-    ) {}
-
-    public function getUser(int $id): ?User { ... }
-    public function listActiveUsers(): array { ... }
-    public function createUser(string $email, string $name): User { ... }
-}</code></pre>
-</section>
-
-<section id="generated-interface">
-  <h3>Interface</h3>
-  <p class="ds">A matching interface is generated for every query class, enabling mock-based testing and container binding.</p>
-  <pre><code class="language-php">// Generated: UserQueryInterface.php
-interface UserQueryInterface
-{
-    public function getUser(int $id): ?User;
-    public function listActiveUsers(): array;
-    public function createUser(string $email, string $name): User;
-}</code></pre>
-</section>
-
+<!-- ═══ EXTENSIONS ═══ -->
 <section id="extensions">
   <h2><i class="bi bi-puzzle me-2" style="color:var(--accent2)"></i>Extension traits</h2>
-  <p class="ds">When <code>extensions:</code> is declared in the <code>out:</code> block, sqlc-php generates a write-once extension trait for every Model, DTO, Enum, and Query class. The generated class uses the trait automatically via <code>use TraitName;</code>. Extension files are <strong>never overwritten</strong> — they belong to you.</p>
-
-  <pre><code class="language-yaml">targets:
-  - namespace: "App\\Database"
-    out:
-      queries:    app/Database/Repositories
-      models:     app/Database/Models
-      dtos:       app/Database/DTOs
-      enums:      app/Database/Enums
-      interfaces: app/Database/Contracts
-      criterias:  app/Database/Criterias
-      extensions: app/Database/Extensions   # ← activates all extension scaffolding</code></pre>
-
-  <p class="ds">This generates one extension file per type, all under the <code>extensions</code> directory:</p>
+  <p class="ds">When <code>extensions:</code> is declared in <code>out:</code>, sqlc-php generates a write-once extension trait for every Model, DTO, Enum, and Query class. Extension files are <strong>never overwritten</strong> — they belong to you.</p>
 
   <div class="tw">
     <table class="dt">
-      <thead><tr><th>Label</th><th>File</th><th>For</th></tr></thead>
+      <thead><tr><th>Label</th><th>File</th><th>Purpose</th></tr></thead>
       <tbody>
-        <tr><td><code>[ext-m]</code></td><td><code>Extensions/Models/UserExtension.php</code></td><td>Model classes — computed properties, domain methods</td></tr>
-        <tr><td><code>[ext-d]</code></td><td><code>Extensions/DTOs/GetUserRowExtension.php</code></td><td>Result DTOs — formatting, API serialization</td></tr>
-        <tr><td><code>[ext-e]</code></td><td><code>Extensions/Enums/UserStatusExtension.php</code></td><td>Backed enums — labels, CSS classes, icons</td></tr>
-        <tr><td><code>[ext-q]</code></td><td><code>Extensions/Queries/UserQueryExtension.php</code></td><td>Query classes — orchestration, transactions</td></tr>
+        <tr><td><code>[ext-m]</code></td><td><code>Extensions/Models/UserExtension.php</code></td><td>Domain methods on Models (computed properties, formatters)</td></tr>
+        <tr><td><code>[ext-d]</code></td><td><code>Extensions/DTOs/GetUserRowExtension.php</code></td><td>Formatting, serialization on result DTOs</td></tr>
+        <tr><td><code>[ext-e]</code></td><td><code>Extensions/Enums/UserStatusExtension.php</code></td><td>Labels, CSS classes, icons on backed enums</td></tr>
+        <tr><td><code>[ext-q]</code></td><td><code>Extensions/Queries/UsersRepositoryExtension.php</code></td><td>Orchestration, transactions, domain workflows on Query classes</td></tr>
       </tbody>
     </table>
   </div>
 
-  <h3>Model extension — domain methods</h3>
-  <pre><code class="language-php">// Extensions/Models/UserExtension.php — your file
+  <h3>Model extension — computed properties</h3>
+  <pre><code class="language-php">// Extensions/Models/UserExtension.php
 trait UserExtension
 {
     public function fullName(): string
@@ -2408,7 +1154,7 @@ trait UserExtension
 }</code></pre>
 
   <h3>Enum extension — presentation layer</h3>
-  <pre><code class="language-php">// Extensions/Enums/ReserveStatusExtension.php — your file
+  <pre><code class="language-php">// Extensions/Enums/ReserveStatusExtension.php
 trait ReserveStatusExtension
 {
     public function label(): string
@@ -2430,419 +1176,87 @@ trait ReserveStatusExtension
     }
 }</code></pre>
 
-  <h3>Query extension — transaction orchestration <span class="new-badge">v2.19.15</span></h3>
-  <p class="ds">Query extension traits have access to all generated methods via <code>$this</code>, and to the <a href="#with-transaction"><code>withTransaction()</code></a> helper for atomic multi-step operations.</p>
-  <pre><code class="language-php">// Extensions/Queries/OrdersRepositoryExtension.php — your file
-trait OrdersRepositoryExtension
+  <h3>Query extension — domain orchestration</h3>
+  <pre><code class="language-php">// Extensions/Queries/CmsConfigRepositoryExtension.php
+trait CmsConfigRepositoryExtension
+{
+    public function createConfig(CreateConfigParams $params): ?CmsConfig
+    {
+        return $this->withTransaction(function() use ($params) {
+            $existing = $this->getActive(
+                country_id: $params->country_id,
+                page:       $params->page,
+                section:    $params->section,
+            );
+
+            if ($existing !== null) {
+                $diff = JsonDiffer::diff($existing->config, $params->config);
+                if (empty($diff)) return null;
+            }
+
+            return $this->insertConfig(InsertConfigParams::from($params->toArray()));
+        });
+    }
+}</code></pre>
+</section>
+
+<section id="with-transaction">
+  <h2><i class="bi bi-shield-check me-2" style="color:var(--accent2)"></i>withTransaction()</h2>
+  <p class="ds">Every generated Query class has a <code>protected withTransaction(callable $fn): mixed</code> helper. Use it in an extension trait for atomic multi-step operations with full PHP flexibility.</p>
+
+  <pre><code class="language-php">protected function withTransaction(callable $fn): mixed</code></pre>
+
+  <p class="ds">Commits on success, rolls back on any <code>\Throwable</code>. Handles nesting correctly — if a transaction is already active, inner calls are no-ops (the outermost call owns the transaction).</p>
+
+  <pre><code class="language-php">trait OrdersRepositoryExtension
 {
     public function createOrderWithItems(int $userId, float $total, array $items): int
     {
         return $this->withTransaction(function() use ($userId, $total, $items) {
-            $order   = $this->createOrder($userId, $total);   // :one returning
+            $order   = $this->createOrder($userId, $total);    // :one returning
             $orderId = $order->id;
 
             $this->insertItems(array_map(
-                fn($i) => ['orderId' => $orderId, ...$i],
+                fn($item) => ['order_id' => $orderId, ...$item],
                 $items
             ));  // :batch
+
+            $this->updateInventory(array_column($items, 'product_id'));
 
             return $orderId;
         });
     }
 }</code></pre>
-</section>
-
-<hr class="div">
-
-<!-- ═══ INTEGRATION ═══ -->
-<section id="usage">
-  <h2><i class="bi bi-terminal me-2" style="color:var(--accent)"></i>Integration</h2>
-
-  <h3>Basic usage</h3>
-  <pre><code class="language-php">$pdo   = new PDO('mysql:host=localhost;dbname=myapp;charset=utf8mb4', $user, $pass);
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$pdo->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);   // recommended
-
-$query = new UserQuery($pdo);
-
-// Fetch one
-$user = $query->getUser(id: 1);
-
-// Fetch many
-$users = $query->listActiveUsers();
-
-// Paginate
-$orders = $query->listOrders(userId: 1, limit: 20, offset: 0);
-
-// Dynamic criteria
-$criteria = (new UsersCriteria())->whereEmailLike('alice')->orderByCreatedAt('DESC');
-$users = $query->listUsers(criteria: $criteria);</code></pre>
 
   <div class="callout ci-tip">
     <i class="bi bi-lightbulb ci-icon"></i>
-    Set <code>PDO::ATTR_EMULATE_PREPARES = false</code> to let MySQL parse named placeholders natively. This avoids issues with SQL containing string literals like <code>JSON_OBJECT('key', col)</code> near named params.
+    <strong>vs <code>:transaction</code>:</strong> Use <code>:transaction + @calls</code> for simple cases where all methods share the same parameters. Use <code>withTransaction()</code> when sub-methods need different parameters, intermediate results, or conditional logic.
   </div>
 </section>
 
-<section id="last-query">
-  <h3>lastQuery() and query logging</h3>
-  <p class="ds">Every generated query class tracks the most recently executed query in <code>$this->lastQuery</code> — a <code>QueryObject</code> with the SQL, bindings, method name, and execution duration. Use the PSR-3 logger or <code>$afterQuery</code> hook for observability.</p>
-  <pre><code class="language-php">// PSR-3 logger — logs every query at DEBUG level
-$query = new UserQuery($pdo, logger: $logger);
-
-// afterQuery hook — integrate with Debugbar, metrics, etc.
-$query = new UserQuery($pdo, afterQuery: function (QueryObject $q): void {
-    echo "[{$q->duration}ms] {$q->name}: {$q->sql}";
-});
-
-// Access after each call
-$query->getUser(id: 1);
-$last = $query->lastQuery();
-// $last->sql       — the SQL string
-// $last->bindings  — bound values
-// $last->name      — method name
-// $last->duration  — execution time in ms</code></pre>
-</section>
-
-<section id="laravel">
-  <h3>Laravel integration</h3>
-  <p class="ds">Bind generated interfaces in a service provider and inject them into controllers and jobs via the container.</p>
-  <pre><code class="language-php">// app/Providers/DatabaseServiceProvider.php
-class DatabaseServiceProvider extends ServiceProvider
-{
-    public function register(): void
-    {
-        $this->app->singleton(UserQueryInterface::class, function (Application $app) {
-            $pdo = DB::connection()->getPdo();
-            return new UserQuery($pdo, logger: $app->make(LoggerInterface::class));
-        });
-
-        $this->app->singleton(OrderQueryInterface::class, function (Application $app) {
-            return new OrderQuery(DB::connection()->getPdo());
-        });
-    }
-}</code></pre>
-  <pre><code class="language-php">// app/Http/Controllers/UserController.php
-class UserController extends Controller
-{
-    public function __construct(
-        private readonly UserQueryInterface $users,
-    ) {}
-
-    public function show(int $id): JsonResponse
-    {
-        $user = $this->users->getUser(id: $id);
-        abort_if($user === null, 404);
-        return response()->json($user);
-    }
-
-    public function index(Request $request): JsonResponse
-    {
-        $criteria = (new UsersCriteria())
-            ->whereActiveEq(true);
-
-        if ($request->filled('email')) {
-            $criteria = $criteria->whereEmailLike($request->input('email'));
-        }
-
-        return response()->json($this->users->listUsers(criteria: $criteria));
-    }
-}</code></pre>
-
-  <h4>Watch mode in development</h4>
-  <pre><code class="language-bash"># composer.json scripts
-{
-    "scripts": {
-        "generate": "php vendor/bin/sqlc-php sqlc.yaml",
-        "generate:watch": "php vendor/bin/sqlc-php --watch sqlc.yaml"
-    }
-}</code></pre>
-
-  <h4>CI verification</h4>
-  <pre><code class="language-yaml"># .github/workflows/ci.yml
-- name: Verify generated files are up to date
-  run: php vendor/bin/sqlc-php --verify sqlc.yaml</code></pre>
-
-  <h4>Fluent Bit / OpenSearch (multi-channel logging)</h4>
-  <p class="ds">Route sqlc-php query logs to a dedicated index by tagging via Monolog's channel field:</p>
-  <pre><code class="language-php">// config/logging.php
-'channels' => [
-    'sqlc' => [
-        'driver'  => 'monolog',
-        'handler' => StreamHandler::class,
-        'with'    => ['stream' => storage_path('logs/sqlc.log')],
-        'processors' => [fn($record) => $record->with(extra: ['channel' => 'sqlc'])],
-    ],
-],
-
-// Service provider:
-$logger = Log::channel('sqlc');
-$this->app->singleton(UserQueryInterface::class,
-    fn() => new UserQuery(DB::connection()->getPdo(), logger: $logger)
-);</code></pre>
-</section>
-
-<section id="testing">
-  <h3>Testing</h3>
-  <p class="ds">Generated interfaces make mock-based testing straightforward. Use PHPUnit mocks or any PSR-compatible test double library.</p>
-  <pre><code class="language-php">// Unit test — mock the interface
-class UserServiceTest extends TestCase
-{
-    public function test_returns_active_users_only(): void
-    {
-        $mock = $this->createMock(UserQueryInterface::class);
-        $mock->expects($this->once())
-             ->method('listActiveUsers')
-             ->willReturn([
-                 new User(id: 1, email: 'alice@example.com', name: 'Alice', active: true),
-             ]);
-
-        $service = new UserService($mock);
-        $result  = $service->getActiveUsers();
-
-        $this->assertCount(1, $result);
-        $this->assertSame('alice@example.com', $result[0]->email);
-    }
-}
-
-// Integration test — real SQLite / MySQL in-memory DB
-class UserQueryTest extends TestCase
-{
-    private PDO       $pdo;
-    private UserQuery $query;
-
-    protected function setUp(): void
-    {
-        $this->pdo   = new PDO('sqlite::memory:');
-        $this->pdo->exec(file_get_contents(__DIR__ . '/../schema.sql'));
-        $this->query = new UserQuery($this->pdo);
-    }
-
-    public function test_get_user_returns_null_for_missing_id(): void
-    {
-        $user = $this->query->getUser(id: 9999);
-        $this->assertNull($user);
-    }
-}</code></pre>
-</section>
-
-<hr class="div">
-
-<!-- ═══ CHANGELOG ═══ -->
-<section id="changelog">
-  <h2><i class="bi bi-clock-history me-2" style="color:var(--accent2)"></i>Changelog</h2>
-
-    <div class="cl-item">
-    <div class="cl-ver">v2.17.1 — <code>andRawCondition()</code> / <code>orRawCondition()</code> replace <code>addRawCondition()</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>addRawCondition()</code> removed</strong> — replaced by two explicit methods.</li>
-      <li><strong><code>andRawCondition(sql, bindings)</code></strong> — injects the condition AND-ed with typed filters. Narrows the result set.</li>
-      <li><strong><code>orRawCondition(sql, bindings)</code></strong> — injects the condition OR-ed against the rest of the WHERE clause. Widens the result set. The raw condition is automatically parenthesized.</li>
-      <li>Both methods are immutable (return a new instance) and support named placeholder bindings.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-<div class="cl-item">
-    <div class="cl-ver">v2.17.0 — <code>@param</code> unified: type hint + nullable + optional in one annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@param name ?phpType</code></strong> — nullable param. Passes <code>null</code> to set the column to NULL. Replaces <code>@nullable</code>.</li>
-      <li><strong><code>@param name ?phpType:optional</code></strong> — nullable + optional WHERE filter. Passing <code>null</code> skips the condition entirely. Replaces <code>@optional</code>.</li>
-      <li><strong><code>@param name phpType</code></strong> — explicit PHP type override (e.g. <code>int</code>, <code>float</code>, <code>string</code>).</li>
-      <li><strong><code>@param name table.col</code></strong> — legacy type hint from schema, unchanged.</li>
-      <li><strong><code>@optional</code> and <code>@nullable</code> deprecated</strong> — both still work but emit a stderr warning with the exact <code>@param</code> replacement.</li>
-      <li>Disambiguation rule: if the second token contains a <code>.</code> it is a legacy <code>table.col</code> hint; otherwise it is a PHP type with optional <code>:optional</code> modifier.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.16.0 — <code>@type</code> unified: scalar + JSON DTO + nullable <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@type col json:City[]</code></strong> — array of City DTOs (non-nullable). Replaces <code>@json cities City</code>.</li>
-      <li><strong><code>@type col ?json:City[]</code></strong> — <code>City[]|null</code>. For LEFT JOINs that may produce no rows.</li>
-      <li><strong><code>@type col json:City</code></strong> — single City object (non-nullable). Replaces <code>@json:one address City</code>.</li>
-      <li><strong><code>@type col ?json:City</code></strong> — <code>City|null</code>. Nullable single DTO object.</li>
-      <li><strong><code>@type col ?phpType</code></strong> — nullable scalar. Replaces <code>@nillable col</code>.</li>
-      <li><strong><code>@json</code> and <code>@nillable</code> deprecated</strong> — both still work but emit a stderr deprecation warning with the exact <code>@type</code> replacement.</li>
-      <li><code>@type</code> is now the single annotation for all result column type overrides: scalar, JSON DTO, and nullable.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.15.4 — <code>Criteria::addRawCondition()</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li>Introduced raw SQL condition support in Criteria. Superseded in v2.17.1 by <code>andRawCondition()</code> and <code>orRawCondition()</code>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.15.3 — Hotfix: criteria after <code>GROUP BY</code> in searchable/count methods <span class="badge bg-danger ms-1" style="font-size:.6em">hotfix</span></div>
-    <ul>
-      <li>Fixed <code>renderCursorCountMethod</code> and <code>buildSearchableSqlBlock</code> — criteria filters were appended after <code>GROUP BY</code>, producing invalid SQL under <code>only_full_group_by</code>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.15.2 — Hotfix: cursor condition after <code>GROUP BY</code> <span class="badge bg-danger ms-1" style="font-size:.6em">hotfix</span></div>
-    <ul>
-      <li>Fixed <code>buildCursorSql</code> and searchable cursor SQL assembly — cursor condition was appended after <code>GROUP BY</code> instead of before it.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.15.1 — Hotfix: <code>@cursor</code> with <code>table.column</code> failed to parse <span class="badge bg-danger ms-1" style="font-size:.6em">hotfix</span></div>
-    <ul>
-      <li>Parser regex <code>\w+</code> rejected dots — <code>profile_reserve.created_at</code> produced an empty cursor array. Each cursor column now stores <code>col</code> (SQL ref, with dot) and <code>key</code> (PHP identifier, without dot).</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.15.0 — <code>@nullable</code> params + typed UNION ALL merging <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@nullable paramName</code></strong> — forces PHP param type to <code>?type</code> without rewriting SQL. For UPDATE SET nullable column patterns.</li>
-      <li><strong>Typed UNION ALL merging</strong> — each branch resolved independently, types merged (same + one nullable → nullable; different → <code>mixed</code>).</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.14.2 — <code>--generate-schema</code> extracts views <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li>Views extracted alongside tables by default. <code>exclude_views</code> / <code>include_views</code> filters mirror <code>exclude_tables</code> / <code>include_tables</code> semantics.</li>
-      <li>View DDL normalized: <code>ALGORITHM=</code>, <code>DEFINER=</code>, <code>SQL SECURITY</code> stripped. Output is <code>CREATE OR REPLACE VIEW</code>.</li>
-      <li><code>SchemaParser</code> now parses <code>CREATE [OR REPLACE] VIEW</code> — views usable as <code>FROM</code> targets.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.14.1 — Hotfix: <code>@comment</code> position bugs <span class="badge bg-danger ms-1" style="font-size:.6em">hotfix</span></div>
-    <ul>
-      <li>Fixed: <code>@comment</code> before <code>@name</code> was silently dropped by the block splitter.</li>
-      <li>Fixed: <code>@comment</code> text containing <code>@name</code> or <code>@class</code> corrupted the query name — <code>@name</code> / <code>@class</code> regexes now anchored with <code>^</code>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.14.0 — <code>@comment</code> annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@comment</code></strong> — adds a human-readable description to the generated method docblock, before <code>@param</code> / <code>@return</code>. Multiple lines supported. Works in Query class and Interface.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.13.1 — Hotfix: CTE CLI bugs <span class="badge bg-danger ms-1" style="font-size:.6em">hotfix</span></div>
-    <ul>
-      <li>Fixed <code>$baseDir</code> undefined variable in <code>runGeneration()</code> — crashed every run even without CTEs.</li>
-      <li>Fixed <code>QueryDefinition</code> reconstruction with wrong property names during CTE injection.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.13.0 — Shared CTEs via <code>ctes:</code> and <code>@use</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li>New <code>@cte name</code> block format in dedicated <code>.sql</code> files.</li>
-      <li>New <code>ctes:</code> key in <code>sqlc.yaml</code> — global and per-target. Duplicate detection across files.</li>
-      <li>New <code>@use cte_name</code> annotation injects <code>WITH</code> clause before analysis — transparent to Analyzer.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.12.5 — <code>@json:one</code> / <code>@json:many</code> cardinality <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><code>@json:one alias Class</code> → single object; <code>@json:many alias Class</code> → array. Bare <code>@json</code> remains <code>:many</code> (backward-compat).</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.12.3 — <code>@json</code> annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@json alias ClassName</code></strong> — deserializes <code>JSON_ARRAYAGG</code> columns into typed <code>ClassName[]</code> DTOs.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.11.2 — <code>:cursor</code> keyset pagination <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>:cursor</code></strong> return type with <code>@cursor col [ASC|DESC]</code> declaration. <code>CursorResult</code> class with <code>nextCursor</code>/<code>prevCursor</code> tokens. <code>@searchable</code> support for criteria-filtered cursor queries.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.9.6 — <code>@type</code> annotation <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@type alias phpType</code></strong> — force an explicit PHP type on any result column. Essential for UNION queries and unresolvable expressions.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.9.0 — OR groups + UNION queries <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>Criteria::orGroup()</code></strong> — AND/OR mixed filter logic via closures.</li>
-      <li><strong>UNION / UNION ALL</strong> — detected automatically, compatible with <code>:many</code>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.6.0 — <code>--generate-schema</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>--generate-schema</code></strong> — extracts schema from a live MySQL/MariaDB database. <code>AUTO_INCREMENT=N</code> stripped. <code>database:</code> config block with <code>${ENV_VAR}</code> support.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.5.0 — <code>@counted</code> <span class="badge bg-secondary ms-1" style="font-size:.6em">feature</span></div>
-    <ul>
-      <li><strong><code>@counted</code></strong> — companion <code>{name}Count(): int</code>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.3.0 — <code>:batch</code>, <code>:transaction</code>, prepared statement cache</div>
-    <ul>
-      <li><strong><code>:batch</code></strong>, <strong><code>:transaction</code></strong>, <strong><code>prepared_statement_cache</code></strong>, <strong><code>@dto</code></strong>, <strong><code>@column</code></strong>.</li>
-    </ul>
-  </div>
-
-  <div class="cl-item">
-    <div class="cl-ver">v2.2.0 — <code>@embed</code>, <code>@nillable</code></div>
-    <ul>
-      <li><strong><code>@embed</code></strong> — nested readonly objects for JOIN results.</li>
-      <li><strong><code>@nillable</code></strong> — force result column nullable.</li>
-    </ul>
-  </div>
-
-</section>
-
-</div>
+</div><!-- .ci -->
 </main>
-</div>
+</div><!-- #layout -->
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-<script>hljs.highlightAll();</script>
 <script>
-  // Sidebar close on outside click (mobile)
-  document.addEventListener('click', function(e) {
-    const sb = document.getElementById('sidebar');
-    const tg = document.getElementById('sidebar-toggle');
-    if (window.innerWidth <= 900 && sb.classList.contains('open')) {
-      if (!sb.contains(e.target) && !tg.contains(e.target)) {
-        sb.classList.remove('open');
-      }
+hljs.highlightAll();
+
+// Active sidebar link on scroll
+const sections = document.querySelectorAll('section[id]');
+const links = document.querySelectorAll('.sl');
+
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      links.forEach(l => l.classList.remove('active'));
+      const a = document.querySelector(`.sl[href="#${e.target.id}"]`);
+      if (a) a.classList.add('active');
     }
   });
+}, { rootMargin: '-20% 0px -75% 0px' });
 
-  // Active sidebar link via IntersectionObserver
-  const sections = document.querySelectorAll('[id]');
-  const links    = document.querySelectorAll('.sl');
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        links.forEach(l => l.classList.remove('active'));
-        const a = document.querySelector(`.sl[href="#${entry.target.id}"]`);
-        if (a) { a.classList.add('active'); a.scrollIntoView({ block: 'nearest' }); }
-      }
-    });
-  }, { rootMargin: `-${56 + 20}px 0px -60% 0px`, threshold: 0 });
-  sections.forEach(s => observer.observe(s));
+sections.forEach(s => obs.observe(s));
 </script>
 </body>
 </html>

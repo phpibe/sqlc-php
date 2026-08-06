@@ -136,6 +136,13 @@ class QueryDefinition
          */
         public readonly bool       $useParams = false,
         /**
+         * Visibility of the generated method. Default 'public'.
+         * Use 'protected' to hide the raw SQL method and expose domain logic
+         * via the extension trait instead.
+         * Declared via -- @visibility protected|public
+         */
+        public readonly string     $visibility = 'public',
+        /**
          * When @returns :grouped, this is the column used as the grouping key.
          * Declared via @group_by table.column (e.g. @group_by profiles.id).
          * Rows with the same key are merged into a single result object whose
@@ -344,6 +351,7 @@ class QueryParser
         $exists           = false;
         $stream           = false;
         $useParams        = false;       // @with params
+        $visibility       = 'public';    // @visibility
         $groupByColumn    = null;       // @group_by table.column
         $paginated        = false;
         $filterColumns    = [];
@@ -527,6 +535,12 @@ class QueryParser
                 } elseif (preg_match('/^@group_by\s+(\S+)/i', $comment, $m)) {
                     // @group_by table.column — required companion to :grouped
                     $groupByColumn = $m[1];
+                } elseif (preg_match('/^@visibility\s+(public|protected)\b/i', $comment, $m)) {
+                    // @visibility public|protected
+                    // Controls the PHP visibility of the generated method.
+                    // Default: public. Use protected to hide raw SQL methods and
+                    // expose domain logic via the extension trait.
+                    $visibility = strtolower($m[1]);
                 } elseif (preg_match('/^@filter\s+(.+)/i', $comment, $m)) {
                     // @filter table.column   → filter methods for a specific JOIN column
                     // @filter table.*        → filter methods for ALL columns of that table
@@ -767,6 +781,7 @@ class QueryParser
             exists:           $exists,
             stream:           $stream,
             useParams:        $useParams,
+            visibility:       $visibility,
             groupByColumn:    $groupByColumn,
             partial:          $partial,
             returning:        $returning,

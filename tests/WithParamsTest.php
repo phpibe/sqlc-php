@@ -252,4 +252,55 @@ class WithParamsTest extends TestCase
         $this->assertStringNotContainsString('DeleteConfigParams', $code);
         $this->assertStringContainsString('int $id', $code);
     }
+
+    // =========================================================================
+    // Params DTO — static from() method
+    // =========================================================================
+
+    public function test_params_dto_has_from_method(): void
+    {
+        $r = $this->params(
+            "-- @name CreateConfig\n-- @class CmsConfig\n-- @returns :exec\n-- @with params\n" .
+            "INSERT INTO cms_configs (country_id, page, section, status)\n" .
+            "VALUES (:country_id, :page, :section, :status);"
+        );
+        $this->assertStringContainsString('public static function from(array $data): self', $r['code']);
+    }
+
+    public function test_from_casts_required_int(): void
+    {
+        $r = $this->params(
+            "-- @name CreateConfig\n-- @class CmsConfig\n-- @returns :exec\n-- @with params\n" .
+            "INSERT INTO cms_configs (country_id, page, section, status)\n" .
+            "VALUES (:country_id, :page, :section, :status);"
+        );
+        $this->assertStringContainsString("(int) \$data['country_id']", $r['code']);
+    }
+
+    public function test_from_casts_nullable_int_with_null_check(): void
+    {
+        // Uses @param id ?int to declare a nullable int param
+        $r = $this->params(
+            "-- @name SearchConfigs\n-- @class CmsConfig\n-- @returns :many\n-- @with params\n" .
+            "-- @param country_id ?int\n" .
+            "SELECT cms_configs.id, cms_configs.page FROM cms_configs\n" .
+            "WHERE (:country_id IS NULL OR country_id = :country_id) AND status = :status;"
+        );
+        $fromMethod = substr($r['code'], strpos($r['code'], 'public static function from'));
+        $this->assertStringContainsString(
+            "(\$data['country_id'] ?? null) !== null",
+            $fromMethod
+        );
+    }
+
+    public function test_from_casts_json_accepting_both_array_and_string(): void
+    {
+        $r = $this->params(
+            "-- @name CreateConfig\n-- @class CmsConfig\n-- @returns :exec\n-- @with params\n" .
+            "INSERT INTO cms_configs (country_id, page, section, status, config)\n" .
+            "VALUES (:country_id, :page, :section, :status, :config);"
+        );
+        $this->assertStringContainsString('is_string', $r['code']);
+        $this->assertStringContainsString('json_decode', $r['code']);
+    }
 }

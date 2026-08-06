@@ -317,6 +317,7 @@ class QueryAnalyzer
             exists:               $query->exists,
             stream:               $query->stream,
             useParams:            $query->useParams,
+            visibility:           $query->visibility,
             groupByColumn:        $query->groupByColumn,
             partial:              $query->partial,
             returning:            $query->returning,

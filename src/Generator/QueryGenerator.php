@@ -580,6 +580,16 @@ PHP;
         return implode("\n", $lines);
     }
 
+    /**
+     * Returns the PHP visibility keyword for the main generated method.
+     * Default 'public'. Use @visibility protected to hide raw SQL methods
+     * and expose domain logic via the extension trait.
+     */
+    private function visibilityPrefix(QueryDefinition $query): string
+    {
+        return $query->visibility ?? 'public';
+    }
+
     private function renderSearchableManyMethod(QueryDefinition $query): string
     {
         $returnClass  = $this->resolveReturnClass($query);
@@ -598,7 +608,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$query->name}({$allParams}): array
+    {$this->visibilityPrefix($query)} function {$query->name}({$allParams}): array
     {
 {$sqlBlock}
         \$stmt = \$this->pdo->prepare(\$__sql);
@@ -645,7 +655,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$query->name}({$allParams}): array
+    {$this->visibilityPrefix($query)} function {$query->name}({$allParams}): array
     {
         if (\$limit === null) {
 {$sqlBlockAll}
@@ -1020,7 +1030,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$body}    }
 PHP;
@@ -1098,7 +1108,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
         // Execute the INSERT
 {$prepare}{$bindings}
@@ -1609,7 +1619,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
         \$__t0 = hrtime(true);
@@ -1637,7 +1647,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
 {$executeBlock}
@@ -1706,7 +1716,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
         if (\$limit === null) {
             \$__sql = {$sqlNoLimitLiteral};
@@ -1773,7 +1783,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
         \$__t0 = hrtime(true);
@@ -1826,7 +1836,7 @@ PHP;
      *
      * @return \\Generator<int, {$returnClass}>
      */
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
         \$__t0 = hrtime(true);
@@ -1917,7 +1927,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
         \$__t0 = hrtime(true);
@@ -2046,7 +2056,7 @@ PHP;
 
             return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
         // Build COUNT SQL: base (pre-GROUP BY) → criteria filters → GROUP BY → wrap in COUNT(*)
         \$__basePart      = {$baseSqlLit};
@@ -2087,7 +2097,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
         \$stmt = \$this->pdo->prepare({$sqlLiteral});
 {$bindings}{$saveLastQuery}
@@ -2121,7 +2131,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
 {$executeBlock}
@@ -2153,7 +2163,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
 {$executeBlock}
@@ -2180,7 +2190,7 @@ PHP;
 
         return <<<PHP
 {$docblock}
-    public function {$signature}
+    {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
 {$executeBlock}    }

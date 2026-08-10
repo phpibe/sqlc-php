@@ -331,7 +331,7 @@ class CriteriaFromArrayTest extends TestCase
 
     public function test_version_is_2_12_0(): void
     {
-        $this->assertSame('2.19.22', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.23', \SqlcPhp\Version::VERSION);
     }
 
     // =========================================================================

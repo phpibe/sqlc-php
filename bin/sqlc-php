@@ -419,6 +419,7 @@ function runGeneration(
             scopedCriterias:    in_array($target->dtoScope, ['class', 'method'], true),
             extGen:             $extGen,
             dtoScope:           $target->dtoScope,
+            datetimeFormat:     $config->datetimeFormat,
         );
         $modelGen     = new ModelGenerator($catalog, $typeMapper, $queryParser, $nsModels, $config->datetimeFormat);
 

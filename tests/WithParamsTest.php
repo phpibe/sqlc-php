@@ -303,4 +303,87 @@ class WithParamsTest extends TestCase
         $this->assertStringContainsString('is_string', $r['code']);
         $this->assertStringContainsString('json_decode', $r['code']);
     }
+
+    // =========================================================================
+    // DateTimeImmutable parameter binding — regression for "could not be converted to string"
+    // =========================================================================
+
+    public function test_datetime_param_formatted_in_binding(): void
+    {
+        $schema = <<<SQL
+            CREATE TABLE cms_configs (
+                id        INT AUTO_INCREMENT PRIMARY KEY,
+                starts_at DATETIME NULL,
+                ends_at   DATETIME NOT NULL
+            );
+        SQL;
+        $catalog  = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $mapper   = new \SqlcPhp\TypeMapper\MySQLTypeMapper();
+        $parser   = new \SqlcPhp\Parser\QueryParser();
+        $pr = new \SqlcPhp\Resolver\ParamResolver($catalog,$mapper);
+        $er = new \SqlcPhp\Resolver\ExpressionTypeResolver($catalog,$mapper);
+        $cr = new \SqlcPhp\Resolver\ColumnResolver($catalog,$mapper,$pr,$er);
+        $analyzer = new \SqlcPhp\Analyzer\QueryAnalyzer($pr,$cr,$parser,new \SqlcPhp\Rewriter\SqlRewriter(),$catalog);
+        $dtoGen   = new ResultDtoGenerator('App\\DTOs',$mapper,$catalog);
+        $gen      = new QueryGenerator($catalog,$mapper,$dtoGen,'App\\Q');
+
+        $q = $analyzer->analyze($parser->parse(
+            "-- @name InsertConfig\n-- @class Cms\n-- @returns :exec\n" .
+            "INSERT INTO cms_configs (starts_at, ends_at) VALUES (:starts_at, :ends_at);"
+        ));
+
+        $code = array_values($gen->generate($q))[0]['code'];
+
+        // DateTimeImmutable params must be formatted to string before binding
+        // Regression: previously passed $starts_at directly → "could not be converted to string"
+        $this->assertStringContainsString(
+            "\$starts_at?->format('Y-m-d H:i:s')",
+            $code,
+            'Nullable DateTimeImmutable must use ?->format()'
+        );
+        $this->assertStringContainsString(
+            "\$ends_at->format('Y-m-d H:i:s')",
+            $code,
+            'Non-nullable DateTimeImmutable must use ->format()'
+        );
+
+        // Must NOT pass the object directly to bindValue
+        $this->assertStringNotContainsString(
+            "bindValue(':starts_at', \$starts_at,",
+            $code
+        );
+    }
+
+    public function test_datetime_param_with_params_dto_formatted(): void
+    {
+        $schema = <<<SQL
+            CREATE TABLE cms_configs (
+                id        INT AUTO_INCREMENT PRIMARY KEY,
+                country_id INT NOT NULL,
+                starts_at DATETIME NULL
+            );
+        SQL;
+        $catalog  = new \SqlcPhp\Catalog\SchemaCatalog((new \SqlcPhp\Parser\SchemaParser())->parse($schema));
+        $mapper   = new \SqlcPhp\TypeMapper\MySQLTypeMapper();
+        $parser   = new \SqlcPhp\Parser\QueryParser();
+        $pr = new \SqlcPhp\Resolver\ParamResolver($catalog,$mapper);
+        $er = new \SqlcPhp\Resolver\ExpressionTypeResolver($catalog,$mapper);
+        $cr = new \SqlcPhp\Resolver\ColumnResolver($catalog,$mapper,$pr,$er);
+        $analyzer = new \SqlcPhp\Analyzer\QueryAnalyzer($pr,$cr,$parser,new \SqlcPhp\Rewriter\SqlRewriter(),$catalog);
+        $dtoGen   = new ResultDtoGenerator('App\\DTOs',$mapper,$catalog);
+        $gen      = new QueryGenerator($catalog,$mapper,$dtoGen,'App\\Q');
+
+        $q = $analyzer->analyze($parser->parse(
+            "-- @name InsertConfig\n-- @class Cms\n-- @returns :exec\n-- @with params\n" .
+            "INSERT INTO cms_configs (country_id, starts_at) VALUES (:country_id, :starts_at);"
+        ));
+
+        $code = array_values($gen->generate($q))[0]['code'];
+
+        // With @with params, must use $params->starts_at?->format(...)
+        $this->assertStringContainsString(
+            "\$params->starts_at?->format('Y-m-d H:i:s')",
+            $code
+        );
+    }
 }

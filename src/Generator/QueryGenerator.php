@@ -43,6 +43,7 @@ class QueryGenerator
         private readonly bool                   $scopedCriterias        = false,
         private readonly ?ExtensionGenerator    $extGen                 = null,
         private readonly string                 $dtoScope               = 'none',
+        private readonly string                 $datetimeFormat         = 'Y-m-d H:i:s',
     ) {
         $criteriaBaseNs    = $this->criteriasNamespace !== '' ? $this->criteriasNamespace : $namespace;
         $this->criteriaGen = new CriteriaGenerator($criteriaBaseNs, $this->typeMapper, $catalog);
@@ -779,20 +780,28 @@ PHP;
      */
     private function bindValueExpr(\SqlcPhp\Resolver\QueryParam $param, bool $useParamsDto = false): string
     {
-        $varName = $useParamsDto ? "\$params->{$param->name}" : "\${$param->name}";
-        $bare    = ltrim($param->phpType, '?');
+        $varName  = $useParamsDto ? "\$params->{$param->name}" : "\${$param->name}";
+        $bare     = ltrim($param->phpType, '?');
+        $nullable = str_starts_with($param->phpType, '?');
 
         // BackedEnum → unwrap to scalar value before binding
         if ($this->typeMapper->needsValueExtraction($param->phpType)) {
-            $nullable = str_starts_with($param->phpType, '?');
             return $nullable
                 ? "{$varName}?->value"
                 : "{$varName}->value";
         }
 
+        // DateTimeImmutable / DateTime → format to string before binding
+        // PDO cannot bind DateTime objects directly — must convert to string first
+        if (in_array($bare, ['\\DateTimeImmutable', 'DateTimeImmutable', '\\DateTime', 'DateTime'], true)) {
+            $fmt = addslashes($this->datetimeFormat);
+            return $nullable
+                ? "{$varName}?->format('{$fmt}')"
+                : "{$varName}->format('{$fmt}')";
+        }
+
         // JSON / array → must be json_encoded before binding (PDO cannot bind arrays)
         if ($bare === 'array') {
-            $nullable = str_starts_with($param->phpType, '?');
             return $nullable
                 ? "{$varName} !== null ? json_encode({$varName}) : null"
                 : "json_encode({$varName})";

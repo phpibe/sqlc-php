@@ -30,7 +30,9 @@ class CteRegistry
      *
      * @param  string[] $globalPaths  Paths declared at root `ctes:` level
      * @param  string[] $targetPaths  Paths declared inside the target's `ctes:`
-     * @param  string   $baseDir      Directory of sqlc.yaml for relative path resolution
+     * @param  string   $baseDir      Directory of sqlc.yaml — used only for absolute path
+     *                                passthrough; relative paths are resolved from CWD,
+     *                                consistent with how schema: and queries: paths work.
      * @throws \RuntimeException On file-not-found or duplicate CTE names
      */
     public static function build(
@@ -42,7 +44,10 @@ class CteRegistry
         $parser   = new \SqlcPhp\Parser\CteParser();
 
         foreach (array_merge($globalPaths, $targetPaths) as $rawPath) {
-            $path = self::resolvePath((string) $rawPath, $baseDir);
+            // Absolute paths are used as-is.
+            // Relative paths are resolved from CWD — same convention as schema: and queries: paths,
+            // which are passed directly to file_exists() without baseDir prepending.
+            $path = self::resolvePath((string) $rawPath, (string) getcwd());
             $defs = $parser->parseFile($path);
 
             foreach ($defs as $def) {

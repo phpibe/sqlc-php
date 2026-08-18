@@ -142,7 +142,8 @@ class Config
             array_merge($includeData['virtual_tables'], $data['virtual_tables'] ?? [])
         );
 
-        // ctes: global CTE file paths — resolved relative to baseDir at generation time
+        // ctes: global CTE file paths — stored raw (relative to CWD), resolved at
+        // generation time by CteRegistry::build() using the same baseDir as schemas/queries.
         $rawGlobalCtes  = $data['ctes'] ?? [];
         $globalCtePaths = is_array($rawGlobalCtes)
             ? array_values(array_filter(array_map('strval', $rawGlobalCtes)))

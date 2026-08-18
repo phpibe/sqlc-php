@@ -89,7 +89,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.24</span>
+    <span class="brand-ver">v2.19.25</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub"><i class="bi bi-github"></i></a>
@@ -111,6 +111,7 @@
   <a class="sl" href="#enum-values"><i class="bi bi-list-check"></i> enum_values</a>
   <a class="sl" href="#dto-scope"><i class="bi bi-folder2-open"></i> dto_scope</a>
   <a class="sl" href="#to-array"><i class="bi bi-braces"></i> toArray()</a>
+  <a class="sl" href="#ctes"><i class="bi bi-share-fill"></i> Shared CTEs</a>
 
   <div class="sg-label">Annotations</div>
   <a class="sl" href="#ann-name"><i class="bi bi-tag"></i> @name</a>
@@ -130,6 +131,7 @@
   <a class="sl" href="#ann-comment"><i class="bi bi-chat-left-text"></i> @comment</a>
   <a class="sl" href="#ann-deprecated"><i class="bi bi-exclamation-triangle"></i> @deprecated</a>
   <a class="sl" href="#ann-dto"><i class="bi bi-share"></i> @dto</a>
+  <a class="sl" href="#ann-cte"><i class="bi bi-share-fill"></i> @cte / @use</a>
 
   <div class="sg-label">Return types</div>
   <a class="sl" href="#rt-many"><i class="bi bi-list-ul"></i> :many</a>
@@ -535,6 +537,158 @@ $data = $row->toArray();  // ✅ $data['section'] is 'hero'</code></pre>
 
   <p class="ds">Configure the datetime format globally in <code>sqlc.yaml</code>:</p>
   <pre><code class="language-yaml">datetime_format: "Y-m-d\TH:i:sP"   # ISO 8601 with timezone</code></pre>
+</section>
+
+  <pre><code class="language-yaml">datetime_format: "Y-m-d\TH:i:sP"   # ISO 8601 with timezone</code></pre>
+</section>
+
+<hr class="div">
+
+<!-- ═══ CTEs ═══ -->
+<section id="ctes">
+  <h2><i class="bi bi-share-fill me-2" style="color:var(--accent2)"></i>Shared CTEs</h2>
+  <p class="ds">sqlc-php supports two ways to use CTEs. Inline CTEs work with no configuration. Shared CTEs — declared once and reused across many queries — use the <code>@cte</code> and <code>@use</code> annotations.</p>
+
+  <h3>Inline CTEs — no configuration needed</h3>
+  <p class="ds">Write <code>WITH ... AS (...)</code> directly in the SQL. The analyzer understands it and resolves columns against the CTE result set normally.</p>
+  <pre><code class="language-sql">-- @name GetActiveReserves
+-- @class Reserve
+-- @returns :many
+WITH active AS (
+    SELECT * FROM reserve WHERE status_id IN (2, 5)
+)
+SELECT active.* FROM active
+WHERE active.updated_at >= :now;</code></pre>
+
+  <hr class="div" style="margin: 1.5rem 0">
+
+  <h3 id="ann-cte">@cte — declare a shared CTE</h3>
+  <p class="ds">Declare reusable CTEs in dedicated <code>.sql</code> files using <code>@cte name</code>. Each file can contain any number of named CTE blocks. A CTE declared this way can be injected into any query via <code>@use</code> — the <code>WITH</code> block is generated automatically at compile time.</p>
+
+  <pre><code class="language-sql">-- database/ctes/reserve_states.sql
+
+-- @cte active_reserves
+SELECT * FROM reserve WHERE status_id IN (2, 5);
+
+-- @cte pending_reserves
+SELECT * FROM reserve WHERE status_id = 1;
+
+-- @cte pre_trip_reserves
+SELECT reserve.* FROM reserve
+INNER JOIN reserve_insured ON reserve_insured.reserve_id = reserve.id
+WHERE reserve.status_id IN (2, 5);</code></pre>
+
+  <p class="ds">Register the CTE files in <code>sqlc.yaml</code>. CTEs declared at the root level are available to all targets. CTEs declared inside a target are merged with the global ones.</p>
+
+  <pre><code class="language-yaml">version: "2"
+engine: mysql
+schema:
+  - database/schema.sql
+
+# Global — available to all targets
+ctes:
+  - database/ctes/reserve_states.sql
+  - database/ctes/billing.sql
+
+targets:
+  - namespace: "App\\Database"
+    queries:
+      - database/queries/reserves.sql
+    out:
+      queries: app/Database/Repositories
+    ctes:
+      - database/ctes/reserve_extras.sql   # merged with global CTEs for this target only</code></pre>
+
+  <h3 id="ann-use">@use — reference a shared CTE in a query</h3>
+  <p class="ds">Use <code>@use cte_name</code> in any query to inject the declared CTE as a <code>WITH</code> block. The CTE name becomes a virtual table that the analyzer resolves for column type inference.</p>
+
+  <pre><code class="language-sql">-- @name ListCustomersForPreTrip
+-- @class Reserve
+-- @with stream, count
+-- @param now string
+-- @returns :many
+-- @use pre_trip_reserves
+SELECT pre_trip_reserves.* FROM pre_trip_reserves
+WHERE pre_trip_reserves.updated_at >= :now;</code></pre>
+
+  <p class="ds">The compiler expands this to:</p>
+  <pre><code class="language-sql">WITH pre_trip_reserves AS (
+    SELECT reserve.* FROM reserve
+    INNER JOIN reserve_insured ON reserve_insured.reserve_id = reserve.id
+    WHERE reserve.status_id IN (2, 5)
+)
+SELECT pre_trip_reserves.* FROM pre_trip_reserves
+WHERE pre_trip_reserves.updated_at >= :now;</code></pre>
+
+  <h4>Multiple CTEs on one query</h4>
+  <pre><code class="language-sql">-- @name GetReserveSummary
+-- @class Reserve
+-- @returns :one
+-- @use active_reserves, pending_reserves
+SELECT
+    (SELECT COUNT(*) FROM active_reserves)  AS active_count,
+    (SELECT COUNT(*) FROM pending_reserves) AS pending_count;</code></pre>
+
+  <h4>Multiple @use lines also work</h4>
+  <pre><code class="language-sql">-- @use active_reserves
+-- @use pending_reserves</code></pre>
+
+  <h3>Real-world example — pre-trip processing pipeline</h3>
+  <pre><code class="language-sql">-- database/ctes/reserve_states.sql
+
+-- @cte pre_trip_candidates
+SELECT reserve.id, reserve.updated_at, reserve.status_id,
+       reserve_insured.customer_id
+FROM reserve
+INNER JOIN reserve_insured ON reserve_insured.reserve_id = reserve.id
+WHERE reserve.status_id IN (2, 5);</code></pre>
+
+  <pre><code class="language-sql">-- database/queries/pre_trip.sql
+
+-- @name StreamPreTripReserves
+-- @class PreTrip
+-- @with stream
+-- @param from_date string
+-- @returns :many
+-- @use pre_trip_candidates
+SELECT pre_trip_candidates.* FROM pre_trip_candidates
+WHERE pre_trip_candidates.updated_at >= :from_date;
+
+-- @name CountPreTripReserves
+-- @class PreTrip
+-- @returns :count
+-- @use pre_trip_candidates
+SELECT COUNT(*) FROM pre_trip_candidates;
+
+-- @name PreTripReserveExists
+-- @class PreTrip
+-- @param reserve_id int
+-- @returns :exists
+-- @use pre_trip_candidates
+SELECT 1 FROM pre_trip_candidates
+WHERE pre_trip_candidates.id = :reserve_id LIMIT 1;</code></pre>
+
+  <pre><code class="language-php">// The same CTE, three different uses:
+foreach ($repo->streamPreTripReserves(from_date: '2026-01-01') as $reserve) {
+    // process unbuffered stream
+}
+
+$total  = $repo->countPreTripReserves();
+$exists = $repo->preTripReserveExists(reserve_id: 42);</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Column resolution:</strong> The analyzer resolves columns from CTE-backed virtual tables the same way as real schema tables. <code>SELECT pre_trip_candidates.*</code> expands to the full column list of the CTE's SELECT, with correct PHP types inferred from the underlying schema columns.
+  </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong>Rules:</strong>
+    <br>• CTE names must be globally unique across all loaded files — a duplicate triggers a compile error.
+    <br>• A query with <code>@use</code> cannot also have an inline <code>WITH</code> clause — they are mutually exclusive.
+    <br>• Duplicate CTE names in a single <code>@use</code> list are deduplicated automatically.
+    <br>• Files without any <code>@cte</code> annotation are silently ignored.
+  </div>
 </section>
 
 <hr class="div">

@@ -291,4 +291,65 @@ class CliCteRegressionTest extends TestCase
         $this->assertFileExists($this->projectDir . '/generated/UsersQuery.php');
         $this->assertFileExists($this->projectDir . '/generated/ReservesQuery.php');
     }
+
+    // =========================================================================
+    // Bug fix — CTE paths resolved from CWD, not from config file directory
+    //
+    // Reproduction: ./bin/sqlc-php config/sqlc.yaml
+    //   config is in a subdirectory; CTEs declared as 'database/ctes/shared.sql'
+    //   should be resolved relative to CWD (/app), not to config dir (/app/config).
+    // =========================================================================
+
+    public function test_cte_paths_resolved_from_cwd_not_config_directory(): void
+    {
+        // Create a subdirectory for the config file, simulating:
+        //   CWD: $projectDir
+        //   Config: $projectDir/config/sqlc.yaml
+        //   CTEs: $projectDir/database/ctes/shared.sql  ← relative to CWD, not config dir
+        mkdir($this->projectDir . '/config', 0777, true);
+
+        file_put_contents($this->projectDir . '/database/ctes/shared.sql', <<<SQL
+            -- @cte active_users
+            SELECT id, email FROM users WHERE id > 0;
+        SQL);
+
+        file_put_contents($this->projectDir . '/database/queries/queries.sql', <<<SQL
+            -- @name ListActiveUsers
+            -- @class Users
+            -- @returns :many
+            -- @use active_users
+            SELECT active_users.* FROM active_users;
+        SQL);
+
+        // Config is in config/ subdir — CTEs path is relative to CWD (project root)
+        file_put_contents($this->projectDir . '/config/sqlc.yaml', <<<YAML
+        version: 1
+        engine: mysql
+        schema: database/schema.sql
+        ctes:
+          - database/ctes/shared.sql
+        targets:
+          - namespace: App\\Database
+            queries:
+              - database/queries/queries.sql
+            out: generated/
+        YAML);
+
+        // Run CLI from project root (CWD=$projectDir) with config path in subdir
+        $cmd = sprintf(
+            'cd %s && php %s %s 2>&1',
+            escapeshellarg($this->projectDir),
+            escapeshellarg($this->binPath),
+            escapeshellarg('config/sqlc.yaml')  // config in subdir, CTE paths relative to CWD
+        );
+        $output = shell_exec($cmd) ?? '';
+
+        // Before fix: "file not found: /path/to/project/config/database/ctes/shared.sql"
+        // After fix:  resolves from CWD → "/path/to/project/database/ctes/shared.sql" ✓
+        $this->assertStringNotContainsString('Fatal error', $output, $output);
+        $this->assertStringNotContainsString('not found', $output, $output);
+        $this->assertStringContainsString('active_users', $output);
+        $this->assertStringContainsString('Done.', $output);
+        $this->assertFileExists($this->projectDir . '/generated/UsersQuery.php');
+    }
 }

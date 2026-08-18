@@ -346,6 +346,6 @@ class GenerateSchemaTest extends TestCase
 
     public function test_version_is_2_6_0(): void
     {
-        $this->assertSame('2.19.23', \SqlcPhp\Version::VERSION);
+        $this->assertSame('2.19.24', \SqlcPhp\Version::VERSION);
     }
 }

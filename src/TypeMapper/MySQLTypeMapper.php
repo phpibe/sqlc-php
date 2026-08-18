@@ -183,6 +183,40 @@ class MySQLTypeMapper implements TypeMapperInterface
         };
     }
 
+    /**
+     * Converts a SQL type string directly to a PHP type.
+     * Used by @param declarations that specify raw SQL types instead of PHP types.
+     * e.g.  -- @param price decimal(10,2)  →  float
+     *        -- @param name  varchar(100)   →  string
+     *        -- @param flag  tinyint(1)     →  int
+     * Nullable prefix '?' is preserved if present.
+     */
+    public function sqlTypeToPhpType(string $sqlType): ?string
+    {
+        $nullable = str_starts_with($sqlType, '?');
+        $bare     = ltrim($sqlType, '?');
+
+        // Quick check: if it already looks like a PHP type, return null (let caller handle)
+        $phpPrimitives = ['int','string','float','bool','array','mixed','void','null'];
+        if (in_array(strtolower($bare), $phpPrimitives, true)) return null;
+
+        // Must contain a SQL type keyword to qualify
+        $upperBare = strtoupper(preg_replace('/\(.*\)/s', '', $bare) ?? $bare);
+        $sqlKeywords = [
+            'INT','INTEGER','BIGINT','MEDIUMINT','SMALLINT','TINYINT',
+            'FLOAT','DOUBLE','DECIMAL','NUMERIC','REAL',
+            'BOOLEAN','BOOL',
+            'DATE','DATETIME','TIMESTAMP','TIME','YEAR',
+            'VARCHAR','CHAR','TEXT','TINYTEXT','MEDIUMTEXT','LONGTEXT',
+            'BLOB','TINYBLOB','MEDIUMBLOB','LONGBLOB',
+            'JSON','ENUM','SET','BIT',
+        ];
+        if (!in_array($upperBare, $sqlKeywords, true)) return null;
+
+        $phpType = $this->resolveBaseType($bare);
+        return $nullable ? '?' . $phpType : $phpType;
+    }
+
     private function resolveBaseType(string $sqlType): string
     {
         $upper = strtoupper(trim(preg_replace('/\(.*\)/s', '', $sqlType) ?? $sqlType));

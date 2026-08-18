@@ -87,6 +87,29 @@ class ParamResolver
                     continue;
                 }
 
+                // SQL type declaration — e.g. @param price decimal(10,2) or @param flag tinyint(1)
+                // Detected when the annotation value looks like a SQL type keyword (with optional parens)
+                if (str_starts_with($annotation, 'sql:')) {
+                    $sqlType = substr($annotation, 4);  // e.g. "decimal(10,2)"
+                    $phpType = $this->typeMapper->sqlTypeToPhpType($sqlType) ?? 'string';
+                    $nullable = str_starts_with($phpType, '?');
+                    $base    = ltrim($phpType, '?');
+                    $pdoParam = match ($base) {
+                        'int'   => 'PDO::PARAM_INT',
+                        'bool'  => 'PDO::PARAM_BOOL',
+                        default => 'PDO::PARAM_STR',
+                    };
+                    $resolved[$paramName] = new QueryParam(
+                        name:     $paramName,
+                        sqlType:  $sqlType,
+                        nullable: $nullable,
+                        pdoParam: $pdoParam,
+                        phpType:  $phpType,
+                        inList:   $isInList,
+                    );
+                    continue;
+                }
+
                 // Legacy: table.col type hint
                 [$tbl, $col] = explode('.', $annotation, 2);
                 $found = $this->findColumn($tbl, $col);

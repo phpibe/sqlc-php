@@ -89,7 +89,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.23</span>
+    <span class="brand-ver">v2.19.24</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub"><i class="bi bi-github"></i></a>
@@ -136,6 +136,8 @@
   <a class="sl" href="#rt-one"><i class="bi bi-person"></i> :one</a>
   <a class="sl" href="#rt-opt"><i class="bi bi-person-dash"></i> :opt</a>
   <a class="sl" href="#rt-exec"><i class="bi bi-lightning"></i> :exec</a>
+  <a class="sl" href="#rt-count"><i class="bi bi-123"></i> :count</a>
+  <a class="sl" href="#rt-exists"><i class="bi bi-check-circle"></i> :exists</a>
   <a class="sl" href="#rt-batch"><i class="bi bi-stack"></i> :batch</a>
   <a class="sl" href="#rt-grouped"><i class="bi bi-collection"></i> :grouped</a>
   <a class="sl" href="#rt-cursor"><i class="bi bi-arrow-repeat"></i> :cursor</a>
@@ -582,11 +584,35 @@ INSERT INTO users (email, name) VALUES (:email, :name);</code></pre>
   <h3>@param</h3>
   <p class="ds">Declares or overrides the type of a named parameter. Without <code>@param</code>, the type is inferred from the schema column the parameter is compared against.</p>
 
-  <h4>Basic type declaration</h4>
+  <h4>PHP type declaration</h4>
   <pre><code class="language-sql">-- @param userId   int
 -- @param name     string
 -- @param config   ?array     ← nullable
 -- @param status   string</code></pre>
+
+  <h4>SQL type declaration <span class="new-badge">v2.19.24</span></h4>
+  <p class="ds">Use the raw SQL type when the parameter doesn't map directly to a schema column. SQL types with parentheses are automatically converted to the correct PHP type.</p>
+  <pre><code class="language-sql">-- @param min_price  decimal(10,2)   → float   $min_price
+-- @param max_price  decimal(10,2)   → float   $max_price
+-- @param search     varchar(100)    → string  $search
+-- @param is_active  tinyint(1)      → int     $is_active
+-- @param cutoff     ?datetime        → ?\DateTimeImmutable $cutoff</code></pre>
+
+  <pre><code class="language-sql">-- @name FilterProducts
+-- @class Products
+-- @returns :many
+-- @param min_price decimal(10,2)
+-- @param search    varchar(100)
+SELECT products.* FROM products
+WHERE price >= :min_price AND name LIKE :search;</code></pre>
+
+  <pre><code class="language-php">// Generated — SQL types become correct PHP types:
+public function filterProducts(float $min_price, string $search): array</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    SQL type detection requires <strong>parentheses</strong> — <code>decimal(10,2)</code> is recognized as SQL, while bare <code>decimal</code> falls through to the PHP type path. Bare PHP primitives (<code>int</code>, <code>float</code>, <code>string</code>, <code>bool</code>) always work as PHP types.
+  </div>
 
   <h4>Optional parameter</h4>
   <p class="ds">Adding <code>:optional</code> rewrites the WHERE clause so the parameter is skipped when null. The PHP type becomes <code>?type = null</code>.</p>
@@ -624,7 +650,7 @@ $repo->searchUsers();                   // no filters</code></pre>
         <tr><td><code>returning</code></td><td>After an INSERT, fetches the newly created row by <code>lastInsertId()</code> and returns it as the Model.</td><td><code>:one</code> INSERT</td></tr>
         <tr><td><code>paginated</code></td><td>Adds <code>?int $limit = null, int $offset = 0</code> to the method and injects <code>LIMIT/OFFSET</code> into the SQL.</td><td><code>:many</code></td></tr>
         <tr><td><code>stream</code></td><td>Adds a companion <code>stream{Name}(): \Generator</code> method using unbuffered PDO fetching.</td><td><code>:many</code></td></tr>
-        <tr><td><code>params</code></td><td>Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO. Also generates a static <code>from(array $data)</code> method on the DTO.</td><td>Any with 2+ params</td></tr>
+        <tr><td><code>params</code></td><td>Groups 2+ input parameters into a readonly <code>{Name}Params</code> DTO. Generates <code>from(array $data)</code> and <code>toArray(): array</code> on the DTO. <span class="new-badge" style="font-size:.6rem">v2.19.24 toArray()</span></td><td>Any with 2+ params</td></tr>
       </tbody>
     </table>
   </div>
@@ -1008,6 +1034,53 @@ SELECT users.* FROM users WHERE email = :email;</code></pre>
 -- @returns :exec
 DELETE FROM users WHERE id = :id;</code></pre>
   <pre><code class="language-php">public function deleteUser(int $id): void</code></pre>
+</section>
+
+<section id="rt-count">
+  <h3><span class="rt rt-exec">:count</span> — scalar COUNT query → int <span class="new-badge">v2.19.24</span></h3>
+  <p class="ds">Executes any COUNT (or other scalar integer) query and returns the result as <code>int</code>. Unlike <code>@with count</code> which generates a companion to a <code>:many</code> query, <code>:count</code> is a standalone method with no associated SELECT query.</p>
+  <pre><code class="language-sql">-- @name CountActiveUsers
+-- @class Users
+-- @returns :count
+SELECT COUNT(*) FROM users WHERE status = :status AND role_id = :role_id;</code></pre>
+  <pre><code class="language-php">// Standalone int-returning method:
+public function countActiveUsers(string $status, int $role_id): int
+
+// Usage:
+$total = $repo->countActiveUsers(status: 'active', role_id: 1);</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>vs <code>@with count</code>:</strong> Use <code>@with count</code> when you want a count companion for an existing <code>:many</code> query (sharing the same WHERE). Use <code>:count</code> for a standalone COUNT with its own SQL — useful for dashboard stats, quotas, or complex aggregations that don't map to a <code>:many</code> query.
+  </div>
+</section>
+
+<section id="rt-exists">
+  <h3><span class="rt rt-exec">:exists</span> — existence check → bool <span class="new-badge">v2.19.24</span></h3>
+  <p class="ds">Executes a query and returns <code>true</code> when at least one row matches. Use <code>SELECT 1 ... LIMIT 1</code> for optimal performance.</p>
+  <pre><code class="language-sql">-- @name EmailExists
+-- @class Users
+-- @returns :exists
+SELECT 1 FROM users WHERE email = :email LIMIT 1;
+
+-- @name HasActiveOrders
+-- @class Orders
+-- @returns :exists
+SELECT 1 FROM orders
+WHERE user_id = :user_id AND status = 'active'
+LIMIT 1;</code></pre>
+  <pre><code class="language-php">public function emailExists(string $email): bool
+public function hasActiveOrders(int $user_id): bool
+
+// Usage:
+if ($repo->emailExists(email: 'alice@example.com')) {
+    throw new ValidationException('Email already taken');
+}</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>vs <code>@with exists</code>:</strong> Use <code>@with exists</code> for an existence companion to a <code>:many</code> query. Use <code>:exists</code> for a standalone existence check with its own SQL — e.g. uniqueness validation, precondition checks, or feature-flag queries.
+  </div>
 </section>
 
 <section id="rt-batch">

@@ -116,6 +116,8 @@ PHP;
             ReturnType::One           => $this->renderOneSignature($query, $queryGen),
             ReturnType::Opt           => $this->renderOptSignature($query, $queryGen),
             ReturnType::Exec          => $this->renderExecSignature($query, $queryGen),
+            ReturnType::Count         => $this->renderCountStandaloneSignature($query, $queryGen),
+            ReturnType::Exists        => $this->renderExistsStandaloneSignature($query, $queryGen),
             ReturnType::Batch         => $this->renderBatchSignature($query, $queryGen),
             ReturnType::Transaction   => $this->renderTransactionSignature($query, $queryGen),
             default                   => $this->renderFallbackSignature($query, $queryGen),
@@ -391,6 +393,26 @@ PHP;
     /**
      * :exec — void (INSERT / UPDATE / DELETE).
      */
+    private function renderCountStandaloneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, '@return int Number of matching rows.');
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): int;
+PHP;
+    }
+
+    private function renderExistsStandaloneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $paramList = $queryGen->buildParamListPublic($query);
+        $docblock  = $this->buildDocblock($query, $queryGen, '@return bool True when at least one row matches.');
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): bool;
+PHP;
+    }
+
     private function renderExecSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
         $paramList = $queryGen->buildParamListPublic($query);

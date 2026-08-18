@@ -21,6 +21,8 @@ enum ReturnType: string
     case One           = ':one';
     case Opt           = ':opt';
     case Exec          = ':exec';
+    case Count         = ':count';
+    case Exists        = ':exists';
     case Batch         = ':batch';
     case Transaction   = ':transaction';
 }
@@ -430,6 +432,14 @@ class QueryParser
                     if (str_contains($rawToken, '.')) {
                         // Legacy: table.col type hint — unchanged behaviour
                         $paramAnnotations[$paramName] = $rawToken;
+                    } elseif (preg_match('/^\\??(?:INT|INTEGER|BIGINT|MEDIUMINT|SMALLINT|TINYINT|FLOAT|DOUBLE|DECIMAL|NUMERIC|REAL|BOOLEAN|BOOL|DATE|DATETIME|TIMESTAMP|TIME|YEAR|VARCHAR|CHAR|TEXT|TINYTEXT|MEDIUMTEXT|LONGTEXT|BLOB|TINYBLOB|MEDIUMBLOB|LONGBLOB|JSON|ENUM|SET|BIT)(?:\(.+\))+$/i', $rawToken)) {
+                        // SQL type WITH PARENS — e.g. decimal(10,2), varchar(100), tinyint(1)
+                        // Bare SQL/PHP type names without parens fall through to PHP path below
+                        $paramAnnotations[$paramName] = 'sql:' . $rawToken;
+                        // Also mark nullable if starts with ?
+                        if (str_starts_with($rawToken, '?')) {
+                            $nullableParams[] = $paramName;
+                        }
                     } else {
                         // New unified syntax — parse type + :optional modifier
                         $parts      = explode(':', $rawToken);

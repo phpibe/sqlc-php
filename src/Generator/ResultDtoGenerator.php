@@ -498,6 +498,17 @@ PHP;
             ? "\n * @internal Used by the protected {$query->name}() method — not part of the public API."
             : '';
 
+        // Build toArray() body from params
+        $toArrayLines = [];
+        foreach (array_merge($required, $optional) as $param) {
+            $bare     = ltrim($param->phpType, '?');
+            $nullable = str_starts_with($param->phpType, '?');
+            $expr     = "\$this->{$param->name}";
+            $line     = $this->toArrayExpr($expr, $bare, $nullable);
+            $toArrayLines[] = "            '{$param->name}' => {$line},";
+        }
+        $toArrayBody = implode("\n", $toArrayLines);
+
         $code = <<<PHP
 <?php
 
@@ -528,6 +539,20 @@ readonly class {$className}
         return new self(
 {$fromBody}
         );
+    }
+
+    /**
+     * Convert to an associative array.
+     * BackedEnum values are unwrapped to their scalar value.
+     * DateTimeImmutable values are formatted as '{$this->datetimeFormat}'.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+{$toArrayBody}
+        ];
     }
 }
 PHP;

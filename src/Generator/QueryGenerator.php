@@ -466,6 +466,8 @@ PHP;
             $query->returns->value === ':one'      => $this->renderOneMethod($query),
             $query->returns->value === ':opt'      => $this->renderOptMethod($query),
             $query->returns->value === ':exec'     => $this->renderExecMethod($query),
+            $query->returns->value === ':count'    => $this->renderCountStandaloneMethod($query),
+            $query->returns->value === ':exists'   => $this->renderExistsStandaloneMethod($query),
             $query->returns->value === ':batch'    => $this->renderBatchMethod($query),
             $query->returns->value === ':transaction' => $this->renderTransactionMethod($query),
             default                                => $this->renderManyMethod($query),
@@ -2185,6 +2187,72 @@ PHP;
     // -------------------------------------------------------------------------
     // :exec
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // :count — standalone COUNT query returning int
+    // -------------------------------------------------------------------------
+
+    private function renderCountStandaloneMethod(QueryDefinition $query): string
+    {
+        $userParams    = $this->buildParamList($query);
+        $signature     = $userParams !== ''
+            ? "{$query->name}({$userParams}): int"
+            : "{$query->name}(): int";
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $prepare       = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+        $docblock      = $this->buildDocblock($query, '@return int Number of matching rows.');
+
+        return <<<PHP
+{$docblock}
+    {$this->visibilityPrefix($query)} function {$signature}
+    {
+{$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        return (int) \$stmt->fetchColumn();
+    }
+PHP;
+    }
+
+    // -------------------------------------------------------------------------
+    // :exists — standalone EXISTS query returning bool
+    // -------------------------------------------------------------------------
+
+    private function renderExistsStandaloneMethod(QueryDefinition $query): string
+    {
+        $userParams    = $this->buildParamList($query);
+        $signature     = $userParams !== ''
+            ? "{$query->name}({$userParams}): bool"
+            : "{$query->name}(): bool";
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $prepare       = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+        $docblock      = $this->buildDocblock($query, '@return bool True when at least one row matches.');
+
+        return <<<PHP
+{$docblock}
+    {$this->visibilityPrefix($query)} function {$signature}
+    {
+{$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        return ((int) \$stmt->fetchColumn()) > 0;
+    }
+PHP;
+    }
 
     private function renderExecMethod(QueryDefinition $query): string
     {

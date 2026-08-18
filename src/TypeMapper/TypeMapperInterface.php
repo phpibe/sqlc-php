@@ -24,6 +24,13 @@ interface TypeMapperInterface
     public function needsValueExtraction(string $phpType): bool;
 
     /**
+     * Converts a SQL type string (e.g. "decimal(10,2)", "varchar(100)") to a PHP type.
+     * Returns null when the string is already a valid PHP primitive or unknown.
+     * Used by @param declarations that use raw SQL types instead of PHP types.
+     */
+    public function sqlTypeToPhpType(string $sqlType): ?string;
+
+    /**
      * Return the fully-qualified class name for types that are classes (enums,
      * DateTimeImmutable, etc.), or null for scalars (int, string, float, bool, array).
      *

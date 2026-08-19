@@ -127,7 +127,7 @@ class QueryAnalyzer
         // Validate @counted / @with count: valid on :many-paginated and :cursor
         // @with count — valid on :many-paginated, :cursor, and :many + @with stream
         $isManyPaginated = $query->returns === ReturnType::ManyPaginated || $query->paginated;
-        $countValidOnMany = $query->stream && $query->returns === ReturnType::Many;
+        $countValidOnMany = $query->returns === ReturnType::Many;
 
         if ($query->counted && !$isManyPaginated && !$countValidOnMany && $query->returns !== ReturnType::Cursor) {
             if ($query->returns === ReturnType::Paginator) {
@@ -138,7 +138,7 @@ class QueryAnalyzer
                 );
             }
             throw new \RuntimeException(
-                "Query '{$query->name}': @with count is only valid on :many + @with paginated/stream, and :cursor queries. " .
+                "Query '{$query->name}': @with count is only valid on :many, :many + @with paginated/stream, and :cursor queries. " .
                 "Got: {$query->returns->value}"
             );
         }

@@ -440,7 +440,7 @@ PHP;
                 ? $this->renderSearchablePaginatedMethod($query)
                 : $this->renderSearchableManyMethod($query);
 
-            if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated || $query->stream)) {
+            if ($query->counted && ($query->paginated || $query->returns === ReturnType::ManyPaginated || $query->stream || $query->returns === ReturnType::Many)) {
                 $main .= "\n\n" . $this->renderSearchableCountMethod($query);
             }
 
@@ -473,9 +473,9 @@ PHP;
             default                                => $this->renderManyMethod($query),
         };
 
-        // @with count on :many-paginated or :many + @with stream
+        // @with count on :many, :many-paginated, :many + @with stream
         $isManyPaginated = $query->paginated || $query->returns === ReturnType::ManyPaginated;
-        if ($query->counted && ($isManyPaginated || $query->stream)) {
+        if ($query->counted && ($isManyPaginated || $query->stream || $query->returns === ReturnType::Many)) {
             $main .= "\n\n" . $this->renderCountMethod($query);
         }
 

@@ -112,14 +112,15 @@ class CountedTest extends TestCase
     // Analyzer validation
     // =========================================================================
 
-    public function test_counted_on_many_throws(): void
+    public function test_counted_on_many_generates_count_companion(): void
     {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/@with count.*:many.*@with paginated/');
-
-        $this->analyze(
+        // @with count (via @counted) on plain :many now generates a count companion.
+        // Previously this threw — the restriction was overly strict.
+        $code = $this->queryCode(
             "-- @name ListUsers\n-- @counted\n-- @returns :many\nSELECT * FROM users;"
         );
+        $this->assertStringContainsString('function listUsersCount(', $code);
+        $this->assertStringContainsString(': int', $code);
     }
 
     public function test_counted_on_one_throws(): void

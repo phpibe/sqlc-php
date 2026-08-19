@@ -190,14 +190,17 @@ class WithAnnotationTest extends TestCase
         $this->assertStringContainsString('function listOrdersCount(', $code);
     }
 
-    public function test_with_count_on_many_throws(): void
+    public function test_with_count_on_many_generates_count_companion(): void
     {
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessageMatches('/@with count.*:many.*@with paginated/');
-        $this->analyze(
+        // @with count on plain :many now generates a count companion — no @with paginated needed.
+        // Previously this threw — the restriction was overly strict.
+        $q    = $this->analyze(
             "-- @name ListOrders\n-- @class Orders\n-- @returns :many\n-- @with count\n" .
             "SELECT orders.id FROM orders;"
         );
+        $code = $this->code($q);
+        $this->assertStringContainsString('function listOrdersCount(', $code);
+        $this->assertStringContainsString(': int', $code);
     }
 
     // =========================================================================

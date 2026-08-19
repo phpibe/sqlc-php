@@ -352,4 +352,86 @@ class CliCteRegressionTest extends TestCase
         $this->assertStringContainsString('Done.', $output);
         $this->assertFileExists($this->projectDir . '/generated/UsersQuery.php');
     }
+    // =========================================================================
+    // Bug fix — @with stream/count/exists/paginated flags lost after CTE injection
+    // =========================================================================
+
+    public function test_stream_companion_generated_when_query_uses_cte(): void
+    {
+        file_put_contents($this->projectDir . '/database/ctes/shared.sql', <<<SQL
+            -- @cte active_users
+            SELECT id, email FROM users WHERE id > 0;
+        SQL);
+
+        file_put_contents($this->projectDir . '/database/queries/queries.sql', <<<SQL
+            -- @name ListActiveUsers
+            -- @class Users
+            -- @returns :many
+            -- @with stream
+            -- @use active_users
+            SELECT active_users.* FROM active_users;
+        SQL);
+
+        file_put_contents($this->projectDir . '/sqlc.yaml', <<<YAML
+        version: 1
+        engine: mysql
+        schema: database/schema.sql
+        ctes:
+          - database/ctes/shared.sql
+        targets:
+          - namespace: App\\Database
+            queries:
+              - database/queries/queries.sql
+            out: generated/
+        YAML);
+
+        $output = $this->runCli($this->projectDir . '/sqlc.yaml');
+        $this->assertStringContainsString('Done.', $output, $output);
+
+        $code = file_get_contents($this->projectDir . '/generated/UsersQuery.php');
+
+        // Before fix: stream flag lost during QueryDefinition reconstruction after @use
+        $this->assertStringContainsString('function streamListActiveUsers', $code,
+            'stream companion must be generated even when @use is present');
+        $this->assertStringContainsString('\\Generator', $code);
+    }
+
+    public function test_all_with_flags_preserved_after_cte_injection(): void
+    {
+        file_put_contents($this->projectDir . '/database/ctes/shared.sql', <<<SQL
+            -- @cte active_users
+            SELECT id, email FROM users WHERE id > 0;
+        SQL);
+
+        file_put_contents($this->projectDir . '/database/queries/queries.sql', <<<SQL
+            -- @name ListActiveUsers
+            -- @class Users
+            -- @returns :many
+            -- @with stream, count, exists
+            -- @use active_users
+            SELECT active_users.* FROM active_users;
+        SQL);
+
+        file_put_contents($this->projectDir . '/sqlc.yaml', <<<YAML
+        version: 1
+        engine: mysql
+        schema: database/schema.sql
+        ctes:
+          - database/ctes/shared.sql
+        targets:
+          - namespace: App\\Database
+            queries:
+              - database/queries/queries.sql
+            out: generated/
+        YAML);
+
+        $output = $this->runCli($this->projectDir . '/sqlc.yaml');
+        $this->assertStringContainsString('Done.', $output, $output);
+
+        $code = file_get_contents($this->projectDir . '/generated/UsersQuery.php');
+
+        $this->assertStringContainsString('function streamListActiveUsers', $code);
+        $this->assertStringContainsString('function listActiveUsersCount',  $code);
+        $this->assertStringContainsString('function listActiveUsersExists', $code);
+    }
 }

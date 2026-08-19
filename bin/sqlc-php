@@ -362,6 +362,12 @@ function runGeneration(
                         columnAliases:        $query->columnAliases,
                         counted:              $query->counted,
                         searchable:           $query->searchable,
+                        paginated:            $query->paginated,
+                        exists:               $query->exists,
+                        stream:               $query->stream,
+                        useParams:            $query->useParams,
+                        visibility:           $query->visibility,
+                        groupByColumn:        $query->groupByColumn,
                         partial:              $query->partial,
                         returning:            $query->returning,
                         isUnion:              $query->isUnion,
@@ -370,6 +376,8 @@ function runGeneration(
                         usedCtes:             $query->usedCtes,
                         jsonColumns:          $query->jsonColumns,
                         nullableParams:       $query->nullableParams,
+                        tableModels:          $query->tableModels,
+                        filterColumns:        $query->filterColumns,
                     );
                 } catch (\RuntimeException $e) {
                     $result['error'] = "Query '{$query->name}': " . $e->getMessage();

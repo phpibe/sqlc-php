@@ -760,16 +760,53 @@ PHP;
      */
     private function expandDuplicatePlaceholders(string $sql): string
     {
+        // Detect params that appear in a manually-written IS NULL OR guard:
+        //   (:cursor_id IS NULL OR col < :cursor_id)
+        // For these, the first occurrence IS the null-check and should be renamed
+        // to :param_chk, matching the convention SqlRewriter uses for auto-generated guards.
+        // This avoids a __2 suffix that would require an extra binding with no SQL match.
+        $manualNullGuards = [];
+        preg_match_all(
+            '/\(\s*:([a-zA-Z_][a-zA-Z0-9_]*)\s+IS\s+NULL\s+OR\b/i',
+            $sql,
+            $guardMatches
+        );
+        foreach ($guardMatches[1] as $guardParam) {
+            $manualNullGuards[$guardParam] = true;
+        }
+
+        // Rename first occurrence of guarded params to :param_chk, leave second as :param
+        foreach ($manualNullGuards as $paramName => $_) {
+            $count = 0;
+            $sql = (string) preg_replace_callback(
+                '/:[a-zA-Z_][a-zA-Z0-9_]*/',
+                function (array $m) use ($paramName, &$count): string {
+                    if ($m[0] !== ':' . $paramName) return $m[0];
+                    $count++;
+                    // First occurrence = the IS NULL check → rename to _chk
+                    return $count === 1 ? ':' . $paramName . '_chk' : $m[0];
+                },
+                $sql
+            );
+        }
+
+        // Now handle remaining duplicates (non-guarded params used multiple times)
         $counts = [];
         return (string) preg_replace_callback(
             '/:[a-zA-Z_][a-zA-Z0-9_]*/',
             function (array $m) use (&$counts): string {
-                $name = $m[0]; // e.g. ':reserveId'
+                $name = $m[0];
+
+                // _chk params are intentionally distinct — never rename them
+                if (str_ends_with($name, '_chk')) {
+                    return $name;
+                }
+
                 $counts[$name] = ($counts[$name] ?? 0) + 1;
                 if ($counts[$name] === 1) {
-                    return $name;                           // first occurrence — unchanged
+                    return $name;
                 }
-                return $name . '__' . $counts[$name];      // :reserveId__2, :reserveId__3
+                return $name . '__' . $counts[$name];
             },
             $sql
         );
@@ -819,14 +856,32 @@ PHP;
      */
     private function renderDuplicateBindings(QueryDefinition $query, string $stmtVar = '$stmt'): string
     {
+        // Params already in a manual IS NULL OR guard are handled by expandDuplicatePlaceholders
+        // via _chk renaming — they don't need __2 aliases here.
+        $manualNullGuards = [];
+        preg_match_all(
+            '/\(\s*:([a-zA-Z_][a-zA-Z0-9_]*)\s+IS\s+NULL\s+OR\b/i',
+            $query->sql,
+            $guardMatches
+        );
+        foreach ($guardMatches[1] as $guardParam) {
+            $manualNullGuards[$guardParam] = true;
+        }
+
         $counts = [];
         $lines  = [];
         preg_match_all('/:[a-zA-Z_][a-zA-Z0-9_]*/', $query->sql, $m);
         foreach ($m[0] as $raw) {
+            $paramName = ltrim($raw, ':');
+
+            // Skip _chk tokens and manually-guarded params
+            if (str_ends_with($paramName, '_chk') || isset($manualNullGuards[$paramName])) {
+                continue;
+            }
+
             $counts[$raw] = ($counts[$raw] ?? 0) + 1;
             if ($counts[$raw] < 2) continue;
-            $paramName = ltrim($raw, ':');
-            $param     = null;
+            $param = null;
             foreach ($query->params as $p) {
                 if ($p->name === $paramName) { $param = $p; break; }
             }

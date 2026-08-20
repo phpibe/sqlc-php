@@ -160,6 +160,17 @@ class SqlRewriter
     {
         $token = ':' . preg_quote($paramName, '/');
 
+        // Skip rewriting if the param is already inside a manually-written
+        // IS NULL OR guard — e.g. (:cursor_id IS NULL OR id < :cursor_id)
+        // Rewriting it again would produce a double-nested condition and an
+        // extra duplicate placeholder that breaks PDO native prepared statements.
+        if (preg_match(
+            '/\(\s*:' . preg_quote($paramName, '/') . '\s+IS\s+NULL\s+OR\b/i',
+            $sql
+        )) {
+            return $sql;
+        }
+
         $opPattern = implode('|', array_map(
             fn(string $op) => preg_quote($op, '/'),
             self::OPERATORS

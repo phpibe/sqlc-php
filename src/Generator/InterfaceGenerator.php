@@ -118,6 +118,7 @@ PHP;
             ReturnType::Exec          => $this->renderExecSignature($query, $queryGen),
             ReturnType::Count         => $this->renderCountStandaloneSignature($query, $queryGen),
             ReturnType::Exists        => $this->renderExistsStandaloneSignature($query, $queryGen),
+            ReturnType::Stream        => $this->renderStreamStandaloneSignature($query, $queryGen),
             ReturnType::Batch         => $this->renderBatchSignature($query, $queryGen),
             ReturnType::Transaction   => $this->renderTransactionSignature($query, $queryGen),
             default                   => $this->renderFallbackSignature($query, $queryGen),
@@ -410,6 +411,17 @@ PHP;
         return <<<PHP
 {$docblock}
     public function {$query->name}({$paramList}): bool;
+PHP;
+    }
+
+    private function renderStreamStandaloneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
+    {
+        $returnClass = $queryGen->resolveReturnClassPublic($query);
+        $paramList   = $queryGen->buildParamListPublic($query);
+        $docblock    = $this->buildDocblock($query, $queryGen, "@return \\Generator<int, {$returnClass}>");
+        return <<<PHP
+{$docblock}
+    public function {$query->name}({$paramList}): \Generator;
 PHP;
     }
 

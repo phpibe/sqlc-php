@@ -24,6 +24,7 @@ enum ReturnType: string
     case Count         = ':count';
     case Exists        = ':exists';
     case Batch         = ':batch';
+    case Stream        = ':stream';
     case Transaction   = ':transaction';
 }
 

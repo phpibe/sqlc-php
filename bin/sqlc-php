@@ -514,7 +514,7 @@ function runGeneration(
             $embedRegistry = [];
             foreach ($queries as $query) {
                 if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
-                if (in_array($query->returns->value, [':exec', ':count', ':exists'], true)) continue;
+                if (in_array($query->returns->value, [':exec', ':count', ':exists', ':stream'], true)) continue;
                 foreach ($query->embeds as $embed) {
                     $embedCols = array_filter(
                         $query->resultColumns,
@@ -559,7 +559,7 @@ function runGeneration(
         $dtoRegistry = [];
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
-            if (in_array($query->returns->value, [':exec', ':count', ':exists'], true)) continue;
+            if (in_array($query->returns->value, [':exec', ':count', ':exists', ':stream'], true)) continue;
             $dtoName = $resultDtoGen->dtoClassName($query);
             $shape   = implode(',', array_map(fn($c) => $c->alias . ':' . $c->phpType, $query->resultColumns));
             if (isset($dtoRegistry[$dtoName]) && $dtoRegistry[$dtoName] !== $shape) {
@@ -590,7 +590,7 @@ function runGeneration(
 
         foreach ($queries as $query) {
             if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
-            if (in_array($query->returns->value, [':exec', ':count', ':exists'], true)) continue;
+            if (in_array($query->returns->value, [':exec', ':count', ':exists', ':stream'], true)) continue;
 
             // :grouped — generates two files: main DTO + item class
             if ($query->returns === \SqlcPhp\Parser\ReturnType::Grouped) {

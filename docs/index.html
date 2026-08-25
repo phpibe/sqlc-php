@@ -89,7 +89,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.28</span>
+    <span class="brand-ver">v2.19.29</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub"><i class="bi bi-github"></i></a>
@@ -140,6 +140,7 @@
   <a class="sl" href="#rt-exec"><i class="bi bi-lightning"></i> :exec</a>
   <a class="sl" href="#rt-count"><i class="bi bi-123"></i> :count</a>
   <a class="sl" href="#rt-exists"><i class="bi bi-check-circle"></i> :exists</a>
+  <a class="sl" href="#rt-stream"><i class="bi bi-arrow-repeat"></i> :stream</a>
   <a class="sl" href="#rt-batch"><i class="bi bi-stack"></i> :batch</a>
   <a class="sl" href="#rt-grouped"><i class="bi bi-collection"></i> :grouped</a>
   <a class="sl" href="#rt-cursor"><i class="bi bi-arrow-repeat"></i> :cursor</a>
@@ -1234,6 +1235,122 @@ if ($repo->emailExists(email: 'alice@example.com')) {
   <div class="callout ci-info">
     <i class="bi bi-info-circle ci-icon"></i>
     <strong>vs <code>@with exists</code>:</strong> Use <code>@with exists</code> for an existence companion to a <code>:many</code> query. Use <code>:exists</code> for a standalone existence check with its own SQL — e.g. uniqueness validation, precondition checks, or feature-flag queries.
+  </div>
+</section>
+
+<section id="rt-stream">
+  <h3><span class="rt rt-cur">:stream</span> — standalone Generator <span class="new-badge">v2.19.29</span></h3>
+  <p class="ds">Returns a <code>\Generator</code> that yields rows one at a time — no full result set is loaded into memory. Unlike <code>@with stream</code> (which is a companion to a <code>:many</code> query), <code>:stream</code> is the primary and only method — the method name is the query name directly, without a <code>stream</code> prefix.</p>
+
+  <pre><code class="language-sql">-- @name StreamPendingOrders
+-- @class Orders
+-- @returns :stream
+SELECT orders.* FROM orders
+WHERE status = :status
+ORDER BY created_at ASC;</code></pre>
+
+  <pre><code class="language-php">// Generated — primary method, not a companion:
+public function streamPendingOrders(string $status): \Generator
+
+// Usage — memory-efficient row-by-row iteration:
+foreach ($repo->streamPendingOrders(status: 'pending') as $order) {
+    $this->processOrder($order);
+}</code></pre>
+
+  <h4>vs <code>@with stream</code></h4>
+  <div class="tw">
+    <table class="dt">
+      <thead><tr><th></th><th><code>:stream</code></th><th><code>:many</code> + <code>@with stream</code></th></tr></thead>
+      <tbody>
+        <tr><td>Primary method</td><td><code>streamPendingOrders()</code></td><td><code>listOrders()</code> → <code>Order[]</code></td></tr>
+        <tr><td>Companion</td><td>none</td><td><code>streamListOrders()</code> → <code>\Generator</code></td></tr>
+        <tr><td>Use when</td><td>Always streaming — no array version needed</td><td>Want both array and stream versions</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Typical use cases</h4>
+
+  <h5 style="font-size:.85rem;margin-top:1.2rem;color:var(--muted);font-weight:600">1. CSV / Excel export</h5>
+  <pre><code class="language-php">// -- @name StreamAllCustomers
+// -- @class Customers
+// -- @returns :stream
+// SELECT customers.* FROM customers ORDER BY id ASC;
+
+public function export(Request $request): StreamedResponse
+{
+    return response()->streamDownload(function() {
+        $handle = fopen('php://output', 'w');
+        fputcsv($handle, ['id', 'email', 'name', 'created_at']);
+
+        foreach ($this->customers->streamAllCustomers() as $customer) {
+            fputcsv($handle, [
+                $customer->id,
+                $customer->email,
+                $customer->name,
+                $customer->created_at->format('Y-m-d'),
+            ]);
+        }
+        fclose($handle);
+    }, 'customers.csv');
+}</code></pre>
+
+  <h5 style="font-size:.85rem;margin-top:1.2rem;color:var(--muted);font-weight:600">2. Large batch processing / ETL</h5>
+  <pre><code class="language-sql">-- @name StreamOrdersForBilling
+-- @class Orders
+-- @returns :stream
+SELECT orders.* FROM orders
+WHERE status = :status
+  AND billing_date = :billing_date
+ORDER BY id ASC;</code></pre>
+  <pre><code class="language-php">// Process 500k rows without exhausting memory:
+$processed = 0;
+foreach ($repo->streamOrdersForBilling(status: 'pending', billing_date: '2026-01-01') as $order) {
+    $this->billingService->charge($order);
+    $processed++;
+
+    if ($processed % 1000 === 0) {
+        Log::info("Processed {$processed} orders...");
+    }
+}</code></pre>
+
+  <h5 style="font-size:.85rem;margin-top:1.2rem;color:var(--muted);font-weight:600">3. Queue dispatch per row</h5>
+  <pre><code class="language-sql">-- @name StreamExpiredSessions
+-- @class Sessions
+-- @returns :stream
+SELECT sessions.* FROM sessions
+WHERE expires_at < :cutoff;</code></pre>
+  <pre><code class="language-php">foreach ($repo->streamExpiredSessions(cutoff: now()->toDateTimeString()) as $session) {
+    CleanupSessionJob::dispatch($session->id);
+}</code></pre>
+
+  <h5 style="font-size:.85rem;margin-top:1.2rem;color:var(--muted);font-weight:600">4. Extension trait — stream with domain logic</h5>
+  <pre><code class="language-sql">-- @name StreamRawProfiles
+-- @class Profiles
+-- @returns :stream
+-- @visibility protected
+SELECT profiles.* FROM profiles WHERE active = 1 ORDER BY id ASC;</code></pre>
+  <pre><code class="language-php">trait ProfilesRepositoryExtension
+{
+    public function streamActiveProfiles(): \Generator
+    {
+        foreach ($this->streamRawProfiles() as $profile) {
+            // Apply domain logic, filtering, or transformation per row
+            if ($this->meetsBusinessRule($profile)) {
+                yield $profile;
+            }
+        }
+    }
+}</code></pre>
+
+  <div class="callout ci-tip">
+    <i class="bi bi-lightbulb ci-icon"></i>
+    <strong>Unbuffered queries:</strong> For true streaming (row fetched from MySQL as it's processed), configure PDO with <code>PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false</code>. By default MySQL buffers the full result set on the client before yielding starts. Unbuffered mode reduces memory usage further but prevents running other queries on the same connection while the generator is open.
+  </div>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <code>:stream</code> does not generate a DTO — it always returns the Model directly (same as <code>SELECT table.*</code> with <code>:many</code>). Partial SELECTs generate a DTO class that <code>fromRow()</code> uses, but no separate file is emitted for <code>:stream</code>.
   </div>
 </section>
 

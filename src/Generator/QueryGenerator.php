@@ -468,6 +468,7 @@ PHP;
             $query->returns->value === ':exec'     => $this->renderExecMethod($query),
             $query->returns->value === ':count'    => $this->renderCountStandaloneMethod($query),
             $query->returns->value === ':exists'   => $this->renderExistsStandaloneMethod($query),
+            $query->returns->value === ':stream'   => $this->renderStreamStandaloneMethod($query),
             $query->returns->value === ':batch'    => $this->renderBatchMethod($query),
             $query->returns->value === ':transaction' => $this->renderTransactionMethod($query),
             default                                => $this->renderManyMethod($query),
@@ -1874,6 +1875,47 @@ PHP;
      * For true unbuffered streaming, the PDO connection must be configured with:
      *   PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false
      */
+    // -------------------------------------------------------------------------
+    // :stream — standalone Generator query (primary method, no :many companion)
+    // -------------------------------------------------------------------------
+
+    private function renderStreamStandaloneMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $userParams    = $this->buildParamList($query);
+        $signature     = $userParams !== ''
+            ? "{$query->name}({$userParams}): \\Generator"
+            : "{$query->name}(): \\Generator";
+
+        $bindings      = $this->renderBindings($query);
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $docblock      = $this->buildDocblock(
+            $query,
+            "Yields {$returnClass} rows one at a time using PDO cursor fetch.\n     * No full result set is loaded into memory — ideal for exports,\n     * batch processing, ETL pipelines, and large dataset iteration.\n     *\n     * For true unbuffered streaming configure PDO with:\n     *   PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false\n     *\n     * @return \\\\Generator<int, {$returnClass}>"
+        );
+
+        $prepare = $this->preparedStatementCache
+            ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
+            : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
+
+        return <<<PHP
+{$docblock}
+    {$this->visibilityPrefix($query)} function {$signature}
+    {
+{$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        while (\$row = \$stmt->fetch(PDO::FETCH_ASSOC)) {
+            yield {$returnClass}::fromRow(\$row);
+        }
+    }
+PHP;
+    }
+
     private function renderStreamMethod(QueryDefinition $query): string
     {
         $returnClass  = $this->resolveReturnClass($query);

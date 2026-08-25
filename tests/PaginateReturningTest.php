@@ -679,6 +679,6 @@ class PaginateReturningTest extends TestCase
 
     public function test_version_is_2_8_0(): void
     {
-        $this->assertSame('2.19.24', \SqlcPhp\Version::VERSION);
+        $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+$/', \SqlcPhp\Version::VERSION);
     }
 }

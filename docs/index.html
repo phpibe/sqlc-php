@@ -89,7 +89,7 @@
   <a href="#intro" class="brand">
     <i class="bi bi-database-fill-gear brand-icon"></i>
     sqlc-php
-    <span class="brand-ver">v2.19.30</span>
+    <span class="brand-ver">v2.20.0</span>
   </a>
   <div class="topbar-links">
     <a href="https://github.com/phpibe/sqlc-php" title="GitHub"><i class="bi bi-github"></i></a>
@@ -1126,7 +1126,9 @@ public function getUser(int $id): ?User</code></pre>
 
 <section id="ann-dto">
   <h3>@dto</h3>
-  <p class="ds">Overrides the auto-generated DTO class name. Useful when two queries return the same column shape and can share a single DTO class.</p>
+  <p class="ds">Overrides the auto-generated DTO class name. When two or more queries return the same columns, <code>@dto</code> lets them share a single DTO class — giving domain methods a concrete type to depend on instead of query-specific generated names.</p>
+
+  <h4>Basic usage</h4>
   <pre><code class="language-sql">-- @name GetUser
 -- @class Users
 -- @returns :opt
@@ -1141,6 +1143,79 @@ SELECT users.id, users.email, users.name
 FROM posts
 INNER JOIN users ON users.id = posts.created_by
 WHERE posts.id = :id;</code></pre>
+
+  <h4>Solving the domain typing problem</h4>
+  <p class="ds">A common problem: a domain method needs to accept users from different queries, but each query generates its own DTO with a different class name — even when the data is identical.</p>
+
+  <pre><code class="language-php">// Without @dto — two different types for the same data:
+public function getUserByEmail(string $email): GetUserByEmailRow  // id, email, name
+public function listUsers(): array  // ListUsersRow[] — also id, email, name
+
+// Domain method doesn't know what type to accept:
+function sendEmail(GetUserByEmailRow|ListUsersRow $user): void  // ← bad</code></pre>
+
+  <p class="ds">With <code>@dto</code>, both queries share one DTO. The domain method has a single concrete type:</p>
+
+  <pre><code class="language-sql">-- @name GetUserByEmail
+-- @class Users
+-- @dto UserRow
+-- @returns :one
+SELECT id, email, name FROM users WHERE email = :email;
+
+-- @name ListUsers
+-- @class Users
+-- @dto UserRow
+-- @returns :many
+SELECT id, name, email FROM users;  -- column order doesn't matter</code></pre>
+
+  <pre><code class="language-php">// Both methods now return UserRow / UserRow[]
+public function getUserByEmail(string $email): UserRow
+public function listUsers(): array  // UserRow[]
+
+// Domain method has one clean type:
+function sendEmail(UserRow $user): void
+{
+    $this->mailer->send($user->email, $user->name);
+}
+
+// Works with both queries:
+$user  = $repo->getUserByEmail(email: 'foo@bar.com');
+sendEmail($user);  // ✓
+
+$users = $repo->listUsers();
+foreach ($users as $user) {
+    sendEmail($user);  // ✓
+}</code></pre>
+
+  <h4>Column validation — compile-time safety</h4>
+  <p class="ds">When two queries share the same <code>@dto</code> name, the compiler validates that both select exactly the same columns (order-independent). A mismatch is a compile-time error, not a runtime surprise.</p>
+
+  <pre><code class="language-sql">-- @name GetUserByEmail
+-- @class Users
+-- @dto UserRow
+-- @returns :one
+SELECT id, email, name FROM users WHERE email = :email;
+
+-- @name ListUsersPartial
+-- @class Users
+-- @dto UserRow
+-- @returns :many
+SELECT id, email FROM users;  -- ← missing 'name'</code></pre>
+
+  <pre><code class="language-php">// Compile error:
+// Query 'listUsersPartial': @dto 'UserRow' is shared with another query
+// but the column shapes don't match. Missing: name:string.
+// All queries sharing a @dto name must select exactly the same columns.</code></pre>
+
+  <div class="callout ci-info">
+    <i class="bi bi-info-circle ci-icon"></i>
+    <strong>Column order:</strong> <code>SELECT id, email, name</code> and <code>SELECT id, name, email</code> are treated as the same shape — the DTO constructor uses named properties, not positional ones.
+  </div>
+
+  <div class="callout ci-warn">
+    <i class="bi bi-exclamation-triangle ci-icon"></i>
+    <strong><code>@dto</code> with <code>SELECT table.*</code>:</strong> When <code>@dto</code> is declared, it takes priority even over <code>table.*</code> wildcard selects. The compiler will generate the named DTO instead of returning the model directly — and will validate column shapes accordingly.
+  </div>
 </section>
 
 <hr class="div">

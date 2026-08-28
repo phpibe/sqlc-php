@@ -558,13 +558,30 @@ function runGeneration(
         // @dto name collision detection (existing behaviour)
         $dtoRegistry = [];
         foreach ($queries as $query) {
-            if ($query->returnsModelDirectly || empty($query->resultColumns)) continue;
+            // Skip model-direct queries unless @dto is explicitly set
+            if (($query->returnsModelDirectly && empty($query->dtoClassName)) || empty($query->resultColumns)) continue;
             if (in_array($query->returns->value, [':exec', ':count', ':exists', ':stream'], true)) continue;
             $dtoName = $resultDtoGen->dtoClassName($query);
-            $shape   = implode(',', array_map(fn($c) => $c->alias . ':' . $c->phpType, $query->resultColumns));
+            // Sort by column name so SELECT id,email,name and SELECT id,name,email
+            // are treated as the same shape (column order doesn't affect the DTO).
+            $cols = array_map(fn($c) => $c->alias . ':' . $c->phpType, $query->resultColumns);
+            sort($cols);
+            $shape = implode(',', $cols);
             if (isset($dtoRegistry[$dtoName]) && $dtoRegistry[$dtoName] !== $shape) {
-                fwrite(STDERR, "Warning: @dto '{$dtoName}' is used by multiple queries with " .
-                    "different column shapes. The last writer wins — verify the generated file.\n");
+                // Reconstruct what each shape looks like for a clear error message
+                $existing = explode(',', $dtoRegistry[$dtoName]);
+                $incoming = explode(',', $shape);
+                $missing  = array_diff($existing, $incoming);
+                $extra    = array_diff($incoming, $existing);
+                $detail   = '';
+                if ($missing) $detail .= ' Missing: ' . implode(', ', $missing) . '.';
+                if ($extra)   $detail .= ' Extra: '   . implode(', ', $extra)   . '.';
+                throw new \RuntimeException(
+                    "Query '{$query->name}': @dto '{$dtoName}' is shared with another query " .
+                    "but the column shapes don't match.{$detail}\n" .
+                    "All queries sharing a @dto name must select exactly the same columns.\n" .
+                    "Tip: use explicit column aliases to ensure identical names and types."
+                );
             }
             $dtoRegistry[$dtoName] = $shape;
         }

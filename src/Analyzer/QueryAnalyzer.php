@@ -104,6 +104,12 @@ class QueryAnalyzer
                     $returnsModelDirectly = false;
                     $modelClass           = null;
                 }
+                // @dto explicitly overrides the return type — even when table.* is selected,
+                // the developer wants a specific DTO, not the model directly.
+                if ($returnsModelDirectly && !empty($query->dtoClassName)) {
+                    $returnsModelDirectly = false;
+                    $modelClass           = null;
+                }
             }
         }
 

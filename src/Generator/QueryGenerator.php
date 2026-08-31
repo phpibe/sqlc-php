@@ -2468,8 +2468,10 @@ PHP;
             return "{$className} \$params";
         }
 
-        $required = [];
-        $optional = [];
+        $required    = [];
+        $withDefault = [];
+        $withNull    = [];
+        $optional    = [];
 
         // :limit and :offset are auto-injected for :many-paginated — skip them here
         // :limit is also managed internally for :cursor (as :__limit) — skip it too
@@ -2491,12 +2493,37 @@ PHP;
                     ? $param->phpType
                     : '?' . $param->phpType;
                 $optional[] = "{$type} \${$param->name} = null";
+            } elseif ($param->schemaDefault === '__SQL_FUNCTION__' && $query->returns->value === ':exec') {
+                $type       = str_starts_with($param->phpType, '?')
+                    ? $param->phpType
+                    : '?' . $param->phpType;
+                $withNull[] = "{$type} \${$param->name} = null";
+            } elseif ($param->schemaDefault !== null && $param->schemaDefault !== '__SQL_FUNCTION__' && $query->returns->value === ':exec') {
+                $defaultLiteral = $this->phpDefaultLiteralForParam($param);
+                $withDefault[]  = "{$param->phpType} \${$param->name} = {$defaultLiteral}";
             } else {
                 $required[] = "{$param->phpType} \${$param->name}";
             }
         }
 
-        return implode(', ', array_merge($required, $optional));
+        return implode(', ', array_merge($required, $withDefault, $withNull, $optional));
+    }
+
+    /**
+     * Convert a QueryParam's schemaDefault into a PHP literal for use in
+     * method signatures and Params DTO constructors.
+     */
+    private function phpDefaultLiteralForParam(\SqlcPhp\Resolver\QueryParam $param): string
+    {
+        $raw  = $param->schemaDefault ?? '';
+        $bare = ltrim($param->phpType, '?');
+
+        return match ($bare) {
+            'int', 'integer'  => (string) (int) $raw,
+            'float', 'double' => (string) (float) $raw,
+            'bool', 'boolean' => $raw === '0' || strtolower($raw) === 'false' ? 'false' : 'true',
+            default           => "'" . addslashes($raw) . "'",
+        };
     }
 
     /**

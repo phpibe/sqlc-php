@@ -76,13 +76,25 @@ class ParamResolver
                         'bool', 'boolean' => 'PDO::PARAM_BOOL',
                         default           => 'PDO::PARAM_STR',
                     };
+                    // Still look up the schema default even when @param overrides the type.
+                    // Search all tables since we don't have table aliases at this stage.
+                    $schemaDefault = null;
+                    foreach ($this->catalog->all() as $table) {
+                        foreach ($table->columns as $col) {
+                            if ($col->name === $paramName || $col->name === $this->camelToSnake($paramName)) {
+                                $schemaDefault = self::normaliseSchemaDefault($col->default);
+                                break 2;
+                            }
+                        }
+                    }
                     $resolved[$paramName] = new QueryParam(
-                        name:     $paramName,
-                        sqlType:  $base,
-                        nullable: $nullable,
-                        pdoParam: $pdoParam,
-                        phpType:  $phpType,
-                        inList:   $isInList,
+                        name:          $paramName,
+                        sqlType:       $base,
+                        nullable:      $nullable,
+                        pdoParam:      $pdoParam,
+                        phpType:       $phpType,
+                        inList:        $isInList,
+                        schemaDefault: $schemaDefault,
                     );
                     continue;
                 }
@@ -117,7 +129,8 @@ class ParamResolver
                     [$realTable, $colDef] = $found;
                     $resolved[$paramName] = $this->buildParam(
                         $paramName, $colDef->sqlType, $colDef->nullable,
-                        $realTable, $colDef->name, inList: $isInList
+                        $realTable, $colDef->name, inList: $isInList,
+                        schemaDefault: self::normaliseSchemaDefault($colDef->default),
                     );
                     continue;
                 }
@@ -130,7 +143,8 @@ class ParamResolver
                     [$inTable, $inCol] = $inColResult;
                     $resolved[$paramName] = $this->buildParam(
                         $paramName, $inCol->sqlType, $inCol->nullable,
-                        $inTable, $inCol->name, inList: true
+                        $inTable, $inCol->name, inList: true,
+                        schemaDefault: self::normaliseSchemaDefault($inCol->default),
                     );
                     continue;
                 }
@@ -142,7 +156,8 @@ class ParamResolver
                 [$directTable, $direct] = $directResult;
                 $resolved[$paramName] = $this->buildParam(
                     $paramName, $direct->sqlType, $direct->nullable,
-                    $directTable, $direct->name, inList: $isInList
+                    $directTable, $direct->name, inList: $isInList,
+                    schemaDefault: self::normaliseSchemaDefault($direct->default),
                 );
                 continue;
             }
@@ -153,7 +168,8 @@ class ParamResolver
                 [$byNameTable, $byName] = $byNameResult;
                 $resolved[$paramName] = $this->buildParam(
                     $paramName, $byName->sqlType, $byName->nullable,
-                    $byNameTable, $byName->name, inList: $isInList
+                    $byNameTable, $byName->name, inList: $isInList,
+                    schemaDefault: self::normaliseSchemaDefault($byName->default),
                 );
                 continue;
             }
@@ -381,15 +397,57 @@ class ParamResolver
         ?string $table  = null,
         ?string $column = null,
         bool    $inList = false,
+        ?string $schemaDefault = null,
     ): QueryParam {
         return new QueryParam(
-            name:     $name,
-            sqlType:  $sqlType,
-            nullable: $nullable,
-            pdoParam: $this->typeMapper->toPdoParam($sqlType, $table, $column),
-            phpType:  $this->typeMapper->toPhpType($sqlType, $nullable, $table, $column),
-            inList:   $inList,
+            name:          $name,
+            sqlType:       $sqlType,
+            nullable:      $nullable,
+            pdoParam:      $this->typeMapper->toPdoParam($sqlType, $table, $column),
+            phpType:       $this->typeMapper->toPhpType($sqlType, $nullable, $table, $column),
+            inList:        $inList,
+            schemaDefault: $schemaDefault,
         );
+    }
+
+    /**
+     * Normalise a raw DEFAULT value from the schema.
+     * SQL function defaults (CURRENT_TIMESTAMP, NOW(), UUID(), etc.) cannot
+     * be expressed as PHP literals — they are returned as null so the generated
+     * code treats the param as optional with a null default (MySQL applies the
+     * DEFAULT automatically when PDO binds null).
+     *
+     * String literals are returned unquoted (e.g. "'active'" → "active").
+     * Numeric literals are returned as-is (e.g. "0", "1").
+     * NULL keyword → null (no default needed, column is nullable).
+     */
+    public static function normaliseSchemaDefault(?string $raw): ?string
+    {
+        if ($raw === null) return null;
+
+        $upper = strtoupper(trim($raw));
+
+        // NULL keyword — column is nullable, no PHP default needed
+        if ($upper === 'NULL') return null;
+
+        // SQL function defaults — cannot express in PHP, use null so MySQL applies DEFAULT
+        $sqlFunctions = [
+            'CURRENT_TIMESTAMP', 'NOW()', 'CURRENT_DATE', 'CURRENT_TIME',
+            'LOCALTIME', 'LOCALTIME()', 'LOCALTIMESTAMP', 'LOCALTIMESTAMP()',
+            'UNIX_TIMESTAMP()', 'UTC_TIMESTAMP()', 'UUID()', 'UUID_SHORT()',
+            'RAND()', 'SYSDATE()',
+        ];
+        foreach ($sqlFunctions as $fn) {
+            if (str_starts_with($upper, $fn)) return '__SQL_FUNCTION__';
+        }
+
+        // Quoted string — strip the outer quotes
+        if (str_starts_with($raw, "'") && str_ends_with($raw, "'")) {
+            return stripslashes(substr($raw, 1, -1));
+        }
+
+        // Numeric or boolean literal — return as-is
+        return $raw;
     }
 
     private function camelToSnake(string $input): string

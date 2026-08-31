@@ -442,13 +442,14 @@ class QueryAnalyzer
             }
 
             return new QueryParam(
-                name:     $p->name,
-                sqlType:  $p->sqlType,
-                nullable: true,
-                pdoParam: $p->pdoParam,
-                phpType:  $phpType,
-                optional: $p->optional,
-                inList:   $p->inList,
+                name:          $p->name,
+                sqlType:       $p->sqlType,
+                nullable:      true,
+                pdoParam:      $p->pdoParam,
+                phpType:       $phpType,
+                optional:      $p->optional,
+                inList:        $p->inList,
+                schemaDefault: $p->schemaDefault,
             );
         }, $params);
     }
@@ -817,13 +818,14 @@ class QueryAnalyzer
             $nullableType = '?' . $base;
 
             return new QueryParam(
-                name:     $p->name,
-                sqlType:  $p->sqlType,
-                nullable: true,
-                pdoParam: $p->pdoParam,
-                phpType:  $nullableType,
-                optional: true,
-                inList:   $p->inList,
+                name:          $p->name,
+                sqlType:       $p->sqlType,
+                nullable:      true,
+                pdoParam:      $p->pdoParam,
+                phpType:       $nullableType,
+                optional:      true,
+                inList:        $p->inList,
+                schemaDefault: $p->schemaDefault,
             );
         }, $params);
     }

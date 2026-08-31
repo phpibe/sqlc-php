@@ -40,7 +40,7 @@ class ResultDtoGenerator
      *
      * @param \SqlcPhp\Resolver\QueryParam[] $params
      */
-    private function buildFromArrayBody(array $params): string
+    private function buildFromArrayBody(array $params, bool $isExec = false): string
     {
         $lines = [];
         foreach ($params as $param) {
@@ -51,10 +51,48 @@ class ResultDtoGenerator
             $key      = "\$data['{$name}']";
             $nullKey  = "\$data['{$name}'] ?? null";
 
-            $cast = $this->fromArrayCastExpr($key, $nullKey, $bare, $nullable, $param->optional || $param->inList === false && $nullable);
+            // Params with schema DEFAULT use the PHP default literal as fallback in from()
+            // only for :exec queries (INSERT/UPDATE) — not for SELECT WHERE params.
+            $hasSchemaDefault = $isExec && $param->schemaDefault !== null
+                && $param->schemaDefault !== '__SQL_FUNCTION__';
+            $isSqlFunction    = $isExec && $param->schemaDefault === '__SQL_FUNCTION__';
+
+            if ($hasSchemaDefault) {
+                $defaultLiteral = $this->phpDefaultLiteral($param);
+                // Use schema default when key is absent from the array
+                $nullKey = "\$data['{$name}'] ?? {$defaultLiteral}";
+                $cast = $this->fromArrayCastExpr($key, $nullKey, $bare, false, true);
+            } elseif ($isSqlFunction) {
+                // SQL function default → null in PHP, MySQL applies the DEFAULT
+                $cast = $this->fromArrayCastExpr($key, $nullKey, $bare, true, true);
+            } else {
+                $allowMissing = $param->optional || ($param->inList === false && $nullable);
+                $cast = $this->fromArrayCastExpr($key, $nullKey, $bare, $nullable, $allowMissing);
+            }
+
             $lines[] = "            {$cast},";
         }
         return implode("\n", $lines);
+    }
+
+    /**
+     * Convert a QueryParam's schemaDefault into a PHP literal for use in
+     * constructor defaults and from() fallbacks.
+     * e.g. schemaDefault='active' + phpType='string' → "'active'"
+     *      schemaDefault='0'      + phpType='int'    → "0"
+     *      schemaDefault='1'      + phpType='bool'   → "true"
+     */
+    private function phpDefaultLiteral(\SqlcPhp\Resolver\QueryParam $param): string
+    {
+        $raw  = $param->schemaDefault ?? '';
+        $bare = ltrim($param->phpType, '?');  // strip nullable prefix
+
+        return match ($bare) {
+            'int', 'integer'  => (string) (int) $raw,
+            'float', 'double' => (string) (float) $raw,
+            'bool', 'boolean' => $raw === '0' || strtolower($raw) === 'false' ? 'false' : 'true',
+            default           => "'" . addslashes($raw) . "'",
+        };
     }
 
     private function fromArrayCastExpr(string $key, string $nullKey, string $bare, bool $nullable, bool $allowMissing): string
@@ -91,28 +129,28 @@ class ResultDtoGenerator
         if ($bare === 'int') {
             return $nullable
                 ? "({$nullKey}) !== null ? (int) ({$nullKey}) : null"
-                : "(int) {$key}";
+                : "(int) ({$src})";
         }
 
         // float
         if ($bare === 'float') {
             return $nullable
                 ? "({$nullKey}) !== null ? (float) ({$nullKey}) : null"
-                : "(float) {$key}";
+                : "(float) ({$src})";
         }
 
         // bool
         if ($bare === 'bool') {
             return $nullable
                 ? "({$nullKey}) !== null ? (bool) ({$nullKey}) : null"
-                : "(bool) {$key}";
+                : "(bool) ({$src})";
         }
 
         // string
         if ($bare === 'string') {
             return $nullable
                 ? "({$nullKey}) !== null ? (string) ({$nullKey}) : null"
-                : "(string) {$key}";
+                : "(string) ({$src})";
         }
 
         // Unknown / mixed — pass through
@@ -467,6 +505,8 @@ PHP;
 
         $props    = [];
         $required = [];
+        $withDefault = [];   // has a schema DEFAULT (numeric/string literal)
+        $withNull    = [];   // has a SQL function DEFAULT → null in PHP
         $optional = [];
 
         foreach ($query->params as $param) {
@@ -474,7 +514,17 @@ PHP;
                 $required[] = $param;
             } elseif ($param->optional) {
                 $optional[] = $param;
+            } elseif ($param->schemaDefault === '__SQL_FUNCTION__' && $query->returns->value === ':exec') {
+                $withNull[] = $param;
+            } elseif ($param->schemaDefault !== null && $param->schemaDefault !== '__SQL_FUNCTION__' && $query->returns->value === ':exec') {
+                // Nullable @param with schema DEFAULT → optional with schema default value.
+                // The ? signals the developer considers it optional; schema provides the value.
+                // Non-nullable with schema DEFAULT → also optional with schema default.
+                $withDefault[] = $param;
             } else {
+                // nullable without a schema DEFAULT stays required:
+                // the caller must explicitly pass null (no default assumed).
+                // Also: SELECT/WHERE params never get schema defaults — they're filter values.
                 $required[] = $param;
             }
         }
@@ -486,13 +536,25 @@ PHP;
                 $props[] = "        public {$param->phpType} \${$param->name},";
             }
         }
+        foreach ($withDefault as $param) {
+            $default = $this->phpDefaultLiteral($param);
+            // For params annotated as ?type but with a schema DEFAULT, use the non-nullable
+            // type with the schema default — the ? was signaling optionality, not nullability.
+            $type    = ltrim($param->phpType, '?');
+            $props[] = "        public {$type} \${$param->name} = {$default},";
+        }
+        foreach ($withNull as $param) {
+            $type    = str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType;
+            $props[] = "        public {$type} \${$param->name} = null,";
+        }
         foreach ($optional as $param) {
             $type    = str_starts_with($param->phpType, '?') ? $param->phpType : '?' . $param->phpType;
             $props[] = "        public {$type} \${$param->name} = null,";
         }
 
+        $allParams   = array_merge($required, $withDefault, $withNull, $optional);
         $propsStr    = implode("\n", $props);
-        $fromBody    = $this->buildFromArrayBody(array_merge($required, $optional));
+        $fromBody    = $this->buildFromArrayBody($allParams, $query->returns->value === ':exec');
 
         $internalTag = ($query->visibility ?? 'public') === 'protected'
             ? "\n * @internal Used by the protected {$query->name}() method — not part of the public API."
@@ -500,7 +562,7 @@ PHP;
 
         // Build toArray() body from params
         $toArrayLines = [];
-        foreach (array_merge($required, $optional) as $param) {
+        foreach ($allParams as $param) {
             $bare     = ltrim($param->phpType, '?');
             $nullable = str_starts_with($param->phpType, '?');
             $expr     = "\$this->{$param->name}";

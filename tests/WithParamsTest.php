@@ -274,7 +274,8 @@ class WithParamsTest extends TestCase
             "INSERT INTO cms_configs (country_id, page, section, status)\n" .
             "VALUES (:country_id, :page, :section, :status);"
         );
-        $this->assertStringContainsString("(int) \$data['country_id']", $r['code']);
+        // Both (int) $data['country_id'] and (int) ($data['country_id']) are valid
+        $this->assertMatchesRegularExpression("/\(int\) \(?\\\\?\\\$data\['country_id'\]\)?/", $r['code']);
     }
 
     public function test_from_casts_nullable_int_with_null_check(): void

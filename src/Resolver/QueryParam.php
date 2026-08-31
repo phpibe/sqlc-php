@@ -33,5 +33,16 @@ class QueryParam
          * at runtime to replace :param with the appropriate number of ? placeholders.
          */
         public readonly bool    $inList   = false,
+        /**
+         * DEFAULT value from the schema column, if any.
+         * Used to generate optional parameters with schema-aware defaults
+         * in Params DTOs and individual method signatures.
+         *
+         * null  = no DEFAULT declared in schema (column is required)
+         * ''    = DEFAULT '' (empty string)
+         * '0'   = DEFAULT 0
+         * 'CURRENT_TIMESTAMP' / 'NOW()' etc. = SQL function → treated as null in PHP
+         */
+        public readonly ?string $schemaDefault = null,
     ) {}
 }

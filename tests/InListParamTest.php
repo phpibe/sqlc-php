@@ -259,24 +259,33 @@ class InListParamTest extends TestCase
     // Mixed IN + regular params
     // =========================================================================
 
-    public function test_mixed_query_binds_regular_params_with_bindvalue(): void
+    public function test_mixed_query_converts_all_params_to_positional(): void
     {
+        // When IN() params are present, ALL params must be positional to avoid
+        // PDO "mixed named and positional parameters" error (HY093).
         $code = $this->generateCode(
             "-- @name Filter\n-- @returns :many\n" .
             "SELECT * FROM users WHERE id IN (:ids) AND active = :active;"
         );
 
-        $this->assertStringContainsString("bindValue(':active'", $code);
+        // Regular param must be converted to positional ? (not bindValue)
+        $this->assertStringContainsString("str_replace(':active', '?'", $code);
+        $this->assertStringNotContainsString("bindValue(':active'", $code);
     }
 
-    public function test_mixed_query_spreads_in_params_in_execute(): void
+    public function test_mixed_query_executes_with_all_values(): void
     {
+        // All values passed via execute() in order: regular params first, IN values after
         $code = $this->generateCode(
             "-- @name Filter\n-- @returns :many\n" .
             "SELECT * FROM users WHERE id IN (:ids) AND active = :active;"
         );
 
-        $this->assertStringContainsString('execute([...$ids])', $code);
+        // execute() receives regular params first, then IN list values
+        $this->assertStringContainsString('execute([', $code);
+        $this->assertStringContainsString('...$ids', $code);
+        // No mixing — no bindValue for regular params
+        $this->assertStringNotContainsString("bindValue(':active'", $code);
     }
 
     public function test_mixed_query_signature_has_array_then_scalar(): void

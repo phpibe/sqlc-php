@@ -2691,28 +2691,37 @@ PHP;
             $lines[] = "        \$__sql = str_replace(':{$param->name}', {$ph}, \$__sql);";
         }
 
-        $lines[] = "        {$stmtVar} = \$this->pdo->prepare(\$__sql);";
-
-        // Bind regular named params (excluding auto-injected limit/offset for paginated)
+        // When IN() params are present, PDO cannot mix named (':param') and positional ('?')
+        // placeholders in the same statement. Convert ALL params to positional '?' and pass
+        // all values via execute() in the correct order.
         $isPaginated    = $query->paginated || $query->returns->value === ':many-paginated';
         $paginationKeys = ['limit', 'offset'];
 
+        // Step 1: replace all regular named params with '?' BEFORE prepare()
+        $executeValues = [];
         foreach ($regularParams as $param) {
             if ($isPaginated && in_array($param->name, $paginationKeys, true)) {
                 continue;
             }
             $value = $this->bindValueExpr($param);
-            $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', {$value}, {$param->pdoParam});";
+            $lines[] = "        \$__sql = str_replace(':{$param->name}', '?', \$__sql);";
+            $executeValues[] = $value;
             if ($param->optional) {
                 $chk = $param->name . '_chk';
-                $lines[] = "        {$stmtVar}->bindValue(':{$chk}', {$value}, {$param->pdoParam});";
+                $lines[] = "        \$__sql = str_replace(':{$chk}', '?', \$__sql);";
+                $executeValues[] = $value;
             }
         }
-        $executeArgParts = [];
-        foreach ($inListParams as $param) {
-            $executeArgParts[] = "...\${$param->name}";
-        }
-        $executeArgs = implode(', ', $executeArgParts);
+
+        // Step 2: prepare after all replacements
+        $lines[] = "        {$stmtVar} = \$this->pdo->prepare(\$__sql);";
+
+        // Step 3: execute with all values: regular params first, then IN list values
+        $allExecuteArgs = array_merge(
+            $executeValues,
+            array_map(fn($p) => "...\${$p->name}", $inListParams)
+        );
+        $executeArgs = implode(', ', $allExecuteArgs);
         $lines[] = "        {$stmtVar}->execute([{$executeArgs}]);";
         $lines[] = '';
 

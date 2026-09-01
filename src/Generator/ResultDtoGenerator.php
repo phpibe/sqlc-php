@@ -500,16 +500,38 @@ readonly class {$className}
 }
 PHP;
 
+        // ── Extension traits for Row and Item DTOs ───────────────────────────
+        $scopeSubdir = $this->scopeSubdir($query, $dtoScope);
+        $extensions  = [];
+        if ($extGen !== null) {
+            // Row DTO extension — scalar (primary table) columns
+            if (!empty($scalarCols)) {
+                $hostFqcn      = $namespace . '\\' . $className;
+                $propsWithFqcn = $this->attachFqcns($scalarCols);
+                $rowExt        = $extGen->forDto($className, $propsWithFqcn, [], $scopeSubdir ?? null, $hostFqcn);
+                $code          = $extGen->injectIntoClass($code, $rowExt);
+                $extensions[$rowExt->relPath] = $rowExt;
+            }
+            // Item DTO extension — repeated (JOIN side) columns
+            if (!empty($repeatedCols)) {
+                $itemFqcn      = $namespace . '\\' . $itemClassName;
+                $propsWithFqcn = $this->attachFqcns($repeatedCols);
+                $itemExt       = $extGen->forDto($itemClassName, $propsWithFqcn, [], $scopeSubdir ?? null, $itemFqcn);
+                $itemCode      = $extGen->injectIntoClass($itemCode, $itemExt);
+                $extensions[$itemExt->relPath] = $itemExt;
+            }
+        }
+
         return [
             'className'   => $className,
             'code'        => $code,
             'itemClass'   => $itemClassName,
             'itemCode'    => $itemCode,
-            'scopeSubdir' => $this->scopeSubdir($query, $dtoScope),
+            'scopeSubdir' => $scopeSubdir ?? null,
             'namespace'   => $namespace,
             'embeds'      => [],
             'jsonDtos'    => [],
-            'extensions'  => [],
+            'extensions'  => $extensions,
         ];
     }
 

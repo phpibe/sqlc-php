@@ -616,6 +616,14 @@ function runGeneration(
                 $prefix = $subdir !== null ? "{$subdir}/" : '';
                 $toWrite["{$prefix}{$r['className']}.php"]   = ['type' => 'dtos', 'label' => '[dto]    ', 'code' => $r['code']];
                 $toWrite["{$prefix}{$r['itemClass']}.php"]   = ['type' => 'dtos', 'label' => '[item]   ', 'code' => $r['itemCode']];
+                // Extension scaffolds for Row and Item DTOs
+                foreach ($r['extensions'] ?? [] as $relPath => $ext) {
+                    $scaffoldWrite[$relPath] = [
+                        'type'  => 'extensions_dtos',
+                        'label' => '[ext-d]  ',
+                        'ext'   => $ext,
+                    ];
+                }
                 continue;
             }
 

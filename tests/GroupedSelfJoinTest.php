@@ -169,9 +169,63 @@ class GroupedSelfJoinTest extends TestCase
         $this->assertStringContainsString('public array $items', $r['code']);
     }
 
-    // =========================================================================
-    // Regular JOIN (different tables) — existing behavior unchanged
-    // =========================================================================
+    public function test_grouped_with_wildcard_select_does_not_return_model(): void
+    {
+        // When @returns :grouped is declared with table.*, returnsModelDirectly must be false
+        // (bug: it was true, causing groupResults() to be absent from the generated model)
+        $q = $this->analyzer->analyze($this->parser->parse(
+            "-- @name ListCategories\n-- @class RefundsCategories\n" .
+            "-- @group_by refunds_categories.id\n-- @returns :grouped\n" .
+            "SELECT refunds_categories.*,\n" .
+            "       refunds_subcategories.id AS refunds_subcategories_id,\n" .
+            "       refunds_subcategories.name AS refunds_subcategories_name\n" .
+            "FROM refunds_categories\n" .
+            "LEFT JOIN refunds_categories as refunds_subcategories\n" .
+            "    ON refunds_subcategories.parent_id = refunds_categories.id\n" .
+            "WHERE refunds_categories.parent_id IS NULL;"
+        ));
+
+        $this->assertFalse($q[0]->returnsModelDirectly,
+            '@returns :grouped with table.* must not return model directly');
+    }
+
+    public function test_many_with_single_table_wildcard_still_returns_model(): void
+    {
+        // Simple :many with table.* on a single table → still returns model directly
+        $q = $this->analyzer->analyze($this->parser->parse(
+            "-- @name ListAllCategories\n-- @class RefundsCategories\n" .
+            "-- @returns :many\n" .
+            "SELECT refunds_categories.* FROM refunds_categories;"
+        ));
+
+        $this->assertTrue($q[0]->returnsModelDirectly,
+            ':many with single table.* should still return model directly');
+    }
+
+    public function test_grouped_wildcard_generates_correct_item_dto(): void
+    {
+        $q = $this->analyzer->analyze($this->parser->parse(
+            "-- @name ListCategories\n-- @class RefundsCategories\n" .
+            "-- @group_by refunds_categories.id\n-- @returns :grouped\n" .
+            "SELECT refunds_categories.*,\n" .
+            "       refunds_subcategories.id AS refunds_subcategories_id,\n" .
+            "       refunds_subcategories.name AS refunds_subcategories_name\n" .
+            "FROM refunds_categories\n" .
+            "LEFT JOIN refunds_categories as refunds_subcategories\n" .
+            "    ON refunds_subcategories.parent_id = refunds_categories.id\n" .
+            "WHERE refunds_categories.parent_id IS NULL;"
+        ));
+
+        $r = $this->dtoGen->generateGrouped($q[0]);
+
+        // Item has the JOIN-side columns
+        $this->assertStringContainsString('refunds_subcategories_id', $r['itemCode']);
+        $this->assertStringContainsString('refunds_subcategories_name', $r['itemCode']);
+
+        // Row has the primary table columns
+        $this->assertStringContainsString('public int $id', $r['code']);
+        $this->assertStringContainsString('public array $items', $r['code']);
+    }
 
     public function test_regular_join_still_works(): void
     {

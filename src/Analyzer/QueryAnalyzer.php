@@ -110,6 +110,25 @@ class QueryAnalyzer
                     $returnsModelDirectly = false;
                     $modelClass           = null;
                 }
+                // Explicit return type annotations override returnsModelDirectly only when
+                // the query selects from multiple tables (JOIN). A simple :many with table.*
+                // from a single table should still return the model directly.
+                $nonDirectReturns = [':grouped', ':many', ':many-paginated', ':cursor', ':stream', ':batch'];
+                if ($returnsModelDirectly && in_array($query->returns->value, $nonDirectReturns, true)) {
+                    // Check if multiple distinct tables are involved
+                    $tables = array_unique(array_map(
+                        fn($c) => strtolower($c->tableName),
+                        array_filter($resultColumns, fn($c) => $c->tableName !== '')
+                    ));
+                    // For :grouped specifically, always force DTO (it's always a JOIN result)
+                    // For others, only force DTO when there are columns from multiple tables
+                    $forceDto = $query->returns->value === ':grouped'
+                        || count($tables) > 1;
+                    if ($forceDto) {
+                        $returnsModelDirectly = false;
+                        $modelClass           = null;
+                    }
+                }
             }
         }
 

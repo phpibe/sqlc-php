@@ -339,10 +339,28 @@ class ResultDtoGenerator
             : '';
 
         // Split: scalar (primary table) vs repeated (join side)
+        // Normal case: columns from different tables split by tableName.
+        // Self-join case: all columns share the same tableName (the alias resolved
+        // back to the real table). In this case, distinguish by alias vs columnName —
+        // columns where alias !== columnName came from the JOIN side with an explicit alias
+        // (e.g. subcategory_id, subcategory_name) and belong to the item side.
+        $allSameTable = count(array_unique(array_map(fn($c) => strtolower($c->tableName), $columns))) === 1;
         $scalarCols   = [];
         $repeatedCols = [];
         foreach ($columns as $col) {
-            if ($primaryTable === '' || strtolower($col->tableName) === strtolower($primaryTable)) {
+            $isFromPrimaryTable = $primaryTable === ''
+                || strtolower($col->tableName) === strtolower($primaryTable);
+
+            if ($isFromPrimaryTable && $allSameTable) {
+                // Self-join: use alias == columnName to detect the primary table columns.
+                // Columns with alias == columnName are the unaliased primary table columns.
+                // Columns with alias != columnName were explicitly aliased from the JOIN side.
+                if ($col->alias === $col->columnName) {
+                    $scalarCols[] = $col;
+                } else {
+                    $repeatedCols[] = $col;
+                }
+            } elseif ($isFromPrimaryTable) {
                 $scalarCols[] = $col;
             } else {
                 $repeatedCols[] = $col;
@@ -388,8 +406,17 @@ readonly class {$itemClassName}
 }
 PHP;
 
-        // Determine item property name from the repeated table name
-        $itemPropName = !empty($repeatedCols) ? ($repeatedCols[0]->tableName ?: 'items') : 'items';
+        // Determine item property name:
+        // - For self-joins (allSameTable) the tableName is the same as primary → use 'items'
+        // - For regular joins, use the JOIN table name
+        $itemPropName = 'items';
+        if (!$allSameTable && !empty($repeatedCols)) {
+            $joinTableName = $repeatedCols[0]->tableName ?: 'items';
+            // Convert table_name to camelCase property: reserve_items → reserveItems
+            $parts = explode('_', $joinTableName);
+            $first = array_shift($parts);
+            $itemPropName = $first . implode('', array_map('ucfirst', $parts));
+        }
 
         // Generate the main DTO with scalar properties + the array property
         $scalarProps    = [];
@@ -409,7 +436,11 @@ PHP;
         $sourceDesc  = $this->buildSourceDescription($columns);
 
         // Build the grouping key extraction (the @group_by column alias)
-        $groupByAlias = str_contains($groupByCol, '.') ? explode('.', $groupByCol, 2)[1] : $groupByCol;
+        $firstItemAlias     = !empty($repeatedCols) ? $repeatedCols[0]->alias : null;
+        $firstItemNullCheck = $firstItemAlias !== null
+            ? "isset(\$row['{$firstItemAlias}']) && \$row['{$firstItemAlias}'] !== null"
+            : "true";
+        $groupByAlias  = str_contains($groupByCol, '.') ? explode('.', $groupByCol, 2)[1] : $groupByCol;
 
         $code = <<<PHP
 <?php
@@ -453,7 +484,10 @@ readonly class {$className}
             if (!isset(\$acc[\$key])) {
                 \$acc[\$key] = ['dto' => self::fromRow(\$row), 'items' => []];
             }
-            \$acc[\$key]['items'][] = {$itemClassName}::fromRow(\$row);
+            // Skip NULL rows produced by LEFT JOIN when the joined side has no match
+            if ({$firstItemNullCheck}) {
+                \$acc[\$key]['items'][] = {$itemClassName}::fromRow(\$row);
+            }
         }
         return array_values(array_map(
             fn(array \$entry) => new self(

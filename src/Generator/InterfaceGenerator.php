@@ -306,6 +306,13 @@ PHP;
         $returnClass = $queryGen->resolveReturnClassPublic($query);
         $paramList   = $queryGen->buildParamListPublic($query);
         $docblock    = $this->buildDocblock($query, $queryGen, "@return {$returnClass}[]");
+
+        if ($query->searchable) {
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null";
+        }
+
         return <<<PHP
 {$docblock}
     public function {$query->name}({$paramList}): array;
@@ -397,6 +404,11 @@ PHP;
     private function renderCountStandaloneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
         $paramList = $queryGen->buildParamListPublic($query);
+        if ($query->searchable) {
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null";
+        }
         $docblock  = $this->buildDocblock($query, $queryGen, '@return int Number of matching rows.');
         return <<<PHP
 {$docblock}
@@ -407,6 +419,11 @@ PHP;
     private function renderExistsStandaloneSignature(QueryDefinition $query, QueryGenerator $queryGen): string
     {
         $paramList = $queryGen->buildParamListPublic($query);
+        if ($query->searchable) {
+            $criteriaClass = ucfirst($query->name) . 'Criteria';
+            $sep       = $paramList !== '' ? ', ' : '';
+            $paramList = $paramList . $sep . "?{$criteriaClass} \$criteria = null";
+        }
         $docblock  = $this->buildDocblock($query, $queryGen, '@return bool True when at least one row matches.');
         return <<<PHP
 {$docblock}

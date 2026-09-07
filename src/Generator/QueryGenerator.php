@@ -436,6 +436,18 @@ PHP;
 
         // @with criteria queries get their own render path
         if ($query->searchable) {
+            if ($query->returns === ReturnType::Grouped) {
+                return $this->renderGroupedMethod($query);
+            }
+
+            // Standalone :count or :exists with criteria — use searchable companion methods directly
+            if ($query->returns === ReturnType::Count) {
+                return $this->renderSearchableCountMethod($query);
+            }
+            if ($query->returns === ReturnType::Exists) {
+                return $this->renderSearchableExistsMethod($query);
+            }
+
             $main = ($query->paginated || $query->returns === ReturnType::ManyPaginated)
                 ? $this->renderSearchablePaginatedMethod($query)
                 : $this->renderSearchableManyMethod($query);
@@ -523,34 +535,46 @@ PHP;
         // Also strip LIMIT :limit OFFSET :offset that the analyzer may have injected
         $normalized = rtrim(preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $normalized));
 
-        // Detect structural keywords (case-insensitive)
-        $hasWhere    = (bool) preg_match('/\bWHERE\b/i',    $normalized);
-        $hasGroupBy  = (bool) preg_match('/\bGROUP\s+BY\b/i', $normalized);
-        $hasOrderBy  = (bool) preg_match('/\bORDER\s+BY\b/i', $normalized);
+        // For queries with CTEs (WITH ...) or subqueries, structural keywords inside
+        // parentheses or CTE bodies must be ignored. We must only look at the OUTERMOST
+        // SELECT's WHERE, GROUP BY, and ORDER BY.
+        //
+        // Strategy: find the position of the outermost SELECT (after all CTE definitions),
+        // then look for structural keywords only from that point forward and only at
+        // parenthesis depth 0.
+        $outerSelectPos = $this->findOutermostSelectPos($normalized);
+        $outerSql       = $outerSelectPos > 0 ? substr($normalized, $outerSelectPos) : $normalized;
+        $ctePrefix      = $outerSelectPos > 0 ? substr($normalized, 0, $outerSelectPos) : '';
 
-        // Split SQL into: beforeOrder, staticOrderBy
-        // If there's an ORDER BY, we need to either keep it (no criteria order) or replace it
+        // Find outermost WHERE, GROUP BY, ORDER BY positions within $outerSql
+        $wherePos   = $this->findOutermostKeyword($outerSql, 'WHERE');
+        $groupByPos = $this->findOutermostKeyword($outerSql, 'GROUP BY');
+        $orderByPos = $this->findOutermostKeyword($outerSql, 'ORDER BY');
+
+        $hasWhere   = $wherePos !== false;
+        $hasGroupBy = $groupByPos !== false;
+        $hasOrderBy = $orderByPos !== false;
+
+        // Split outerSql at the outermost ORDER BY
         if ($hasOrderBy) {
-            $splitPos    = (int) preg_match('/^(.*?)(\s+ORDER\s+BY\s+.*)$/is', $normalized, $sm);
-            $beforeOrder = $splitPos ? trim($sm[1]) : $normalized;
-            $staticOrder = $splitPos ? trim($sm[2]) : '';
+            $beforeOrder = rtrim(substr($outerSql, 0, $orderByPos));
+            $staticOrder = trim(substr($outerSql, $orderByPos));
         } else {
-            $beforeOrder = $normalized;
+            $beforeOrder = $outerSql;
             $staticOrder = '';
         }
 
-        // The base SQL for no-criteria or WITH-criteria cases.
-        // If the SQL has GROUP BY, split it off so criteria filters go BEFORE GROUP BY.
+        // Split at the outermost GROUP BY (within the pre-ORDER portion)
         $groupBySuffix = '';
         $beforeGroupBy = $beforeOrder;
-        if ($hasGroupBy) {
-            if (preg_match('/^(.*?)(\s+GROUP\s+BY\s+.*)$/is', $beforeOrder, $gbm)) {
-                $beforeGroupBy = rtrim($gbm[1]);
-                $groupBySuffix = trim($gbm[2]);
-            }
+        if ($hasGroupBy && ($groupByPos !== false) && (!$hasOrderBy || $groupByPos < $orderByPos)) {
+            $beforeGroupBy = rtrim(substr($outerSql, 0, $groupByPos));
+            $groupBySuffix = trim(substr($outerSql, $groupByPos, $hasOrderBy ? ($orderByPos - $groupByPos) : null));
         }
 
-        $escaped      = str_replace("'", "\\'", $beforeGroupBy);
+        // Reassemble: ctePrefix + beforeGroupBy is the "base" for criteria injection
+        $base         = $ctePrefix . $beforeGroupBy;
+        $escaped      = str_replace("'", "\\'", $base);
         $escapedGroup = str_replace("'", "\\'", $groupBySuffix);
 
         $lines = [];
@@ -692,7 +716,11 @@ PHP;
         $userParams   = $this->buildParamList($query);
         $critParam    = "?{$criteriaClass} \$criteria = null";
         $allParams    = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
-        $countName    = $query->name . 'Count';
+        // When used standalone on :count, use the query name as-is.
+        // When used as a companion on :many/:many-paginated, append 'Count'.
+        $countName    = $query->returns === ReturnType::Count
+            ? $query->name
+            : $query->name . 'Count';
 
         $bindings     = $this->renderBindings($query);
         $bindingsStr  = rtrim($bindings);
@@ -700,6 +728,27 @@ PHP;
         $bindingsExpr = $this->buildBindingsExpr($query);
 
         $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', withLimit: false);
+
+        // When the SQL is already a COUNT (standalone :count query), applying filters
+        // directly is correct — no wrapping needed. Wrapping produces the nonsensical
+        // SELECT COUNT(*) AS _total FROM (SELECT COUNT(*) FROM ...) AS _count_subquery.
+        // For companion count methods on :many queries, wrapping is required because
+        // the SQL is a data SELECT.
+        $isAlreadyCount = $query->returns === ReturnType::Count
+            || preg_match('/^\s*SELECT\s+COUNT\s*\(/i', trim($query->sql));
+
+        if ($isAlreadyCount) {
+            // SQL already counts — just add alias for consistent fetch
+            $fetchBlock = <<<'FETCH'
+        $__fetchSql = preg_replace('/SELECT\s+COUNT\s*\(\s*\*?\s*\)/i', 'SELECT COUNT(*) AS _total', $__sql, 1);
+        $stmt = $this->pdo->prepare($__fetchSql);
+FETCH;
+        } else {
+            $fetchBlock = <<<'FETCH'
+        $__countSql = 'SELECT COUNT(*) AS _total FROM (' . $__sql . ') AS _count_subquery';
+        $stmt = $this->pdo->prepare($__countSql);
+FETCH;
+        }
 
         // Wrap the dynamic SQL in a COUNT subquery at runtime
         return <<<PHP
@@ -711,10 +760,9 @@ PHP;
     public function {$countName}({$allParams}): int
     {
 {$sqlBlock}
-        \$__countSql = 'SELECT COUNT(*) AS _total FROM (' . \$__sql . ') AS _count_subquery';
-        \$stmt = \$this->pdo->prepare(\$__countSql);
+{$fetchBlock}
 {$bindBlock}        \$criteria?->bindAll(\$stmt);
-        \$this->lastQuery = new QueryObject(\$__countSql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$countName}');
+        \$this->lastQuery = new QueryObject(\$__fetchSql ?? \$__countSql ?? \$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$countName}');
         \$__t0 = hrtime(true);
         \$stmt->execute();
         \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
@@ -980,7 +1028,7 @@ PHP;
 
             $value   = $this->bindValueExpr($param, $useDto);
             $parts[] = "    ':{$param->name}' => [{$value}, {$param->pdoParam}]";
-            if ($param->optional) {
+            if ($param->optional && !$param->isPartial) {
                 $chk     = $param->name . '_chk';
                 $parts[] = "    ':{$chk}' => [{$value}, {$param->pdoParam}]";
             }
@@ -1675,6 +1723,11 @@ PHP;
 
     private function renderGroupedMethod(QueryDefinition $query): string
     {
+        // @with criteria on :grouped — use the searchable variant
+        if ($query->searchable) {
+            return $this->renderSearchableGroupedMethod($query);
+        }
+
         $returnClass  = $this->resolveReturnClass($query);
         $userParams   = $this->buildParamList($query);
         $signature    = $userParams !== ''
@@ -1696,6 +1749,44 @@ PHP;
     {$this->visibilityPrefix($query)} function {$signature}
     {
 {$prepare}{$bindings}{$saveLastQuery}
+        \$__t0 = hrtime(true);
+        \$stmt->execute();
+        \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
+        \$this->logLastQuery();
+        return {$returnClass}::groupResults(\$stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+PHP;
+    }
+
+    /**
+     * Render a :grouped method that also accepts a Criteria object for
+     * dynamic WHERE filtering. The SQL block is built the same way as
+     * @with criteria on :many, and the result goes through groupResults().
+     */
+    private function renderSearchableGroupedMethod(QueryDefinition $query): string
+    {
+        $returnClass   = $this->resolveReturnClass($query);
+        $criteriaClass = $this->criteriaClass($query);
+        $userParams    = $this->buildParamList($query);
+        $critParam     = "?{$criteriaClass} \$criteria = null";
+        $allParams     = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
+
+        $docblock      = $this->buildDocblock($query, "@return {$returnClass}[]");
+        $bindings      = $this->renderBindings($query);
+        $bindingsStr   = rtrim($bindings);
+        $bindBlock     = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
+        $bindingsExpr  = $this->buildBindingsExpr($query);
+
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria');
+
+        return <<<PHP
+{$docblock}
+    {$this->visibilityPrefix($query)} function {$query->name}({$allParams}): array
+    {
+{$sqlBlock}
+        \$stmt = \$this->pdo->prepare(\$__sql);
+{$bindBlock}        \$criteria?->bindAll(\$stmt);
+        \$this->lastQuery = new QueryObject(\$__sql, array_merge({$bindingsExpr}, \$criteria?->getBindings() ?? []), '{$query->name}');
         \$__t0 = hrtime(true);
         \$stmt->execute();
         \$this->lastQuery = \$this->lastQuery->withDuration((hrtime(true) - \$__t0) / 1_000_000);
@@ -2067,7 +2158,9 @@ PHP;
         $userParams    = $this->buildParamList($query);
         $critParam     = "?{$criteriaClass} \$criteria = null";
         $allParams     = $userParams !== '' ? "{$userParams}, {$critParam}" : $critParam;
-        $existsName    = $query->name . 'Exists';
+        $existsName    = $query->returns === ReturnType::Exists
+            ? $query->name
+            : $query->name . 'Exists';
 
         $bindings     = $this->renderBindings($query);
         $bindingsStr  = rtrim($bindings);
@@ -2527,6 +2620,101 @@ PHP;
     }
 
     /**
+     * Find the position of the outermost SELECT in a SQL string.
+     * For CTE queries (WITH ... AS (...) SELECT ...), this skips past all CTE
+     * definitions and returns the position of the final SELECT.
+     * For plain queries, returns 0 (the SELECT is at the start).
+     */
+    private function findOutermostSelectPos(string $sql): int
+    {
+        // If no WITH clause, the outermost SELECT is at position 0
+        if (!preg_match('/^\s*WITH\s+/i', $sql)) {
+            return 0;
+        }
+
+        // Walk through the string tracking parenthesis depth.
+        // The outermost SELECT comes after all CTE definitions close their parens.
+        $len   = strlen($sql);
+        $depth = 0;
+        $i     = 0;
+
+        // Skip past the WITH keyword
+        while ($i < $len && preg_match('/\s/', $sql[$i])) $i++;
+        $i += 4; // skip "WITH"
+
+        while ($i < $len) {
+            $ch = $sql[$i];
+            if ($ch === '(') {
+                $depth++;
+            } elseif ($ch === ')') {
+                $depth--;
+                if ($depth === 0) {
+                    // After closing a top-level CTE paren, skip comma and whitespace
+                    $j = $i + 1;
+                    while ($j < $len && preg_match('/[\s,]/', $sql[$j])) $j++;
+                    // If next non-whitespace is SELECT, that's the outermost SELECT
+                    if (stripos(substr($sql, $j, 6), 'SELECT') === 0) {
+                        return $j;
+                    }
+                    // Otherwise there's another CTE — keep going
+                    $i = $j;
+                    continue;
+                }
+            } elseif ($ch === "'" || $ch === '"') {
+                // Skip string literals
+                $quote = $ch;
+                $i++;
+                while ($i < $len && $sql[$i] !== $quote) {
+                    if ($sql[$i] === '\\') $i++;
+                    $i++;
+                }
+            }
+            $i++;
+        }
+
+        return 0; // fallback
+    }
+
+    /**
+     * Find the position of a SQL keyword at depth 0 (outside all parentheses).
+     * Returns the position of the keyword or false if not found at depth 0.
+     */
+    private function findOutermostKeyword(string $sql, string $keyword): int|false
+    {
+        $len     = strlen($sql);
+        $depth   = 0;
+        $klen    = strlen($keyword);
+        $pattern = '/^' . preg_quote($keyword, '/') . '\b/i';
+
+        for ($i = 0; $i < $len; $i++) {
+            $ch = $sql[$i];
+
+            if ($ch === '(') {
+                $depth++;
+            } elseif ($ch === ')') {
+                $depth--;
+            } elseif ($ch === "'" || $ch === '"') {
+                $quote = $ch;
+                $i++;
+                while ($i < $len && $sql[$i] !== $quote) {
+                    if ($sql[$i] === '\\') $i++;
+                    $i++;
+                }
+            } elseif ($depth === 0) {
+                // Check if a keyword starts here (preceded by whitespace or start)
+                if ($i === 0 || preg_match('/\s/', $sql[$i - 1])) {
+                    $chunk = substr($sql, $i, $klen + 1);
+                    if (preg_match($pattern, $chunk)) {
+                        return $i;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Build the docblock comment.
      */
     private function buildDocblock(QueryDefinition $query, string $returnTag): string
@@ -2662,7 +2850,8 @@ PHP;
                 }
                 $value = $this->bindValueExpr($param, $useDto);
                 $lines[] = "        {$stmtVar}->bindValue(':{$param->name}', {$value}, {$param->pdoParam});";
-                if ($param->optional) {
+                if ($param->optional && !$param->isPartial) {
+                    // _chk companion is only needed for IS NULL OR rewrites, not COALESCE
                     $chk = $param->name . '_chk';
                     $lines[] = "        {$stmtVar}->bindValue(':{$chk}', {$value}, {$param->pdoParam});";
                 }
@@ -2706,7 +2895,7 @@ PHP;
             $value = $this->bindValueExpr($param);
             $lines[] = "        \$__sql = str_replace(':{$param->name}', '?', \$__sql);";
             $executeValues[] = $value;
-            if ($param->optional) {
+            if ($param->optional && !$param->isPartial) {
                 $chk = $param->name . '_chk';
                 $lines[] = "        \$__sql = str_replace(':{$chk}', '?', \$__sql);";
                 $executeValues[] = $value;

@@ -171,6 +171,17 @@ class SqlRewriter
             return $sql;
         }
 
+        // Skip rewriting if the param is already inside a manually-written
+        // COALESCE(:param, col) — the developer handled the optional logic themselves.
+        // The _chk companion param must NOT be generated in this case because it
+        // doesn't exist in the SQL, which would cause PDO HY093.
+        if (preg_match(
+            '/\bCOALESCE\s*\(\s*:' . preg_quote($paramName, '/') . '\s*,/i',
+            $sql
+        )) {
+            return $sql;
+        }
+
         $opPattern = implode('|', array_map(
             fn(string $op) => preg_quote($op, '/'),
             self::OPERATORS

@@ -44,5 +44,11 @@ class QueryParam
          * 'CURRENT_TIMESTAMP' / 'NOW()' etc. = SQL function → treated as null in PHP
          */
         public readonly ?string $schemaDefault = null,
+        /**
+         * When true this parameter is a @partial param — it uses COALESCE(:param, col)
+         * in the SQL, so no :param_chk companion binding is needed (unlike IS NULL OR
+         * optional params which do need the _chk companion).
+         */
+        public readonly bool    $isPartial = false,
     ) {}
 }

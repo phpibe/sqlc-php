@@ -67,7 +67,7 @@ class PartialTest extends TestCase
     private function code(string $sql): string
     {
         $q = $this->analyze($sql);
-        return $this->qg->generate($q)['UserQuery']['code'];
+        foreach ($this->qg->generate($q) as $key => $f) { if (str_ends_with($key, 'Query')) return $f['code']; } return '';
     }
 
     // =========================================================================
@@ -418,4 +418,51 @@ class PartialTest extends TestCase
     {
         $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+$/', \SqlcPhp\Version::VERSION);
     }
+    public function test_partial_auto_rewrites_plain_set_to_coalesce(): void
+    {
+        $code = $this->code(
+            "-- @name UpdateUser\n-- @class Users\n-- @partial\n-- @returns :exec\n" .
+            "UPDATE users SET name = :name, email = :email WHERE id = :id;"
+        );
+        $this->assertStringContainsString('COALESCE(:name, name)', $code);
+        $this->assertStringContainsString('COALESCE(:email, email)', $code);
+        // WHERE clause must NOT be coalesced
+        $this->assertStringContainsString('WHERE id = :id', $code);
+    }
+
+    public function test_partial_auto_rewrite_params_are_optional(): void
+    {
+        $code = $this->code(
+            "-- @name UpdateUser\n-- @class Users\n-- @partial\n-- @returns :exec\n" .
+            "UPDATE users SET name = :name, email = :email WHERE id = :id;"
+        );
+        $this->assertStringContainsString('?string $name', $code);
+        $this->assertStringContainsString('?string $email', $code);
+        $this->assertStringContainsString('int $id', $code);
+        $this->assertStringNotContainsString('?int $id', $code);
+    }
+
+    public function test_partial_auto_rewrite_no_chk_bindings(): void
+    {
+        $code = $this->code(
+            "-- @name UpdateUser\n-- @class Users\n-- @partial\n-- @returns :exec\n" .
+            "UPDATE users SET name = :name WHERE id = :id;"
+        );
+        // COALESCE handles nullability — no _chk companion needed
+        $this->assertStringNotContainsString('_chk', $code);
+    }
+
+    public function test_partial_manual_coalesce_not_double_rewritten(): void
+    {
+        // Developer already wrote COALESCE — must not wrap again
+        $code = $this->code(
+            "-- @name UpdateUser\n-- @class Users\n-- @partial\n-- @returns :exec\n" .
+            "UPDATE users SET name = COALESCE(:name, name) WHERE id = :id;"
+        );
+        // Must not produce COALESCE(COALESCE(..., ...), ...)
+        $this->assertStringNotContainsString('COALESCE(COALESCE(', $code);
+        // The original COALESCE must be present
+        $this->assertStringContainsString('COALESCE(:name, name)', $code);
+    }
+
 }

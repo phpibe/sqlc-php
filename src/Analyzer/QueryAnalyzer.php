@@ -46,8 +46,17 @@ class QueryAnalyzer
         // 1. Validate @optional params are in WHERE context (not SELECT/JOIN)
         $this->assertOptionalInWhereContext($query->sql, $query->optionalParams, $query->name);
 
+        // 1b. @partial: auto-rewrite SET clauses that don't already use COALESCE.
+        //     col = :param  →  col = COALESCE(:param, col)
+        //     This makes all SET params optional — passing null leaves the column unchanged.
+        //     Params already written as COALESCE(:param, col) are left untouched.
+        $sqlForAnalysis = $query->sql;
+        if ($query->partial) {
+            $sqlForAnalysis = $this->rewritePartialSetClauses($sqlForAnalysis, $query->name);
+        }
+
         // 2. Rewrite SQL for optional parameters (validates unsafe constructs first)
-        $rewrittenSql = $this->rewriter->rewrite($query->sql, $query->optionalParams, $query->name);
+        $rewrittenSql = $this->rewriter->rewrite($sqlForAnalysis, $query->optionalParams, $query->name);
 
         // For @with paginated, auto-inject LIMIT :limit OFFSET :offset into the SQL.
         // This was previously tied to :many-paginated; now it is a standalone flag.
@@ -196,7 +205,7 @@ class QueryAnalyzer
             );
         }
 
-        // Validate @searchable: valid on :many, :many-paginated, :paginated, and :cursor
+        // Validate @searchable: valid on :many, :many-paginated, :paginated, :cursor, :grouped, :count, :exists
         // but NOT on UNION queries (WHERE would only apply to the last branch)
         if ($query->searchable) {
             if ($query->isUnion) {
@@ -207,14 +216,14 @@ class QueryAnalyzer
                     "Use a subquery instead: SELECT * FROM (UNION query) AS t WHERE ..."
                 );
             }
-            if ($query->returns !== ReturnType::Many
-                && !$isManyPaginated
-                && $query->returns !== ReturnType::Paginator
-                && $query->returns !== ReturnType::Cursor
-            ) {
+            $searchableReturns = [
+                ReturnType::Many, ReturnType::Paginator, ReturnType::Cursor,
+                ReturnType::Grouped, ReturnType::Count, ReturnType::Exists,
+            ];
+            if (!in_array($query->returns, $searchableReturns, true) && !$isManyPaginated) {
                 throw new \RuntimeException(
                     "Query '{$query->name}': @searchable is only valid on :many, :many-paginated, " .
-                    ":paginated, and :cursor queries. Got: {$query->returns->value}"
+                    ":paginated, :cursor, :grouped, :count, and :exists queries. Got: {$query->returns->value}"
                 );
             }
         }
@@ -315,7 +324,7 @@ class QueryAnalyzer
 
         // Detect which params are "partial" — appear in COALESCE(:param, col) in the SET clause
         $partialParams = $query->partial
-            ? $this->detectPartialParams($query->sql, $query->name)
+            ? $this->detectPartialParams($sqlForAnalysis, $query->name)
             : [];
 
         return new QueryDefinition(
@@ -469,6 +478,7 @@ class QueryAnalyzer
                 optional:      $p->optional,
                 inList:        $p->inList,
                 schemaDefault: $p->schemaDefault,
+                isPartial:     $p->isPartial,
             );
         }, $params);
     }
@@ -764,6 +774,63 @@ class QueryAnalyzer
     // ─────────────────────────────────────────────────────────────
 
     /**
+     * Auto-rewrite SET clauses for @partial queries.
+     * Converts  col = :param  →  col = COALESCE(:param, col)
+     * for every assignment in the SET clause that doesn't already use COALESCE.
+     * The WHERE clause and already-COALESCED params are left untouched.
+     */
+    private function rewritePartialSetClauses(string $sql, string $queryName): string
+    {
+        // Must be an UPDATE
+        if (!preg_match('/^\s*UPDATE\b/i', $sql)) {
+            return $sql; // validation catches this later
+        }
+
+        // Split at SET keyword — everything from SET to WHERE is the SET region
+        // Pattern: UPDATE ... SET <setRegion> WHERE <whereRegion>
+        if (!preg_match('/^(.*?\bSET\b\s*)(.*?)(\s+WHERE\b.*)$/is', $sql, $parts)) {
+            return $sql; // no SET found, leave as-is
+        }
+
+        $prefix      = $parts[1]; // "UPDATE ... SET "
+        $setRegion   = $parts[2]; // "col = :param, col2 = :param2"
+        $whereRegion = $parts[3]; // " WHERE id = :id"
+
+        // Find all params already inside COALESCE in the SET region
+        $alreadyCoalesced = [];
+        if (preg_match_all('/\bCOALESCE\s*\(\s*:([a-zA-Z_]\w*)\s*,/i', $setRegion, $cm)) {
+            $alreadyCoalesced = $cm[1];
+        }
+
+        // Rewrite each  col = :param  →  col = COALESCE(:param, col)
+        // that isn't already COALESCED. Match: colname = :paramname
+        $setRegion = preg_replace_callback(
+            '/([`"]?\w+[`"]?)\s*=\s*(:([a-zA-Z_]\w*))/i',
+
+
+
+
+            function (array $m) use ($alreadyCoalesced): string {
+                $col       = $m[1];
+                $paramFull = $m[2]; // :paramName
+                $paramName = $m[3]; // paramName
+
+                // Skip if already wrapped in COALESCE
+                if (in_array($paramName, $alreadyCoalesced, true)) {
+                    return $m[0];
+                }
+
+                // Use bare column name (strip backticks/quotes) as COALESCE fallback
+                $bareCol = trim($col, '`"');
+                return "{$col} = COALESCE({$paramFull}, {$bareCol})";
+            },
+            $setRegion
+        ) ?? $setRegion;
+
+        return $prefix . $setRegion . $whereRegion;
+    }
+
+    /**
      * Detect which parameter names appear inside COALESCE(:param, ...) in the
      * SET clause of an UPDATE. Those are the "partial" params — optional at
      * runtime because passing null leaves the column unchanged.
@@ -845,6 +912,7 @@ class QueryAnalyzer
                 optional:      true,
                 inList:        $p->inList,
                 schemaDefault: $p->schemaDefault,
+                isPartial:     $isPartial,
             );
         }, $params);
     }

@@ -38,7 +38,8 @@ class Criteria
      *
      * @var Filter[][]
      */
-    protected array $orGroups = [];
+    protected array $orGroups    = [];
+    protected array $andOrGroups = [];  // AND (a OR b OR c) groups
 
     /**
      * Raw SQL conditions added via andRawCondition() / orRawCondition().
@@ -123,6 +124,31 @@ class Criteria
         return $clone;
     }
     /**
+     * Add an AND group where the internal filters are combined with OR.
+     * The group is AND-ed with all existing filters.
+     *
+     * Example:
+     *   ->whereActiveEq(1)
+     *   ->andOrGroup(fn($c) => $c->whereEmailLike('%abc%')->whereNameLike('%pola%'))
+     *   // SQL: WHERE active = :v AND (email LIKE :v OR name LIKE :v)
+     *
+     * @param callable(static): static $callback
+     */
+    public function andOrGroup(callable $callback): static
+    {
+        $fresh  = new static();
+        $filled = $callback($fresh);
+
+        if (!($filled instanceof static) || empty($filled->filters)) {
+            return $this;
+        }
+
+        $clone                = clone $this;
+        $clone->andOrGroups   = [...($this->andOrGroups ?? []), $filled->filters];
+        return $clone;
+    }
+
+    /**
      * Add an OR group via a closure that receives a fresh instance of the
      * same Criteria subclass. Filters inside the closure are combined with AND;
      * the group itself is OR-ed with all other filters and groups.
@@ -174,12 +200,12 @@ class Criteria
 
     public function isEmpty(): bool
     {
-        return empty($this->filters) && empty($this->orGroups) && empty($this->rawConditions) && $this->orderByColumn === null;
+        return empty($this->filters) && empty($this->orGroups) && empty($this->andOrGroups) && empty($this->rawConditions) && $this->orderByColumn === null;
     }
 
     public function hasFilters(): bool
     {
-        return !empty($this->filters) || !empty($this->orGroups) || !empty($this->rawConditions);
+        return !empty($this->filters) || !empty($this->orGroups) || !empty($this->andOrGroups) || !empty($this->rawConditions);
     }
 
     public function hasOrderBy(): bool
@@ -206,11 +232,12 @@ class Criteria
      */
     public function toFilterClause(bool $appendMode = false): string
     {
-        $hasTopLevel = !empty($this->filters);
-        $hasOrGroups = !empty($this->orGroups);
-        $hasRaw      = !empty($this->rawConditions);
+        $hasTopLevel  = !empty($this->filters);
+        $hasOrGroups  = !empty($this->orGroups);
+        $hasAndOrGrps = !empty($this->andOrGroups);
+        $hasRaw       = !empty($this->rawConditions);
 
-        if (!$hasTopLevel && !$hasOrGroups && !$hasRaw) return '';
+        if (!$hasTopLevel && !$hasOrGroups && !$hasAndOrGrps && !$hasRaw) return '';
 
         // Separate raw conditions by connector
         $andRaw = array_values(array_filter(
@@ -225,8 +252,8 @@ class Criteria
         // Shared counter for unique placeholder suffixes across all filters/groups
         $idx = 0;
 
-        if (!$hasOrGroups && empty($orRaw)) {
-            // Fast path: no OR groups, no OR raw conditions → plain AND chain (no parens)
+        if (!$hasOrGroups && !$hasAndOrGrps && empty($orRaw)) {
+            // Fast path: no OR groups → plain AND chain (no outer parens needed)
             $parts = [];
             foreach ($this->filters as $filter) {
                 $parts[] = $this->renderCondition($filter, $idx++);
@@ -234,6 +261,17 @@ class Criteria
             foreach ($andRaw as $raw) {
                 $parts[] = $raw['sql'];
             }
+            // andOrGroups: AND (a OR b OR c)
+            foreach ($this->andOrGroups as $group) {
+                $inner = [];
+                foreach ($group as $filter) {
+                    $inner[] = $this->renderCondition($filter, $idx++);
+                }
+                if (!empty($inner)) {
+                    $parts[] = '(' . implode(' OR ', $inner) . ')';
+                }
+            }
+            if (empty($parts)) return '';
             $keyword = $appendMode ? ' AND ' : ' WHERE ';
             return $keyword . implode(' AND ', $parts);
         }
@@ -280,10 +318,32 @@ class Criteria
             $segments[] = '(' . $raw['sql'] . ')';
         }
 
-        if (empty($segments)) return '';
+        if (empty($segments) && empty($this->andOrGroups)) return '';
 
         $keyword = $appendMode ? ' AND ' : ' WHERE ';
-        return $keyword . implode(' OR ', $segments);
+        $orPart  = implode(' OR ', $segments);
+
+        // 4. andOrGroups — AND (a OR b OR c) appended after the OR chain
+        $andParts = [];
+        foreach ($this->andOrGroups as $group) {
+            $inner = [];
+            foreach ($group as $filter) {
+                $inner[] = $this->renderCondition($filter, $idx++);
+            }
+            if (!empty($inner)) {
+                $andParts[] = '(' . implode(' OR ', $inner) . ')';
+            }
+        }
+
+        $clause = !empty($segments) ? $orPart : '';
+        if (!empty($andParts)) {
+            $clause = $clause !== ''
+                ? $clause . ' AND ' . implode(' AND ', $andParts)
+                : implode(' AND ', $andParts);
+        }
+
+        if ($clause === '') return '';
+        return $keyword . $clause;
     }
 
     /**
@@ -328,10 +388,30 @@ class Criteria
             }
         }
 
+        // AND-OR groups — AND (a OR b OR c)
+        foreach ($this->andOrGroups as $group) {
+            foreach ($group as $filter) {
+                $this->collectFilterBindings($filter, $idx++, $result);
+            }
+        }
+
         // Raw conditions (AND and OR) — merge their explicit bindings
         foreach ($this->rawConditions as $raw) {
             foreach ($raw['bindings'] as $placeholder => $binding) {
-                $result[$placeholder] = $binding;
+                // Accept both formats:
+                //   [':key' => [$value, PDO::PARAM_STR]]  — explicit type (documented format)
+                //   [':key' => $value]                    — plain scalar, type inferred
+                if (is_array($binding)) {
+                    $result[$placeholder] = $binding;
+                } else {
+                    $type = match (true) {
+                        is_int($binding)  => \PDO::PARAM_INT,
+                        is_bool($binding) => \PDO::PARAM_BOOL,
+                        is_null($binding) => \PDO::PARAM_NULL,
+                        default           => \PDO::PARAM_STR,
+                    };
+                    $result[$placeholder] = [$binding, $type];
+                }
             }
         }
 

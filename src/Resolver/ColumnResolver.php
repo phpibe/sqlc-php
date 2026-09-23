@@ -195,6 +195,11 @@ class ColumnResolver
         }
 
         $raw = $m[1];
+
+        // Strip DISTINCT / ALL / DISTINCTROW modifiers — they affect deduplication
+        // but not the column list or their types
+        $raw = preg_replace('/^(DISTINCT|ALL|DISTINCTROW)\s+/i', '', $raw) ?? $raw;
+
         return $this->splitSelectItems($raw);
     }
 
@@ -337,6 +342,13 @@ class ColumnResolver
             $colName    = $m[1];
             $finalAlias = $alias ?? $colName;
             return $this->resolveAnyColumn($colName, $finalAlias, $tableAliases);
+        }
+
+        // table.col or `table`.`col` — resolve with table hint to get correct type/nullable
+        if (preg_match('/^[`"]?(\w+)[`"]?\.[`"]?(\w+)[`"]?$/', $expr, $m)) {
+            $colName    = $m[2];
+            $finalAlias = $alias ?? $colName;
+            return $this->resolveTableColumn($m[1], $colName, $finalAlias, $tableAliases);
         }
 
         // Expression / function call: delegate to ExpressionTypeResolver

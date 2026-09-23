@@ -1736,8 +1736,10 @@ PHP;
 
         $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
-        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
-        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $expandedSql   = $this->expandDuplicatePlaceholders($query->sql);
+        $sqlLiteral    = $this->renderSqlLiteral($expandedSql);
+        $logLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($logLiteral, $bindingsExpr, "'{$query->name}'");
         $prepare       = $this->preparedStatementCache
             ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
             : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
@@ -1987,8 +1989,9 @@ PHP;
 
         $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
-        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
-        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $sqlLiteral    = $this->renderPreparedSqlLiteral($query->sql);
+        $logLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($logLiteral, $bindingsExpr, "'{$query->name}'");
         $docblock      = $this->buildDocblock(
             $query,
             "Yields {$returnClass} rows one at a time using PDO cursor fetch.\n     * No full result set is loaded into memory — ideal for exports,\n     * batch processing, ETL pipelines, and large dataset iteration.\n     *\n     * For true unbuffered streaming configure PDO with:\n     *   PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => false\n     *\n     * @return \\\\Generator<int, {$returnClass}>"
@@ -2025,8 +2028,9 @@ PHP;
 
         $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
-        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
-        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$streamName}'");
+        $sqlLiteral    = $this->renderPreparedSqlLiteral($query->sql);
+        $logLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($logLiteral, $bindingsExpr, "'{$streamName}'");
 
         $prepare = $this->preparedStatementCache
             ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
@@ -2397,8 +2401,9 @@ PHP;
             : "{$query->name}(): int";
         $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
-        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
-        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $sqlLiteral    = $this->renderPreparedSqlLiteral($query->sql);
+        $logLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($logLiteral, $bindingsExpr, "'{$query->name}'");
         $prepare       = $this->preparedStatementCache
             ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
             : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
@@ -2430,8 +2435,9 @@ PHP;
             : "{$query->name}(): bool";
         $bindings      = $this->renderBindings($query);
         $bindingsExpr  = $this->buildBindingsExpr($query);
-        $sqlLiteral    = $this->renderSqlLiteral($query->sql);
-        $saveLastQuery = $this->renderSaveLastQuery($sqlLiteral, $bindingsExpr, "'{$query->name}'");
+        $sqlLiteral    = $this->renderPreparedSqlLiteral($query->sql);
+        $logLiteral    = $this->renderSqlLiteral($query->sql);
+        $saveLastQuery = $this->renderSaveLastQuery($logLiteral, $bindingsExpr, "'{$query->name}'");
         $prepare       = $this->preparedStatementCache
             ? "        \$stmt = \$this->stmts[__FUNCTION__] ??= \$this->pdo->prepare({$sqlLiteral});\n"
             : "        \$stmt = \$this->pdo->prepare({$sqlLiteral});\n";
@@ -3070,5 +3076,14 @@ PHP;
         $oneLine = preg_replace('/\s+/', ' ', trim($sql)) ?? $sql;
         $escaped = str_replace("'", "\\'", $oneLine);
         return "'{$escaped}'";
+    }
+
+    /**
+     * Like renderSqlLiteral but first expands duplicate placeholders.
+     * Use this for the SQL passed to prepare() — never for logging SQL.
+     */
+    private function renderPreparedSqlLiteral(string $sql): string
+    {
+        return $this->renderSqlLiteral($this->expandDuplicatePlaceholders($sql));
     }
 }

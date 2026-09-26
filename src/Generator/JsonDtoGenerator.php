@@ -80,8 +80,24 @@ class JsonDtoGenerator
                 $tableName,
                 $col->name,
             );
-            $cast      = $this->typeMapper->fromRowCast($phpType, $col->name, $col->nullable);
-            $props[]   = "        public {$phpType} \${$col->name},";
+
+            // When a JSON column appears inside JSON_ARRAYAGG/JSON_OBJECT, MySQL serialises
+            // it as a nested JSON string. After the outer json_decode(), PHP gives us either:
+            //   a) an already-decoded array (native PDO JSON column access), or
+            //   b) a JSON string (column was nested inside JSON_OBJECT by JSON_ARRAYAGG)
+            // We normalise both cases: if the value is a string, json_decode it; otherwise
+            // use it as-is (already an array).
+            $isJsonCol = in_array(strtolower($col->sqlType), ['json', 'jsonb'], true);
+
+            if ($isJsonCol && !$col->nullable) {
+                $cast = "is_array(\$row['{$col->name}']) ? \$row['{$col->name}'] : (json_decode((string) \$row['{$col->name}'], true) ?? [])";
+            } elseif ($isJsonCol && $col->nullable) {
+                $cast = "isset(\$row['{$col->name}']) ? (is_array(\$row['{$col->name}']) ? \$row['{$col->name}'] : (json_decode((string) \$row['{$col->name}'], true) ?? [])) : null";
+            } else {
+                $cast = $this->typeMapper->fromRowCast($phpType, $col->name, $col->nullable);
+            }
+
+            $props[]    = "        public {$phpType} \${$col->name},";
             $fromArgs[] = "            {$cast},";
         }
 
@@ -135,23 +151,27 @@ PHP;
      */
     public function resolveTableName(string $className): ?string
     {
-        $lower    = strtolower($className);
-        $tables   = $this->catalog->tableNames();
+        $lower  = strtolower($className);
+        // Convert PascalCase/camelCase → snake_case: CmsSiteFaq → cms_site_faq
+        $snake  = strtolower(preg_replace('/([a-z])([A-Z])/', '$1_$2', $className) ?? $className);
+        $tables = $this->catalog->tableNames();
 
-        // 1. Exact match (case-insensitive)
-        foreach ($tables as $t) {
-            if (strtolower($t) === $lower) return $t;
-        }
+        foreach ([$lower, $snake] as $candidate) {
+            // 1. Exact match (case-insensitive)
+            foreach ($tables as $t) {
+                if (strtolower($t) === $candidate) return $t;
+            }
 
-        // 2. Simple plural: append 's'
-        foreach ($tables as $t) {
-            if (strtolower($t) === $lower . 's') return $t;
-        }
+            // 2. Simple plural: append 's'
+            foreach ($tables as $t) {
+                if (strtolower($t) === $candidate . 's') return $t;
+            }
 
-        // 3. Plural with 'es' (city → cities, country → countries)
-        $withEs = rtrim($lower, 'y') . (str_ends_with($lower, 'y') ? 'ies' : 'es');
-        foreach ($tables as $t) {
-            if (strtolower($t) === $withEs) return $t;
+            // 3. Plural with 'es' (city → cities, country → countries)
+            $withEs = rtrim($candidate, 'y') . (str_ends_with($candidate, 'y') ? 'ies' : 'es');
+            foreach ($tables as $t) {
+                if (strtolower($t) === $withEs) return $t;
+            }
         }
 
         return null;

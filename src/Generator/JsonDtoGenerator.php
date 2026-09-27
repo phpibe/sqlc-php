@@ -59,7 +59,16 @@ class JsonDtoGenerator
      *
      * @throws \RuntimeException When the table is not found in the schema catalog
      */
-    public function generate(string $className, string $namespace, string $tableName): array
+    /**
+     * Generate a JSON DTO class.
+     *
+     * @param string        $className     The class name to generate (from @type annotation)
+     * @param string        $namespace     PHP namespace for the class
+     * @param string        $tableName     Schema table to pull column types from
+     * @param string[]|null $onlyColumns   When provided, only include these column names.
+     *                                     Used to match the keys actually present in JSON_OBJECT.
+     */
+    public function generate(string $className, string $namespace, string $tableName, ?array $onlyColumns = null): array
     {
         $table = $this->catalog->getTable($tableName);
         if ($table === null) {
@@ -73,7 +82,16 @@ class JsonDtoGenerator
         $props    = [];
         $fromArgs = [];
 
-        foreach ($table->columns as $col) {
+        $columns = $table->columns;
+
+        // When a column subset is specified (from JSON_OBJECT keys), only include those.
+        // This prevents "Undefined array key" errors when not all table columns are selected.
+        if ($onlyColumns !== null) {
+            $onlySet = array_map('strtolower', $onlyColumns);
+            $columns = array_filter($columns, fn($col) => in_array(strtolower($col->name), $onlySet, true));
+        }
+
+        foreach ($columns as $col) {
             $phpType = $this->typeMapper->toPhpType(
                 $col->sqlType,
                 $col->nullable,

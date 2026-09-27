@@ -536,6 +536,67 @@ PHP;
     }
 
     /**
+     * Extract the string key names from a JSON_OBJECT(...) expression
+     * that is aliased as $alias in the SQL.
+     *
+     * Handles both direct JSON_OBJECT and JSON_OBJECT inside JSON_ARRAYAGG.
+     * Returns an empty array if the pattern is not found (caller uses all columns).
+     *
+     * Example SQL: JSON_OBJECT('id', f.id, 'name', f.name) AS faqs
+     * Returns: ['id', 'name']
+     */
+    private function extractJsonObjectKeys(string $sql, string $alias): array
+    {
+        // Find JSON_OBJECT(...) AS alias or inside JSON_ARRAYAGG(...) AS alias
+        // Strategy: find the alias position, walk backwards to find the matching JSON_OBJECT
+        $pattern = '/\bAS\s+' . preg_quote($alias, '/') . '\b/i';
+        if (!preg_match($pattern, $sql, $m, PREG_OFFSET_CAPTURE)) {
+            return [];
+        }
+
+        $asPos = $m[0][1];
+        // Walk backwards from AS position to find the matching closing paren
+        $before = substr($sql, 0, $asPos);
+
+        // Find the JSON_OBJECT( block — may be inside JSON_ARRAYAGG(JSON_OBJECT(...))
+        // Walk back through parens to find JSON_OBJECT
+        if (!preg_match('/\bJSON_OBJECT\s*\(([^)]*(?:\([^)]*\)[^)]*)*)\)\s*$/i', rtrim($before), $jm)) {
+            // Try to find JSON_OBJECT inside a larger expression (e.g. COALESCE or JSON_ARRAYAGG)
+            // Find the last JSON_OBJECT before the alias
+            $pos = strripos($before, 'JSON_OBJECT');
+            if ($pos === false) return [];
+
+            // Extract content between the parens of this JSON_OBJECT
+            $after = substr($before, $pos + strlen('JSON_OBJECT'));
+            $depth = 0; $content = ''; $started = false;
+            for ($i = 0; $i < strlen($after); $i++) {
+                $ch = $after[$i];
+                if ($ch === '(' && !$started) { $started = true; $depth = 1; continue; }
+                if (!$started) continue;
+                if ($ch === '(') $depth++;
+                elseif ($ch === ')') { $depth--; if ($depth === 0) break; }
+                $content .= $ch;
+            }
+            if (empty($content)) return [];
+            $jm = [1 => $content];
+        }
+
+        $objectContent = $jm[1];
+
+        // Extract string keys: 'key', value, 'key2', value2, ...
+        // Keys are always string literals (single-quoted) alternating with values
+        $keys = [];
+        if (preg_match_all("/'([^']+)'\s*,/", $objectContent, $km)) {
+            // Every other match is a key (odd positions in JSON_OBJECT arg list)
+            // JSON_OBJECT takes pairs: 'key', value, 'key2', value2
+            // All single-quoted strings before commas are keys
+            $keys = $km[1];
+        }
+
+        return $keys;
+    }
+
+    /**
      * Returns the Params DTO class name for a query using @with params.
      * e.g. query name 'createCmsConfig' → 'CreateCmsConfigParams'
      */
@@ -964,7 +1025,16 @@ PHP;
                         "Declare the table in schema.sql or add a virtual_table entry."
                     );
                 }
-                ['className' => $cls, 'code' => $jc] = $jsonDtoGen->generate($dtoClass, $namespace, $tableName);
+
+                // Extract the keys actually present in the JSON_OBJECT for this alias.
+                // This limits the DTO to only the selected columns, preventing
+                // "Undefined array key" errors when not all table columns are included.
+                $selectedKeys = $this->extractJsonObjectKeys($query->sql, $alias);
+
+                ['className' => $cls, 'code' => $jc] = $jsonDtoGen->generate(
+                    $dtoClass, $namespace, $tableName,
+                    empty($selectedKeys) ? null : $selectedKeys,
+                );
                 $jsonDtoFiles[$cls] = ['className' => $cls, 'code' => $jc];
             }
         }

@@ -189,17 +189,80 @@ class ColumnResolver
         // Strip UNION branches — keep only the first SELECT
         $firstBranch = $this->extractFirstUnionBranch($sql);
 
-        // Match content between SELECT and FROM (handles multi-line)
-        if (!preg_match('/SELECT\s+(.*?)\s+FROM\s/si', $firstBranch, $m)) {
+        // Find the column list between the outermost SELECT and the outermost FROM.
+        // A naive regex like /SELECT\s+(.*?)\s+FROM\s/si would stop at the first FROM
+        // found inside a subquery (e.g. EXISTS (SELECT 1 FROM ...) AS col).
+        // We walk character-by-character tracking parenthesis depth and string literals.
+        $upper = strtoupper(ltrim($firstBranch));
+        if (!str_starts_with($upper, 'SELECT')) {
             return [];
         }
 
-        $raw = $m[1];
+        // Skip past 'SELECT'
+        $len  = strlen($firstBranch);
+        $i    = strpos(strtoupper($firstBranch), 'SELECT');
+        $i   += 6; // len('SELECT')
 
-        // Strip DISTINCT / ALL / DISTINCTROW modifiers — they affect deduplication
-        // but not the column list or their types
-        $raw = preg_replace('/^(DISTINCT|ALL|DISTINCTROW)\s+/i', '', $raw) ?? $raw;
+        // Skip whitespace after SELECT
+        while ($i < $len && ctype_space($firstBranch[$i])) $i++;
 
+        // Strip DISTINCT / ALL / DISTINCTROW modifiers
+        foreach (['DISTINCTROW', 'DISTINCT', 'ALL'] as $mod) {
+            if (strncasecmp(substr($firstBranch, $i), $mod, strlen($mod)) === 0
+                && ctype_space($firstBranch[$i + strlen($mod)] ?? ' ')) {
+                $i += strlen($mod);
+                while ($i < $len && ctype_space($firstBranch[$i])) $i++;
+                break;
+            }
+        }
+
+        // Now collect column list until we hit FROM at depth 0
+        $depth   = 0;
+        $inStr   = false;
+        $strChar = '';
+        $colList = '';
+        $found   = false;
+
+        while ($i < $len) {
+            $ch = $firstBranch[$i];
+
+            if ($inStr) {
+                $colList .= $ch;
+                if ($ch === $strChar) $inStr = false;
+                $i++;
+                continue;
+            }
+
+            if ($ch === "'" || $ch === '"' || $ch === '`') {
+                $inStr = true; $strChar = $ch;
+                $colList .= $ch; $i++;
+                continue;
+            }
+
+            if ($ch === '(') { $depth++; $colList .= $ch; $i++; continue; }
+            if ($ch === ')') { $depth--; $colList .= $ch; $i++; continue; }
+
+            // Check for FROM at depth 0
+            if ($depth === 0 && strncasecmp(substr($firstBranch, $i), 'FROM', 4) === 0) {
+                $after = $firstBranch[$i + 4] ?? ' ';
+                if (ctype_space($after) || $after === '(') {
+                    $found = true;
+                    break;
+                }
+            }
+
+            $colList .= $ch;
+            $i++;
+        }
+
+        // If no outermost FROM was found, this is a UNION branch with only literals/params
+        // (e.g. SELECT null, 'value', :param) — no schema lookup possible, return []
+        // so the merge logic falls back to the first branch's types.
+        if (!$found) {
+            return [];
+        }
+
+        $raw = trim($colList);
         return $this->splitSelectItems($raw);
     }
 

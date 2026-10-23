@@ -528,12 +528,24 @@ PHP;
         string $baseSql,
         string $criteriaVar,
         bool   $withLimit = false,
+        bool   $keepTrailingLimit = false,
     ): string {
         // Normalise: remove trailing semicolon, collapse whitespace
         $normalized = rtrim(preg_replace('/\s+/', ' ', trim($baseSql)) ?? $baseSql, ';');
 
-        // Also strip LIMIT :limit OFFSET :offset that the analyzer may have injected
-        $normalized = rtrim(preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $normalized));
+        // A trailing LIMIT written by the developer (plain :many + criteria) must survive:
+        // split it off here and re-append it AFTER the ORDER BY (static or from the Criteria).
+        // Otherwise the :limit/:offset params would still be bound but missing from the SQL (HY093).
+        $limitSuffix = '';
+        if ($keepTrailingLimit
+            && preg_match('/\s+(LIMIT\s+(?::\w+|\d+)(?:\s+OFFSET\s+(?::\w+|\d+))?)\s*$/i', $normalized, $lm)
+        ) {
+            $limitSuffix = ' ' . trim($lm[1]);
+            $normalized  = rtrim(substr($normalized, 0, -strlen($lm[0])));
+        } else {
+            // Also strip LIMIT :limit OFFSET :offset that the analyzer may have injected
+            $normalized = rtrim(preg_replace('/\s+LIMIT\s+:limit\s+OFFSET\s+:offset\s*$/i', '', $normalized));
+        }
 
         // For queries with CTEs (WITH ...) or subqueries, structural keywords inside
         // parentheses or CTE bodies must be ignored. We must only look at the OUTERMOST
@@ -601,6 +613,11 @@ PHP;
             $lines[] = "        }";
         }
 
+        if ($limitSuffix !== '') {
+            $escapedLimit = str_replace("'", "\\'", $limitSuffix);
+            $lines[] = "        \$__sql .= '{$escapedLimit}';";
+        }
+
         if ($withLimit) {
             $lines[] = "        \$__sql .= ' LIMIT :limit OFFSET :offset';";
         }
@@ -632,7 +649,7 @@ PHP;
         $bindBlock    = $bindingsStr !== '' ? $bindingsStr . "\n" : '';
         $bindingsExpr = $this->buildBindingsExpr($query);
 
-        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria');
+        $sqlBlock = $this->buildSearchableSqlBlock($query->sql, '$criteria', keepTrailingLimit: true);
 
         return <<<PHP
 {$docblock}
